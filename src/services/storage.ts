@@ -177,7 +177,7 @@ export const getUsers = async (): Promise<User[]> => {
 };
 
 // Candidates
-export const checkDuplicateCandidate = async (phone: string, email: string, whatsapp: string): Promise<string | null> => {
+export const checkDuplicateCandidate = async (phone: string, email: string, whatsapp: string = ''): Promise<string | null> => {
   try {
     const candidatesRef = collection(db, 'jpc_candidates');
     
@@ -185,27 +185,279 @@ export const checkDuplicateCandidate = async (phone: string, email: string, what
     if (phone && phone.trim() !== '') {
       const pQuery = query(candidatesRef, where('phone', '==', phone.trim()));
       const snap = await getDocs(pQuery);
-      if (!snap.empty) return `A candidate with the phone number ${phone} already exists.`;
+      const activeDoc = snap.docs.find(d => !d.data().deleted_at);
+      if (activeDoc) return `A candidate with the phone number ${phone} already exists.`;
     }
 
     // Check Email
     if (email && email.trim() !== '') {
       const eQuery = query(candidatesRef, where('email', '==', email.trim()));
       const snap = await getDocs(eQuery);
-      if (!snap.empty) return `A candidate with the email ${email} already exists.`;
+      const activeDoc = snap.docs.find(d => !d.data().deleted_at);
+      if (activeDoc) return `A candidate with the email ${email} already exists.`;
     }
 
     // Check WhatsApp
     if (whatsapp && whatsapp.trim() !== '') {
       const wQuery = query(candidatesRef, where('whatsapp', '==', whatsapp.trim()));
       const snap = await getDocs(wQuery);
-      if (!snap.empty) return `A candidate with the WhatsApp number ${whatsapp} already exists.`;
+      const activeDoc = snap.docs.find(d => !d.data().deleted_at);
+      if (activeDoc) return `A candidate with the WhatsApp number ${whatsapp} already exists.`;
     }
 
     return null;
   } catch (error) {
     console.error("Error checking for duplicate candidates:", error);
     return null;
+  }
+};
+
+/**
+ * Unified, atomic candidate creation flow.
+ * Combines lead creation, durable idempotency, deterministic deduplication locks,
+ * and round-robin sales assignment in one atomic operation.
+ */
+export const createLeadCandidate = async (
+  candidate: Candidate,
+  userId: string | null,
+  idempotencyKey?: string
+): Promise<{
+  success: boolean;
+  candidateId: string;
+  assignedSalesId: string | null;
+  assignedSalesName?: string;
+  isUnassigned?: boolean;
+  reason?: string;
+  duplicatePrevented?: boolean;
+  alreadyExisted?: boolean;
+}> => {
+  const effectiveId = candidate.id || generateId();
+  const effectiveKey = idempotencyKey || generateId('sub_');
+
+  // 1. Primary: Server-side atomic creation endpoint (/api/leads)
+  try {
+    const currentUser = auth.currentUser;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Idempotency-Key': effectiveKey
+    };
+
+    if (currentUser) {
+      const idToken = await currentUser.getIdToken();
+      headers['Authorization'] = `Bearer ${idToken}`;
+    }
+
+    const response = await fetch('/api/leads', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        ...candidate,
+        id: effectiveId,
+        idempotency_key: effectiveKey
+      })
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return {
+        success: true,
+        candidateId: data.candidateId || effectiveId,
+        assignedSalesId: data.assigned_sales || null,
+        assignedSalesName: data.assigned_sales_name || undefined,
+        isUnassigned: data.isUnassigned,
+        duplicatePrevented: data.duplicatePrevented || false,
+        alreadyExisted: data.alreadyExisted || false
+      };
+    } else {
+      console.warn('POST /api/leads returned non-OK status:', response.status);
+    }
+  } catch (apiErr) {
+    console.warn('Call to /api/leads failed, falling back to client-side atomic save:', apiErr);
+  }
+
+  // 2. Client-side transactional fallback with deterministic locks & round-robin assignment
+  try {
+    const digitsOnly = (candidate.phone || '').replace(/[^0-9]/g, '');
+    const cleanPhone = (digitsOnly.length === 11 && digitsOnly.startsWith('1')) ? digitsOnly.slice(1) : digitsOnly;
+    const cleanEmail = (candidate.email || '').toLowerCase().trim();
+
+    const phoneLockRef = cleanPhone.length >= 7 ? doc(db, 'jpc_lead_locks', `phone_${cleanPhone}`) : null;
+    const emailLockRef = cleanEmail.length >= 5 ? doc(db, 'jpc_lead_locks', `email_${cleanEmail.replace(/[^a-z0-9@._-]/g, '_')}`) : null;
+
+    const users = await getUsers();
+
+    const result = await runTransaction(db, async (transaction) => {
+      // 1. Check duplicate locks
+      const lockRefs = [phoneLockRef, emailLockRef].filter(Boolean);
+      for (const lRef of lockRefs) {
+        const lockDoc = await transaction.get(lRef!);
+        if (lockDoc.exists()) {
+          const lockData = lockDoc.data();
+          const existingCandId = lockData?.candidate_id;
+          if (existingCandId && existingCandId !== effectiveId) {
+            const existingCandDoc = await transaction.get(doc(db, 'jpc_candidates', existingCandId));
+            if (existingCandDoc.exists() && !existingCandDoc.data().deleted_at) {
+              const existingCandData = existingCandDoc.data();
+              const existingSalesUser = existingCandData.assigned_sales 
+                ? users.find(u => String(u.id) === String(existingCandData.assigned_sales)) 
+                : null;
+              return {
+                candidateId: existingCandId,
+                assignedSalesId: existingCandData.assigned_sales || null,
+                assignedSalesName: existingSalesUser?.display_name || undefined,
+                isUnassigned: !existingCandData.assigned_sales,
+                duplicatePrevented: true,
+                alreadyExisted: true
+              };
+            }
+          }
+        }
+      }
+
+      // 2. Check existing candidate doc
+      const candRef = doc(db, 'jpc_candidates', effectiveId);
+      const candDoc = await transaction.get(candRef);
+      if (candDoc.exists()) {
+        const existing = candDoc.data();
+        if (existing.assigned_sales && !candidate.assigned_sales) {
+          const existingSalesUser = users.find(u => String(u.id) === String(existing.assigned_sales));
+          return {
+            candidateId: effectiveId,
+            assignedSalesId: String(existing.assigned_sales),
+            assignedSalesName: existingSalesUser?.display_name || undefined,
+            isUnassigned: false,
+            duplicatePrevented: true,
+            alreadyExisted: true
+          };
+        }
+      }
+
+      // 3. Read round-robin config
+      const configRef = doc(db, 'jpc_settings', 'lead_round_robin');
+      const configDoc = await transaction.get(configRef);
+      const config: LeadRoundRobinConfig = configDoc.exists()
+        ? ({ ...DEFAULT_ROUND_ROBIN_CONFIG, ...configDoc.data() } as LeadRoundRobinConfig)
+        : DEFAULT_ROUND_ROBIN_CONFIG;
+
+      // 4. Calculate Sales Person Assignment
+      let assignedUser: User | null = null;
+      let assignedSalesId: string | null = null;
+      let isUnassigned = false;
+      let reason: string | undefined = undefined;
+
+      if (candidate.assigned_sales) {
+        assignedSalesId = String(candidate.assigned_sales);
+        assignedUser = users.find(u => String(u.id) === assignedSalesId) || null;
+      } else if (config.enabled === false) {
+        isUnassigned = true;
+        reason = 'round_robin_disabled';
+      } else {
+        const eligible = getEligibleSalesUsers(users, config);
+        if (eligible.length === 0) {
+          isUnassigned = true;
+          reason = !isSalesWorkingHours() ? 'outside_working_hours' : 'no_active_sales_reps';
+        } else {
+          let nextIndex = 0;
+          if (config.last_assigned_user_id) {
+            const lastUserIdx = eligible.findIndex(u => String(u.id) === String(config.last_assigned_user_id));
+            if (lastUserIdx !== -1) {
+              nextIndex = (lastUserIdx + 1) % eligible.length;
+            } else {
+              nextIndex = ((config.last_assigned_index ?? -1) + 1) % eligible.length;
+            }
+          } else {
+            nextIndex = 0;
+          }
+
+          assignedUser = eligible[nextIndex];
+          assignedSalesId = String(assignedUser.id);
+
+          const newAssignment: LeadRoundRobinAssignment = {
+            candidate_id: effectiveId,
+            candidate_name: candidate.full_name || 'Candidate',
+            assigned_to_user_id: assignedUser.id,
+            assigned_to_name: assignedUser.display_name,
+            assigned_at: new Date().toISOString()
+          };
+          const recent = [newAssignment, ...(config.recent_assignments || [])].slice(0, 40);
+
+          const updatedConfig: Partial<LeadRoundRobinConfig> = {
+            ...config,
+            id: 'lead_round_robin',
+            last_assigned_user_id: String(assignedUser.id),
+            last_assigned_index: nextIndex,
+            last_assigned_at: new Date().toISOString(),
+            total_leads_assigned: (config.total_leads_assigned || 0) + 1,
+            recent_assignments: recent
+          };
+
+          transaction.set(configRef, updatedConfig, { merge: true });
+        }
+      }
+
+      // 5. Persist locks & idempotency
+      const lockPayload = {
+        candidate_id: effectiveId,
+        phone: cleanPhone,
+        email: cleanEmail,
+        updated_at: new Date().toISOString()
+      };
+      if (phoneLockRef) transaction.set(phoneLockRef, lockPayload, { merge: true });
+      if (emailLockRef) transaction.set(emailLockRef, lockPayload, { merge: true });
+
+      if (effectiveKey) {
+        const idempRef = doc(db, 'jpc_idempotency_keys', String(effectiveKey));
+        transaction.set(idempRef, {
+          key: String(effectiveKey),
+          candidate_id: effectiveId,
+          assigned_sales: assignedSalesId,
+          is_unassigned: isUnassigned,
+          reason: reason || null,
+          status: 'completed',
+          created_at: new Date().toISOString()
+        }, { merge: true });
+      }
+
+      // 6. Persist candidate record
+      const data = {
+        ...candidate,
+        id: effectiveId,
+        assigned_sales: assignedSalesId,
+        updated_at: new Date().toISOString()
+      };
+      transaction.set(candRef, data, { merge: true });
+
+      return {
+        candidateId: effectiveId,
+        assignedSalesId: assignedSalesId,
+        assignedSalesName: assignedUser?.display_name || undefined,
+        isUnassigned,
+        reason,
+        duplicatePrevented: false,
+        alreadyExisted: false
+      };
+    });
+
+    return {
+      success: true,
+      candidateId: result.candidateId,
+      assignedSalesId: result.assignedSalesId,
+      assignedSalesName: result.assignedSalesName,
+      isUnassigned: result.isUnassigned,
+      reason: result.reason,
+      duplicatePrevented: result.duplicatePrevented,
+      alreadyExisted: result.alreadyExisted
+    };
+  } catch (clientErr) {
+    console.error('Error in client-side createLeadCandidate fallback:', clientErr);
+    // Ultimate fallback to saveCandidate
+    await saveCandidate(candidate, userId);
+    return {
+      success: true,
+      candidateId: effectiveId,
+      assignedSalesId: candidate.assigned_sales ? String(candidate.assigned_sales) : null,
+      duplicatePrevented: false
+    };
   }
 };
 
@@ -881,9 +1133,13 @@ export const updateLeadRoundRobinConfig = async (updates: Partial<LeadRoundRobin
   }
 };
 
-export const getEligibleSalesUsers = (allUsers: User[], config?: LeadRoundRobinConfig): User[] => {
+export const getEligibleSalesUsers = (
+  allUsers: User[], 
+  config?: LeadRoundRobinConfig,
+  ignoreWorkingHours: boolean = false
+): User[] => {
   // 1. Working hours validation (Monday - Friday, 9:30 AM - 6:30 PM America/New_York)
-  if (!isSalesWorkingHours()) {
+  if (!ignoreWorkingHours && !isSalesWorkingHours()) {
     return [];
   }
 
@@ -920,7 +1176,7 @@ export const getEligibleSalesUsers = (allUsers: User[], config?: LeadRoundRobinC
   return [...filtered].sort((a, b) => (a.display_name || '').localeCompare(b.display_name || ''));
 };
 
-export const getNextSalespersonPreview = async (): Promise<{
+export const getNextSalespersonPreview = async (ignoreWorkingHours: boolean = false): Promise<{
   nextUser: User | null;
   nextIndex: number;
   allEligibleUsers: User[];
@@ -931,7 +1187,7 @@ export const getNextSalespersonPreview = async (): Promise<{
     getUsers()
   ]);
 
-  const eligible = getEligibleSalesUsers(users, config);
+  const eligible = getEligibleSalesUsers(users, config, ignoreWorkingHours);
   if (eligible.length === 0) {
     return { nextUser: null, nextIndex: 0, allEligibleUsers: [], config };
   }
@@ -1151,5 +1407,5 @@ export const processUnassignedLeadsBacklog = async (): Promise<{ success: boolea
 };
 
 // Utils
-export const generateId = () => Math.random().toString(36).slice(2, 11);
+export const generateId = (prefix?: string) => (prefix ? `${prefix}` : '') + Math.random().toString(36).slice(2, 11);
 export const now = () => new Date().toISOString();
