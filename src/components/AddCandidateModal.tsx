@@ -1,0 +1,825 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Modal } from './Modal';
+import { LEAD_SOURCES } from '../constants';
+import { 
+  generateId, 
+  seedQCChecklist, 
+  logActivity, 
+  addNotification, 
+  checkDuplicateCandidate, 
+  addFollowUp,
+  createLeadCandidate
+} from '../services/storage';
+import { uploadFile } from '../services/fileService';
+import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
+import { Candidate } from '../types';
+import { cn } from '../lib/utils';
+import { parseResume, ParsedCandidate } from '../services/aiService';
+import { 
+  FileText, 
+  Upload, 
+  Loader2, 
+  Sparkles, 
+  Brain, 
+  Search, 
+  CheckCircle, 
+  CheckCircle2, 
+  Briefcase, 
+  GraduationCap, 
+  Clock, 
+  ShieldCheck, 
+  X, 
+  ExternalLink,
+  Code,
+  Layers,
+  ChevronRight
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+
+interface AddCandidateModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+}
+
+export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({ isOpen, onClose, onSuccess }) => {
+  const { user } = useAuth();
+  const { showToast } = useToast();
+  const [isParsing, setIsParsing] = useState(false);
+  const [parsingStep, setParsingStep] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
+  const idempotencyKeyRef = useRef<string>(generateId('sub_'));
+  const candidateIdRef = useRef<string>(generateId('cand_'));
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const parsingSteps = [
+    { icon: FileText, text: '📄 Reading resume file...', color: 'text-accent-blue' },
+    { icon: Brain, text: '🧠 Analyzing structure...', color: 'text-accent-purple' },
+    { icon: Search, text: '🔍 Extracting candidate details...', color: 'text-accent-teal' },
+    { icon: Sparkles, text: '✨ Finalizing data...', color: 'text-accent-amber' }
+  ];
+
+  useEffect(() => {
+    let interval: any;
+    if (isParsing) {
+      setParsingStep(0);
+      interval = setInterval(() => {
+        setParsingStep(prev => (prev < parsingSteps.length - 1 ? prev + 1 : prev));
+      }, 1500);
+    }
+    return () => clearInterval(interval);
+  }, [isParsing]);
+
+  const [formData, setFormData] = useState({
+    full_name: '',
+    phone: '',
+    whatsapp: '',
+    email: '',
+    job_interest: '',
+    domain_interested: '',
+    location: '',
+    education: '',
+    lead_source: 'Facebook',
+    notes: '',
+    marketing_entity: [] as ('sivium' | 'recruiter')[],
+    schedule_call_date: '',
+    schedule_call_time: '',
+    schedule_call_timezone: 'EST (Eastern Time)'
+  });
+
+  const [parsedPreview, setParsedPreview] = useState<ParsedCandidate | null>(null);
+
+  const [extraData, setExtraData] = useState<{
+    first_name?: string;
+    last_name?: string;
+    degree?: string;
+    university?: string;
+    graduation_year?: string;
+    experience_years?: string;
+    current_company?: string;
+    current_designation?: string;
+    skills?: string;
+    linkedin_url?: string;
+    portfolio_url?: string;
+    github_url?: string;
+    website_url?: string;
+    alternate_phone?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    current_address?: string;
+    notice_period?: string;
+    current_ctc?: string;
+    expected_ctc?: string;
+    work_authorization?: string;
+    remote_preference?: string;
+    certifications?: string;
+    languages?: string;
+    summary?: string;
+    categorized_skills?: {
+      languages?: string[];
+      frameworks?: string[];
+      databases?: string[];
+      cloud_devops?: string[];
+      tools?: string[];
+      soft_skills?: string[];
+    };
+    experience?: any[];
+    education_history?: any[];
+    parsing_metadata?: any;
+    parser_used?: string;
+  }>({
+    degree: '',
+    university: '',
+    graduation_year: '',
+    experience_years: '',
+    current_company: '',
+    current_designation: '',
+    skills: '',
+    linkedin_url: ''
+  });
+
+  const [resumeData, setResumeData] = useState<{ base64: string | null, url: string | null, filename: string | null }>({
+    base64: null,
+    url: null,
+    filename: null
+  });
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Check file type broadly
+    const allowedTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword', 'text/plain'];
+    const fileExtension = file.name.split('.').pop()?.toLowerCase();
+    const isAllowedExtension = ['pdf', 'doc', 'docx', 'txt'].includes(fileExtension || '');
+    
+    if (!allowedTypes.includes(file.type) && !isAllowedExtension) {
+      showToast('Please upload a PDF, DOC, DOCX, or Text file', 'error');
+      return;
+    }
+
+    setIsParsing(true);
+    try {
+      // 1. Upload to external API and save to Firestore repository
+      const url = await uploadFile(file, {
+        name: formData.full_name || file.name.split('.')[0],
+        email: formData.email || 'Not Provided',
+        phone: formData.phone || ''
+      });
+      
+      // 2. Read locally for parsing and wait for it
+      await new Promise<void>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          try {
+            const fullBase64 = event.target?.result?.toString();
+            const base64 = fullBase64?.split(',')[1];
+            if (base64) {
+              setResumeData({
+                base64: url,
+                url: url,
+                filename: file.name
+              });
+              const parsed = await parseResume(base64, file.type);
+              if (parsed) {
+                // Non-destructive form update: Never overwrite recruiter manual entries
+                setFormData(prev => ({
+                  ...prev,
+                  full_name: prev.full_name.trim() ? prev.full_name : (parsed.full_name || ''),
+                  phone: prev.phone.trim() ? prev.phone : (parsed.phone || ''),
+                  whatsapp: prev.whatsapp.trim() ? prev.whatsapp : (parsed.whatsapp || ''),
+                  email: prev.email.trim() ? prev.email : (parsed.email || ''),
+                  job_interest: prev.job_interest.trim() ? prev.job_interest : (parsed.job_interest || ''),
+                  domain_interested: prev.domain_interested.trim() ? prev.domain_interested : (parsed.domain_interested || ''),
+                  location: prev.location.trim() ? prev.location : (parsed.location || ''),
+                  education: prev.education.trim() ? prev.education : (parsed.education || ''),
+                  notes: prev.notes.trim() ? prev.notes : (parsed.notes || parsed.summary || '')
+                }));
+
+                setExtraData(prev => ({
+                  first_name: parsed.first_name || prev.first_name || '',
+                  last_name: parsed.last_name || prev.last_name || '',
+                  degree: parsed.degree || prev.degree || '',
+                  university: parsed.university || prev.university || '',
+                  graduation_year: parsed.graduation_year || prev.graduation_year || '',
+                  experience_years: parsed.experience_years || prev.experience_years || '',
+                  current_company: parsed.current_company || prev.current_company || '',
+                  current_designation: parsed.current_designation || prev.current_designation || '',
+                  skills: parsed.skills || prev.skills || '',
+                  linkedin_url: parsed.linkedin_url || prev.linkedin_url || '',
+                  portfolio_url: parsed.portfolio_url || prev.portfolio_url || '',
+                  github_url: parsed.github_url || prev.github_url || '',
+                  website_url: parsed.website_url || prev.website_url || '',
+                  alternate_phone: parsed.alternate_phone || prev.alternate_phone || '',
+                  city: parsed.city || prev.city || '',
+                  state: parsed.state || prev.state || '',
+                  country: parsed.country || prev.country || '',
+                  current_address: parsed.current_address || prev.current_address || '',
+                  notice_period: parsed.notice_period || prev.notice_period || '',
+                  current_ctc: parsed.current_ctc || prev.current_ctc || '',
+                  expected_ctc: parsed.expected_ctc || prev.expected_ctc || '',
+                  work_authorization: parsed.work_authorization || prev.work_authorization || '',
+                  remote_preference: parsed.remote_preference || prev.remote_preference || '',
+                  certifications: parsed.certifications || prev.certifications || '',
+                  languages: parsed.languages || prev.languages || '',
+                  summary: parsed.summary || prev.summary || '',
+                  categorized_skills: parsed.categorized_skills || prev.categorized_skills || {},
+                  experience: parsed.experience || prev.experience || [],
+                  education_history: parsed.education_history || prev.education_history || [],
+                  parsing_metadata: parsed.confidence ? {
+                    overall: parsed.confidence.overall,
+                    field_scores: parsed.confidence.field_scores,
+                    field_sources: parsed.field_sources,
+                    missing_fields: parsed.missing_fields,
+                    warnings: parsed.warnings,
+                    parsed_at: new Date().toISOString()
+                  } : prev.parsing_metadata,
+                  parser_used: parsed.parser_used || prev.parser_used || 'local'
+                }));
+
+                setParsedPreview(parsed);
+                showToast('Resume parsed successfully!', 'success');
+              } else {
+                showToast('Could not extract candidate details from this file. Please verify the document format or enter details manually.', 'error');
+              }
+            }
+            resolve();
+          } catch (e: any) {
+            console.error("FileReader onload error:", e);
+            reject(e);
+          }
+        };
+        reader.onerror = (e) => reject(e);
+        reader.readAsDataURL(file);
+      });
+    } catch (error: any) {
+      console.error('Error uploading/reading file:', error);
+      showToast(error.message || 'Error processing file', 'error');
+    } finally {
+      setIsParsing(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      full_name: '',
+      phone: '',
+      whatsapp: '',
+      email: '',
+      job_interest: '',
+      domain_interested: '',
+      location: '',
+      education: '',
+      lead_source: 'Facebook',
+      notes: '',
+      marketing_entity: [],
+      schedule_call_date: '',
+      schedule_call_time: '',
+      schedule_call_timezone: 'EST (Eastern Time)'
+    });
+    setResumeData({ base64: null, url: null, filename: null });
+    setParsedPreview(null);
+    setExtraData({
+      degree: '',
+      university: '',
+      graduation_year: '',
+      experience_years: '',
+      current_company: '',
+      current_designation: '',
+      skills: '',
+      linkedin_url: ''
+    });
+    idempotencyKeyRef.current = generateId('sub_');
+    candidateIdRef.current = generateId('cand_');
+    isSubmittingRef.current = false;
+    setIsSubmitting(false);
+  };
+
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+    }
+    
+    // 1. Synchronous lock to stop rapid clicks or Enter key immediately
+    if (isSubmittingRef.current || isSubmitting) {
+      return;
+    }
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
+
+    try {
+      if (!formData.full_name || !formData.phone) {
+        showToast('Name and Phone are required', 'error');
+        isSubmittingRef.current = false;
+        setIsSubmitting(false);
+        return;
+      }
+
+      const duplicateError = await checkDuplicateCandidate(formData.phone, formData.email, formData.whatsapp);
+      if (duplicateError) {
+        showToast(duplicateError, 'error');
+        isSubmittingRef.current = false;
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Stable candidate ID & Idempotency Key across retries
+      const candidateId = candidateIdRef.current || generateId('cand_');
+      candidateIdRef.current = candidateId;
+      const idempotencyKey = idempotencyKeyRef.current || generateId('sub_');
+      idempotencyKeyRef.current = idempotencyKey;
+
+      const newCandidate: Candidate = {
+        id: candidateId,
+        full_name: formData.full_name,
+        first_name: extraData.first_name || (formData.full_name ? formData.full_name.split(' ')[0] : ''),
+        last_name: extraData.last_name || (formData.full_name ? formData.full_name.split(' ').slice(1).join(' ') : ''),
+        phone: formData.phone,
+        whatsapp: formData.whatsapp || formData.phone,
+        alternate_phone: extraData.alternate_phone || '',
+        email: formData.email,
+        job_interest: formData.job_interest,
+        domain_interested: formData.domain_interested,
+        location: formData.location,
+        city: extraData.city || '',
+        state: extraData.state || '',
+        country: extraData.country || '',
+        current_address: extraData.current_address || '',
+        education: formData.education,
+        degree: extraData.degree || '',
+        university: extraData.university || '',
+        graduation_year: extraData.graduation_year || '',
+        experience_years: extraData.experience_years || '',
+        current_company: extraData.current_company || 'N/A',
+        current_designation: extraData.current_designation || '',
+        skills: extraData.skills || '',
+        linkedin_url: extraData.linkedin_url || '',
+        portfolio_url: extraData.portfolio_url || '',
+        github_url: extraData.github_url || '',
+        website_url: extraData.website_url || '',
+        notice_period: extraData.notice_period || '',
+        current_ctc: extraData.current_ctc || '',
+        expected_ctc: extraData.expected_ctc || '',
+        work_authorization: extraData.work_authorization || '',
+        remote_preference: extraData.remote_preference || '',
+        certifications: extraData.certifications || '',
+        languages: extraData.languages || '',
+        summary: extraData.summary || formData.notes || '',
+        categorized_skills: extraData.categorized_skills,
+        experience: extraData.experience,
+        education_history: extraData.education_history,
+        parsing_metadata: extraData.parsing_metadata,
+        parser_used: (extraData.parser_used as any) || 'manual',
+        lead_source: formData.lead_source,
+        lead_generated_by: user?.id || null,
+        assigned_sales: null, // Assigned atomically via round-robin
+        assigned_cs: null,
+        assigned_resume: null,
+        assigned_marketing_leader: null,
+        assigned_recruiter: null,
+        assigned_marketing: null,
+        package_name: '',
+        package_amount: 0,
+        domain_suggested: '',
+        marketing_entity: formData.marketing_entity,
+        notes: formData.notes,
+        current_stage: 'lead_generation',
+        resume_url: resumeData.url,
+        resume_base64: resumeData.base64,
+        resume_filename: resumeData.filename,
+        flags: {
+          agreement_sent: false,
+          agreement_signed: false,
+          qc_checklist_done: false,
+          resume_approved: false,
+          candidate_resume_approved: false,
+          marketing_email_created: false,
+          two_step_verification: false,
+          linkedin_optimized: false,
+          marketing_started: false
+        },
+        not_interested_at: null,
+        deleted_at: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      // Atomic Lead Creation (incorporates durable idempotency & round-robin)
+      const result = await createLeadCandidate(newCandidate, user?.id ? String(user.id) : null, idempotencyKey);
+
+      // If duplicate was prevented, inform user and exit gracefully without duplicating side-effects
+      if (result.duplicatePrevented) {
+        showToast('Lead already saved. Duplicate submission prevented.', 'info');
+        onSuccess();
+        onClose();
+        resetForm();
+        return;
+      }
+
+      const targetId = result.candidateId || candidateId;
+      await seedQCChecklist(targetId);
+
+      const assignedSalesDisplayName = result.assignedSalesName || '';
+      const finalAssignedSales = result.assignedSalesId;
+
+      const unassignedReasonText = result.reason === 'outside_working_hours'
+        ? 'outside sales working hours: Mon–Fri 9:30 AM – 6:30 PM EST'
+        : 'no active sales rep available';
+
+      const assignedLogText = assignedSalesDisplayName
+        ? `Assigned to ${assignedSalesDisplayName} via Round-Robin rotation.`
+        : (finalAssignedSales
+            ? `Assigned via Round-Robin.`
+            : `Candidate ${formData.full_name} created as Unassigned (${unassignedReasonText}).`);
+
+      logActivity(targetId, 'Candidate created', `Candidate ${formData.full_name} added to the system. ${assignedLogText}`, user?.id ? String(user.id) : null);
+      
+      if (finalAssignedSales) {
+        addNotification({
+          recipient_id: finalAssignedSales,
+          sender_id: user?.id || null,
+          type: 'system_alert',
+          message: `You have been automatically assigned to a new candidate via Round-Robin: ${formData.full_name}`
+        });
+      }
+
+      if (formData.schedule_call_date && formData.schedule_call_time) {
+        const timezoneStr = formData.schedule_call_timezone || 'EST (Eastern Time)';
+        const t12 = new Date(`1970-01-01T${formData.schedule_call_time}:00`).toLocaleTimeString('en-US', { hour: 'numeric', minute: 'numeric', hour12: true });
+        addFollowUp({
+          candidate_id: targetId,
+          stage: 'lead_generation',
+          followup_date: formData.schedule_call_date,
+          note: `Initial Call Scheduled at ${t12} ${timezoneStr}`,
+          done: false,
+          created_by: user?.id || null,
+        });
+        logActivity(targetId, 'Follow-up scheduled', `Scheduled initial call for ${formData.schedule_call_date} at ${t12} ${timezoneStr}`, user?.id || null);
+      }
+
+      if (finalAssignedSales) {
+        showToast(assignedSalesDisplayName ? `Candidate created & assigned to ${assignedSalesDisplayName}` : 'Candidate created & assigned via Round-Robin', 'success');
+      } else {
+        const unassignedMsg = result.reason === 'outside_working_hours'
+          ? 'Candidate created as Unassigned (outside sales working hours: Mon–Fri 9:30 AM – 6:30 PM EST)'
+          : 'Candidate created as Unassigned (no active sales rep available)';
+        showToast(unassignedMsg, 'info');
+      }
+      onSuccess();
+      onClose();
+      resetForm();
+    } catch (err: any) {
+      console.error('Error in handleSubmit:', err);
+      showToast(err.message || 'Failed to create candidate', 'error');
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={() => { if (!isSubmitting) onClose(); }}
+      title={isParsing ? "AI Parsing in Progress" : "Add New Candidate"}
+      footer={!isParsing ? (
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 w-full">
+          <div className="flex items-center">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              className="hidden"
+              accept=".pdf,.doc,.docx,.txt"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isParsing || isSubmitting}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 bg-bg-tertiary text-text-primary font-medium rounded-xl hover:bg-bg-tertiary/80 transition-all disabled:opacity-50 text-xs sm:text-sm cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              Upload Resume
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <button 
+              type="button"
+              onClick={() => { if (!isSubmitting) onClose(); }}
+              disabled={isSubmitting}
+              className={cn(
+                "flex-1 sm:flex-none px-4 py-2.5 text-text-secondary font-medium transition-colors text-xs sm:text-sm text-center",
+                isSubmitting ? "opacity-40 cursor-not-allowed pointer-events-none" : "hover:text-text-primary cursor-pointer"
+              )}
+            >
+              Cancel
+            </button>
+            <button 
+              type="button"
+              onClick={handleSubmit}
+              disabled={isSubmitting || isParsing}
+              className={cn(
+                "flex-1 sm:flex-none px-6 py-2.5 bg-accent-blue text-white font-bold rounded-xl transition-all shadow-lg shadow-accent-blue/20 text-xs sm:text-sm text-center flex items-center justify-center gap-2",
+                (isSubmitting || isParsing) 
+                  ? "opacity-50 cursor-not-allowed pointer-events-none" 
+                  : "hover:bg-accent-blue/90 cursor-pointer"
+              )}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Saving Candidate...</span>
+                </>
+              ) : (
+                <span>Save Candidate</span>
+              )}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+    >
+      <div className="relative min-h-[400px] flex items-center justify-center">
+        <AnimatePresence mode="wait">
+          {isParsing ? (
+            <motion.div
+              key="preloader"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 1.1 }}
+              className="flex flex-col items-center justify-center p-8 text-center w-full"
+            >
+              <div className="relative mb-12">
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                  className="w-32 h-32 border-4 border-accent-blue/10 border-t-accent-blue rounded-full shadow-[0_0_20px_rgba(0,173,140,0.2)]"
+                />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <motion.div
+                    key={parsingStep}
+                    initial={{ scale: 0.5, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: "spring", damping: 12 }}
+                  >
+                    {React.createElement(parsingSteps[parsingStep].icon, { 
+                      className: cn("w-12 h-12", parsingSteps[parsingStep].color) 
+                    })}
+                  </motion.div>
+                </div>
+              </div>
+              
+              <motion.div
+                key={parsingStep}
+                initial={{ y: 10, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                className="space-y-4"
+              >
+                <h3 className="text-2xl font-bold text-text-primary tracking-tight">AI is working...</h3>
+                <p className="text-lg text-text-secondary font-medium min-h-[1.5em]">
+                  {parsingSteps[parsingStep].text}
+                </p>
+              </motion.div>
+
+              <div className="mt-12 flex gap-3">
+                {parsingSteps.map((_, idx) => (
+                  <div 
+                    key={idx}
+                    className={cn(
+                      "h-1.5 rounded-full transition-all duration-700",
+                      idx === parsingStep ? "bg-accent-blue w-12" : 
+                      idx < parsingStep ? "bg-accent-blue/40 w-4" : "bg-bg-tertiary w-4"
+                    )}
+                  />
+                ))}
+              </div>
+            </motion.div>
+          ) : (
+            <motion.form 
+              key="form"
+              onSubmit={handleSubmit}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full"
+            >
+        {parsedPreview && (
+          <div className="md:col-span-2 bg-bg-tertiary/70 border border-border-primary rounded-2xl p-4 space-y-3 relative">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-accent-blue" />
+                <span className="text-xs font-bold text-text-primary uppercase tracking-wider">Extracted Resume Summary</span>
+                {parsedPreview.parser_used !== 'gemini' ? (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 flex items-center gap-1">
+                    ⚡ Zero-Cost Local Engine
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-500 border border-blue-500/20 flex items-center gap-1">
+                    🤖 AI Fallback
+                  </span>
+                )}
+                {parsedPreview.confidence?.overall ? (
+                  <span className={cn(
+                    "px-2 py-0.5 rounded-full text-[10px] font-bold border",
+                    parsedPreview.confidence.overall >= 0.85 
+                      ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                      : parsedPreview.confidence.overall >= 0.65
+                      ? "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                      : "bg-rose-500/10 text-rose-500 border-rose-500/20"
+                  )}>
+                    {Math.round(parsedPreview.confidence.overall * 100)}% Confidence
+                  </span>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => setParsedPreview(null)}
+                className="p-1 hover:bg-bg-secondary rounded-lg text-text-muted hover:text-text-primary transition-colors text-xs"
+                title="Dismiss Preview"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2 text-xs">
+              {(parsedPreview.current_designation || parsedPreview.current_company) && (
+                <span className="px-2.5 py-1 bg-bg-secondary border border-border-primary rounded-lg text-text-primary flex items-center gap-1.5">
+                  <Briefcase className="w-3.5 h-3.5 text-accent-blue" />
+                  <span className="font-semibold">{parsedPreview.current_designation || 'Role'}</span>
+                  {parsedPreview.current_company && (
+                    <span className="text-text-muted">at {parsedPreview.current_company}</span>
+                  )}
+                </span>
+              )}
+              {parsedPreview.job_interest && (
+                <span className="px-2.5 py-1 bg-bg-secondary border border-border-primary rounded-lg text-text-primary flex items-center gap-1.5">
+                  <span className="text-[10px] uppercase font-bold text-accent-teal">Target:</span>
+                  <span className="font-semibold">{parsedPreview.job_interest}</span>
+                </span>
+              )}
+              {parsedPreview.experience_years && (
+                <span className="px-2.5 py-1 bg-bg-secondary border border-border-primary rounded-lg text-text-primary flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-accent-amber" />
+                  <span>{parsedPreview.experience_years} Yrs Exp</span>
+                </span>
+              )}
+              {(parsedPreview.degree || parsedPreview.education) && (
+                <span className="px-2.5 py-1 bg-bg-secondary border border-border-primary rounded-lg text-text-primary flex items-center gap-1.5">
+                  <GraduationCap className="w-3.5 h-3.5 text-accent-purple" />
+                  <span>{parsedPreview.degree || parsedPreview.education}</span>
+                  {parsedPreview.university && <span className="text-text-muted">({parsedPreview.university})</span>}
+                </span>
+              )}
+              {parsedPreview.notice_period && (
+                <span className="px-2.5 py-1 bg-bg-secondary border border-border-primary rounded-lg text-text-primary flex items-center gap-1.5">
+                  <span className="text-[10px] uppercase font-bold text-accent-blue">Notice:</span>
+                  <span>{parsedPreview.notice_period}</span>
+                </span>
+              )}
+              {parsedPreview.work_authorization && (
+                <span className="px-2.5 py-1 bg-bg-secondary border border-border-primary rounded-lg text-text-primary flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>{parsedPreview.work_authorization}</span>
+                </span>
+              )}
+              {parsedPreview.skills && (
+                <span className="px-2.5 py-1 bg-bg-secondary border border-border-primary rounded-lg text-text-secondary flex items-center gap-1.5">
+                  <Code className="w-3.5 h-3.5 text-text-muted" />
+                  <span>{parsedPreview.skills.split(',').filter(Boolean).length} skills extracted</span>
+                </span>
+              )}
+            </div>
+
+            {parsedPreview.missing_fields && parsedPreview.missing_fields.length > 0 && (
+              <p className="text-[11px] text-text-muted italic">
+                ℹ️ Not mentioned in resume: {parsedPreview.missing_fields.join(', ')}
+              </p>
+            )}
+          </div>
+        )}
+        <div className="space-y-1">
+          <label className="text-xs font-bold text-text-secondary uppercase tracking-wider">Full Name *</label>
+          <input
+            type="text"
+            value={formData.full_name}
+            onChange={e => setFormData({ ...formData, full_name: e.target.value })}
+            className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
+            placeholder="John Doe"
+            required
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-bold text-text-secondary uppercase tracking-wider">Phone *</label>
+          <input
+            type="text"
+            value={formData.phone}
+            onChange={e => setFormData({ ...formData, phone: e.target.value })}
+            className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
+            placeholder="+91 00000 00000"
+            required
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-bold text-text-secondary uppercase tracking-wider">WhatsApp</label>
+          <input
+            type="text"
+            value={formData.whatsapp}
+            onChange={e => setFormData({ ...formData, whatsapp: e.target.value })}
+            className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
+            placeholder="Same as phone"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-bold text-text-secondary uppercase tracking-wider">Email</label>
+          <input
+            type="email"
+            value={formData.email}
+            onChange={e => setFormData({ ...formData, email: e.target.value })}
+            className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
+            placeholder="john@example.com"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-bold text-text-secondary uppercase tracking-wider">Job Interest</label>
+          <input
+            type="text"
+            value={formData.job_interest}
+            onChange={e => setFormData({ ...formData, job_interest: e.target.value })}
+            className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
+            placeholder="e.g. Software Engineer"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-bold text-text-secondary uppercase tracking-wider">Location</label>
+          <input
+            type="text"
+            value={formData.location}
+            onChange={e => setFormData({ ...formData, location: e.target.value })}
+            className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
+            placeholder="e.g. Bangalore"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-bold text-text-secondary uppercase tracking-wider">Lead Source</label>
+          <select
+            value={formData.lead_source}
+            onChange={e => setFormData({ ...formData, lead_source: e.target.value })}
+            className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
+          >
+            {LEAD_SOURCES.map(source => (
+              <option key={source} value={source}>{source}</option>
+            ))}
+          </select>
+        </div>
+        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-text-secondary uppercase tracking-wider">Schedule Call Date</label>
+            <input
+              type="date"
+              value={formData.schedule_call_date}
+              onChange={e => setFormData({ ...formData, schedule_call_date: e.target.value })}
+              className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-text-secondary uppercase tracking-wider">Call Time</label>
+            <input
+              type="time"
+              value={formData.schedule_call_time}
+              onChange={e => setFormData({ ...formData, schedule_call_time: e.target.value })}
+              className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-text-secondary uppercase tracking-wider">Timezone (US)</label>
+            <select
+              value={formData.schedule_call_timezone}
+              onChange={e => setFormData({ ...formData, schedule_call_timezone: e.target.value })}
+              className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
+            >
+              <option value="EST (Eastern Time)">EST (Eastern Time)</option>
+              <option value="CST (Central Time)">CST (Central Time)</option>
+              <option value="MST (Mountain Time)">MST (Mountain Time)</option>
+              <option value="PST (Pacific Time)">PST (Pacific Time)</option>
+              <option value="AST (Alaska Time)">AST (Alaska Time)</option>
+              <option value="HST (Hawaii Time)">HST (Hawaii Time)</option>
+            </select>
+          </div>
+        </div>
+        <div className="md:col-span-2 space-y-1">
+          <label className="text-xs font-bold text-text-secondary uppercase tracking-wider">Notes</label>
+          <textarea
+            value={formData.notes}
+            onChange={e => setFormData({ ...formData, notes: e.target.value })}
+            className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-2.5 text-text-primary focus:outline-none focus:border-accent-blue transition-colors min-h-[100px]"
+            placeholder="Any additional details..."
+          />
+        </div>
+      </motion.form>
+    )}
+  </AnimatePresence>
+</div>
+</Modal>
+);
+};
