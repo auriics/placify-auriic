@@ -4,6 +4,13 @@ import { useToast } from '../contexts/ToastContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react';
 
+const TEAM_IMAGES = [
+  '/team-1.webp',
+  '/team-2.webp',
+  '/team-3.webp',
+  '/team-4.webp'
+];
+
 export const LoginPage: React.FC = () => {
   const { login, resetPassword } = useAuth();
   const { showToast } = useToast();
@@ -13,6 +20,7 @@ export const LoginPage: React.FC = () => {
   const [isResetting, setIsResetting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [currentImageIndex, setCurrentImageIndex] = React.useState(0);
   
   const [formData, setFormData] = useState({
     email: '',
@@ -24,6 +32,13 @@ export const LoginPage: React.FC = () => {
     password: '',
     general: ''
   });
+
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentImageIndex((prev) => (prev + 1) % TEAM_IMAGES.length);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
 
   const validateForm = () => {
     let isValid = true;
@@ -83,12 +98,17 @@ export const LoginPage: React.FC = () => {
       
       {/* Left Side - Team Image (Hidden on smaller screens) */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-black">
-        <img 
-          src="/team-image.webp" 
-          alt="Auriic Team" 
-          className="absolute inset-0 w-full h-full object-cover opacity-90"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex flex-col justify-end p-12">
+        {TEAM_IMAGES.map((src, index) => (
+          <img 
+            key={src}
+            src={src} 
+            alt={`Auriic Team ${index + 1}`} 
+            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ease-in-out ${
+              index === currentImageIndex ? 'opacity-90' : 'opacity-0'
+            }`}
+          />
+        ))}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex flex-col justify-end p-12 pointer-events-none">
           <div className="max-w-md">
             <h2 className="text-white text-3xl font-bold mb-3 tracking-tight">Meet the team behind Auriic Services.</h2>
             <p className="text-white/80 text-lg leading-relaxed">
