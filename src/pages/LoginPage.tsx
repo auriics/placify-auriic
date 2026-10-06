@@ -251,7 +251,6 @@ export const LoginPage: React.FC = () => {
             © {new Date().getFullYear()} Placify CRM. All rights reserved.
           </p>
         </div>
-      </div>
     </div>
   );
 };
