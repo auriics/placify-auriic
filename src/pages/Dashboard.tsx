@@ -14,7 +14,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn, getEasternDate, isEasternDayOngoing } from '../lib/utils';
 import { isComplianceHead } from '../lib/permissions';
 import { Candidate, FollowUp, Notification, ResumeChangeRequest, InterviewSupportRequest, Application, TargetReductionRequest, FeatureAnnouncement, User, InterviewOfferRequest } from '../types';
-import { CandidateWorkspace } from '../components/CandidateWorkspace';
+import { CandidateSheet } from '../components/CandidateSheet';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
 import { ThoughtsConfigModal, DEFAULT_QUOTES } from '../components/ThoughtsConfigModal';
 import { SMTPConfigModal } from '../components/SMTPConfigModal';
@@ -1535,8 +1535,8 @@ export const Dashboard: React.FC = () => {
         </div>
       )}
 
-      <CandidateWorkspace 
-        candidateId={selectedCandidate?.id}
+      <CandidateSheet 
+        candidate={selectedCandidate}
         isOpen={isSheetOpen}
         onClose={() => {
           setIsSheetOpen(false);

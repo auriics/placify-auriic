@@ -1,9 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Avatar } from "../components/ui/avatar";
-import { Badge } from "../components/ui/badge";
-
-import { CandidateWorkspace } from "../components/CandidateWorkspace";
-
 import { useAuth } from '../contexts/AuthContext';
 import { subscribeToCollection } from '../services/storage';
 import { STAGES } from '../constants';
@@ -23,8 +18,6 @@ const STAGE_ENTRIES = Object.entries(STAGES).filter(
 
 export const Pipeline: React.FC = () => {
   const { user, isAuthReady } = useAuth();
-  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
-
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -193,43 +186,48 @@ export const Pipeline: React.FC = () => {
                         animate={{ scale: 1, opacity: 1 }}
                         exit={{ scale: 0.9, opacity: 0 }}
                         className="bg-bg-secondary p-3.5 sm:p-4 rounded-xl sm:rounded-2xl border border-border-primary shadow-sm hover:shadow-md hover:border-accent-blue transition-all group cursor-pointer relative"
-                        onClick={() => setSelectedCandidateId(candidate.id)}
+                        onClick={() => window.location.hash = `#candidate?id=${candidate.id}`}
                       >
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex items-start gap-2.5 min-w-0 pr-6">
-                            <Avatar className="w-8 h-8 rounded-lg mt-0.5" fallback={candidate.full_name || 'C'} />
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <h4 className="font-bold text-text-primary text-sm group-hover:text-accent-blue transition-colors truncate">
-                                  {candidate.full_name}
-                                </h4>
-                                {candidate.is_free_trial && (
-                                  <FreeTrialBadge startDate={candidate.free_trial_start_date} endDate={candidate.free_trial_end_date} size="sm" />
-                                )}
-                              </div>
-                              <p className="text-[11px] text-text-secondary truncate mt-0.5">{candidate.job_interest || 'No job specified'}</p>
+                        <div className="flex items-start justify-between mb-2 sm:mb-3">
+                          <div className="truncate pr-6">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <h4 className="font-bold text-text-primary text-xs sm:text-sm group-hover:text-accent-blue transition-colors truncate">
+                                {candidate.full_name}
+                              </h4>
+                              {candidate.is_free_trial && (
+                                <FreeTrialBadge 
+                                  startDate={candidate.free_trial_start_date}
+                                  endDate={candidate.free_trial_end_date}
+                                  size="sm"
+                                />
+                              )}
                             </div>
+                            <p className="text-[10px] font-mono text-text-muted mt-0.5">{candidate.id}</p>
                           </div>
                           <div className="absolute right-3 top-3">
                             <MoreVertical className="w-4 h-4 text-text-muted group-hover:text-text-secondary transition-colors" />
                           </div>
                         </div>
-
-                        <div className="mt-3 grid grid-cols-2 gap-2">
-                          {candidate.location && (
-                            <div className="text-[10px] text-text-muted truncate"><MapPin className="inline w-3 h-3 mr-1"/>{candidate.location}</div>
-                          )}
-                          {candidate.experience_years && (
-                            <div className="text-[10px] text-text-muted truncate text-right">{candidate.experience_years} YOE</div>
+                        
+                        <div className="space-y-1.5 sm:space-y-2">
+                          <div className="flex items-center gap-2 text-xs text-text-secondary">
+                            <Phone className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="truncate">{candidate.phone}</span>
+                          </div>
+                          {candidate.package_name && (
+                            <div className="flex items-center gap-2 text-xs text-text-secondary">
+                              <Package className="w-3.5 h-3.5 flex-shrink-0" />
+                              <span className="truncate">{candidate.package_name}</span>
+                            </div>
                           )}
                         </div>
 
-                        <div className="mt-3 pt-3 border-t border-border-primary flex items-center justify-between">
-                          {candidate.assigned_recruiter ? (
-                            <Badge variant="secondary" className="text-[9px] px-1.5 py-0">Recruiter Assigned</Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-[9px] px-1.5 py-0 text-text-muted">Unassigned</Badge>
-                          )}
+                        <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-border-primary flex items-center justify-between">
+                          <div className="flex -space-x-2">
+                            <div className="w-6 h-6 rounded-full bg-bg-tertiary border-2 border-bg-secondary flex items-center justify-center text-[8px] font-bold text-text-muted">
+                              {candidate.full_name[0]}
+                            </div>
+                          </div>
                           <p className="text-[10px] font-bold text-text-muted uppercase">
                             {new Date(candidate.updated_at).toLocaleDateString()}
                           </p>
@@ -248,7 +246,6 @@ export const Pipeline: React.FC = () => {
           })}
         </div>
       </div>
-      <CandidateWorkspace isOpen={!!selectedCandidateId} candidateId={selectedCandidateId} onClose={() => setSelectedCandidateId(null)} />
     </div>
   );
 };

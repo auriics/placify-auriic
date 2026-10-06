@@ -28,7 +28,7 @@ import { useDebounce } from '../lib/hooks';
 import { db } from '../firebase';
 import { collection, doc, setDoc, query, where, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { useToast } from '../contexts/ToastContext';
-import { CandidateWorkspace } from '../components/CandidateWorkspace';
+import { CandidateSheet } from '../components/CandidateSheet';
 import { TrackJobSheet } from '../components/TrackJobSheet';
 import { BulkLinkImportModal } from '../components/BulkLinkImportModal';
 import { resolveRecruiterName as resolveRecruiterNameFromUtil, isPlaceholderRecruiterName } from '../utils/recruiterResolver';
@@ -984,8 +984,8 @@ export const AppTracker: React.FC = () => {
         }}
         applications={applications}
       />
-      <CandidateWorkspace 
-        candidateId={selectedCandidate?.id}
+      <CandidateSheet 
+        candidate={selectedCandidate}
         isOpen={isSheetOpen}
         onClose={() => {
           setIsSheetOpen(false);

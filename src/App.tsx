@@ -19,7 +19,7 @@ const CandidateDashboard = lazy(() => import('./pages/CandidateDashboard').then(
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
 const Pipeline = lazy(() => import('./pages/Pipeline').then(m => ({ default: m.Pipeline })));
 const Candidates = lazy(() => import('./pages/Candidates').then(m => ({ default: m.Candidates })));
-const CandidateDetail = lazy(() => import('./components/CandidateWorkspace').then(m => ({ default: m.CandidateWorkspace })));
+const CandidateDetail = lazy(() => import('./pages/CandidateDetail').then(m => ({ default: m.CandidateDetail })));
 const FollowUps = lazy(() => import('./pages/FollowUps').then(m => ({ default: m.FollowUps })));
 const NotInterested = lazy(() => import('./pages/NotInterested').then(m => ({ default: m.NotInterested })));
 const NotEligible = lazy(() => import('./pages/NotEligible').then(m => ({ default: m.NotEligible })));
