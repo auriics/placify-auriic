@@ -90,9 +90,9 @@ export const LoginPage: React.FC = () => {
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex flex-col justify-end p-12">
           <div className="max-w-md">
-            <h2 className="text-white text-3xl font-bold mb-3 tracking-tight">Meet the team behind Placify.</h2>
+            <h2 className="text-white text-3xl font-bold mb-3 tracking-tight">Meet the team behind Auriic Services.</h2>
             <p className="text-white/80 text-lg leading-relaxed">
-              We are dedicated to building the most powerful and intuitive recruitment CRM for the modern workforce.
+              We are dedicated to connecting talent with the right opportunities and helping professionals build successful careers in a rapidly changing workforce.
             </p>
           </div>
         </div>
