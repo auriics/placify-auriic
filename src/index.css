@@ -1,48 +1,56 @@
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700;800&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-heading: "Syne", sans-serif;
-  --font-mono: "DM Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
-  --color-bg-primary: var(--bg-primary);
-  --color-bg-secondary: var(--bg-secondary);
-  --color-bg-tertiary: var(--bg-tertiary);
+  /* Theme color mapping */
+  --color-bg-primary: var(--bg-canvas);
+  --color-bg-secondary: var(--bg-card);
+  --color-bg-tertiary: var(--bg-muted);
   --color-border-primary: var(--border);
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
   
-  --color-accent-blue: #00AD8C;
-  --color-accent-green: #00AD8C;
-  --color-accent-amber: #C9982C;
+  /* Brand mappings - all map to primary to support legacy classes during migration */
+  --color-accent-blue: var(--brand-primary);
+  --color-accent-green: var(--brand-primary);
+  --color-accent-teal: var(--brand-primary);
+  --color-accent-amber: #F59E0B;
   --color-accent-red: #EF4444;
   --color-accent-purple: #8B5CF6;
-  --color-accent-teal: #00AD8C;
-  --color-accent-gray: #6B7280;
+  --color-accent-gray: var(--text-muted);
 }
 
+/* Dark Mode (Default) */
 :root {
   color-scheme: dark;
-  --bg-primary: #0A0C10;
-  --bg-secondary: #12151C;
-  --bg-tertiary: #1A1E26;
-  --border: rgba(255, 255, 255, 0.1);
-  --text-primary: #FFFFFF;
-  --text-secondary: #A0AEC0;
-  --text-muted: #718096;
+  --bg-canvas: #09090B;      /* Zinc 950 */
+  --bg-card: #18181B;        /* Zinc 900 */
+  --bg-muted: #27272A;       /* Zinc 800 */
+  --border: rgba(255, 255, 255, 0.08); /* Minimal subtle border */
+  --text-primary: #FAFAFA;   /* Zinc 50 */
+  --text-secondary: #A1A1AA; /* Zinc 400 */
+  --text-muted: #71717A;     /* Zinc 500 */
+  
+  --brand-primary: #0F7664;  /* Placify Teal */
 }
 
+/* Light Mode */
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg-primary: #F8FAFC;
-  --bg-secondary: #FFFFFF;
-  --bg-tertiary: #F1F5F9;
+  --bg-canvas: #FAFAFA;      /* Zinc 50 */
+  --bg-card: #FFFFFF;        /* Pure White */
+  --bg-muted: #F4F4F5;       /* Zinc 100 */
   --border: rgba(0, 0, 0, 0.08);
-  --text-primary: #0F172A;
-  --text-secondary: #475569;
-  --text-muted: #94A3B8;
+  --text-primary: #09090B;   /* Zinc 950 */
+  --text-secondary: #52525B; /* Zinc 600 */
+  --text-muted: #A1A1AA;     /* Zinc 400 */
+  
+  --brand-primary: #0F7664;  /* Placify Teal */
 }
 
 /* ==========================================================================
@@ -138,7 +146,7 @@ button, a, input, select, textarea {
 }
 
 h1, h2, h3, h4, h5, h6 {
-  @apply font-heading;
+  @apply font-heading tracking-tight;
 }
 
 .dm-mono {

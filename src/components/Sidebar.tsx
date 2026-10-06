@@ -256,8 +256,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentHash, isOpen, setIsOpen
 
       {/* Sidebar */}
       <aside className={cn(
-        "fixed top-0 left-0 h-full w-[280px] max-w-[85vw] md:w-[260px] bg-bg-secondary border-r border-border-primary z-50 transition-transform duration-300 md:translate-x-0 flex flex-col shadow-2xl md:shadow-none",
-        isOpen ? "translate-x-0" : "-translate-x-full"
+        "fixed top-0 left-0 h-full w-[260px] max-w-[85vw] bg-bg-secondary border-r border-border-primary z-50 transition-transform duration-300 flex flex-col shadow-lg md:shadow-none",
+        isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       )}>
         {/* Brand Area */}
         <div className="p-4 sm:p-6 flex items-center justify-between">
@@ -290,15 +290,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentHash, isOpen, setIsOpen
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-3 py-4 sm:py-6 space-y-1.5 overflow-y-auto touch-scroll custom-scrollbar">
-          {/* Dedicated Aurrum Careers Section (shown at top for Aurrum roles, or below main nav for Admins) */}
+        <nav className="flex-1 px-3 py-4 sm:py-6 space-y-1 overflow-y-auto touch-scroll custom-scrollbar">
+          {/* Dedicated Aurrum Careers Section (shown at top for Aurrum roles) */}
           {isAurrumOnlyUser && aurrumNavItems.some(item => item.visible) && (
-            <div className="pb-3 mb-3 border-b border-border-primary/80 space-y-1.5">
-              <div className="px-4 py-1.5 flex items-center gap-2">
-                <span className="w-5 h-5 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-500">
-                  <Sparkles className="w-3 h-3" />
-                </span>
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-500">
+            <div className="pb-4 mb-4 border-b border-border-primary/50 space-y-1">
+              <div className="px-3 py-2 flex items-center gap-2 text-amber-500">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span className="text-[11px] font-bold uppercase tracking-wider">
                   Aurrum Careers
                 </span>
               </div>
@@ -308,55 +306,38 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentHash, isOpen, setIsOpen
                   href={item.hash}
                   onClick={() => setIsOpen(false)}
                   className={cn(
-                    "flex items-center gap-3 px-4 py-3 rounded-xl transition-all group relative font-semibold",
+                    "flex items-center gap-3 px-3 py-2 rounded-md transition-colors text-sm font-medium",
                     currentHash.startsWith(item.hash)
-                      ? "bg-amber-500/15 text-amber-500 shadow-inner"
+                      ? "bg-amber-500/10 text-amber-500"
                       : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
                   )}
                 >
-                  {currentHash.startsWith(item.hash) && (
-                    <motion.div
-                      layoutId="activeNavIndicator"
-                      className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-6 bg-amber-500 rounded-r-full shadow-[0_0_8px_rgba(245,158,11,0.5)]"
-                    />
-                  )}
-                  <item.icon className={cn(
-                    "w-5 h-5 transition-transform duration-300",
-                    currentHash.startsWith(item.hash) ? "scale-110 text-amber-500" : "group-hover:scale-110 group-hover:text-text-primary"
-                  )} />
-                  <span className="flex-1">{item.label}</span>
+                  <item.icon className="w-4 h-4 shrink-0" />
+                  <span className="flex-1 truncate">{item.label}</span>
                 </a>
               ))}
             </div>
           )}
 
+          {/* Main Navigation */}
           {navItems.filter(item => item.visible).map(item => (
             <a
               key={item.hash}
               href={item.hash}
               onClick={() => setIsOpen(false)}
               className={cn(
-                "flex items-center gap-3 px-4 py-3 rounded-xl transition-all group relative font-semibold",
+                "flex items-center gap-3 px-3 py-2 rounded-md transition-colors text-sm font-medium",
                 currentHash.startsWith(item.hash) 
-                  ? "bg-accent-blue/10 text-accent-blue shadow-inner" 
+                  ? "bg-accent-blue/10 text-accent-blue" 
                   : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
               )}
             >
-              {currentHash.startsWith(item.hash) && (
-                <motion.div 
-                  layoutId="activeNavIndicator"
-                  className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-6 bg-accent-blue rounded-r-full shadow-[0_0_8px_rgba(0,173,140,0.5)]" 
-                />
-              )}
-              <item.icon className={cn(
-                "w-5 h-5 transition-transform duration-300",
-                currentHash.startsWith(item.hash) ? "scale-110" : "group-hover:scale-110 group-hover:text-text-primary"
-              )} />
-              <span className="flex-1">{item.label}</span>
+              <item.icon className="w-4 h-4 shrink-0" />
+              <span className="flex-1 truncate">{item.label}</span>
               {item.badge !== undefined && item.badge > 0 && (
                 <span className={cn(
-                  "px-2 py-0.5 rounded-full text-[10px] font-bold shadow-sm",
-                  item.hash === '#not-interested' ? "bg-accent-red/20 text-accent-red" : "bg-accent-amber/20 text-accent-amber"
+                  "px-2 py-0.5 rounded text-[10px] font-semibold",
+                  item.hash === '#not-interested' ? "bg-accent-red/10 text-accent-red" : "bg-accent-amber/10 text-accent-amber"
                 )}>
                   {item.badge}
                 </span>
@@ -366,12 +347,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentHash, isOpen, setIsOpen
 
           {/* Dedicated Aurrum Careers Section for Admin / Shared Users */}
           {!isAurrumOnlyUser && aurrumNavItems.some(item => item.visible) && (
-            <div className="pt-4 mt-4 border-t border-border-primary/80 space-y-1.5">
-              <div className="px-4 py-1.5 flex items-center gap-2">
-                <span className="w-5 h-5 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-500">
-                  <Sparkles className="w-3 h-3" />
-                </span>
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-500">
+            <div className="pt-4 mt-4 border-t border-border-primary/50 space-y-1">
+              <div className="px-3 py-2 flex items-center gap-2 text-amber-500">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span className="text-[11px] font-bold uppercase tracking-wider">
                   Aurrum Careers
                 </span>
               </div>
@@ -381,23 +360,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentHash, isOpen, setIsOpen
                   href={item.hash}
                   onClick={() => setIsOpen(false)}
                   className={cn(
-                    "flex items-center gap-3 px-4 py-3 rounded-xl transition-all group relative font-semibold",
+                    "flex items-center gap-3 px-3 py-2 rounded-md transition-colors text-sm font-medium",
                     currentHash.startsWith(item.hash)
-                      ? "bg-amber-500/15 text-amber-500 shadow-inner"
+                      ? "bg-amber-500/10 text-amber-500"
                       : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
                   )}
                 >
-                  {currentHash.startsWith(item.hash) && (
-                    <motion.div
-                      layoutId="activeNavIndicator"
-                      className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-6 bg-amber-500 rounded-r-full shadow-[0_0_8px_rgba(245,158,11,0.5)]"
-                    />
-                  )}
-                  <item.icon className={cn(
-                    "w-5 h-5 transition-transform duration-300",
-                    currentHash.startsWith(item.hash) ? "scale-110 text-amber-500" : "group-hover:scale-110 group-hover:text-text-primary"
-                  )} />
-                  <span className="flex-1">{item.label}</span>
+                  <item.icon className="w-4 h-4 shrink-0" />
+                  <span className="flex-1 truncate">{item.label}</span>
                 </a>
               ))}
             </div>

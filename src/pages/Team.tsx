@@ -171,8 +171,7 @@ export const Team: React.FC = () => {
     leader_id: '' as string | number | null,
     candidate_id: '',
     portal_link: '',
-    is_on_leave: false,
-    proxy_priority: 0,
+    is_on_leave: false, proxy_priority: 0,
   });
 
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -349,7 +348,7 @@ export const Team: React.FC = () => {
               setIsLoading(false);
               setIsModalOpen(false);
               setEditingUser(null);
-              setFormData({ username: '', display_name: '', role: defaultRole, password: '', leader_id: null, candidate_id: '', portal_link: '', is_on_leave: false });
+              setFormData({ username: '', display_name: '', role: defaultRole, password: '', leader_id: null, candidate_id: '', portal_link: '', is_on_leave: false, proxy_priority: 0 });
               return;
             } else {
               // Auth account exists without a Firestore jpc_users record (e.g. from an interrupted creation).
@@ -391,7 +390,7 @@ export const Team: React.FC = () => {
               setIsLoading(false);
               setIsModalOpen(false);
               setEditingUser(null);
-              setFormData({ username: '', display_name: '', role: defaultRole, password: '', leader_id: null, candidate_id: '', portal_link: '', is_on_leave: false });
+              setFormData({ username: '', display_name: '', role: defaultRole, password: '', leader_id: null, candidate_id: '', portal_link: '', is_on_leave: false, proxy_priority: 0 });
               return;
             }
           } else if (authError.code === 'auth/weak-password') {
@@ -436,7 +435,7 @@ export const Team: React.FC = () => {
 
       setIsModalOpen(false);
       setEditingUser(null);
-      setFormData({ username: '', display_name: '', role: defaultRole, password: '', leader_id: null, candidate_id: '', portal_link: '', is_on_leave: false });
+      setFormData({ username: '', display_name: '', role: defaultRole, password: '', leader_id: null, candidate_id: '', portal_link: '', is_on_leave: false, proxy_priority: 0 });
     } catch (error) {
       console.error('Save user error:', error);
       showToast('Failed to save user', 'error');
@@ -567,7 +566,7 @@ export const Team: React.FC = () => {
 
       // Marking as back from leave
       await updateDoc(doc(db, 'jpc_users', String(targetUser.id)), {
-        is_on_leave: false,
+        is_on_leave: false, proxy_priority: 0,
         leave_return_date: null
       });
       showToast(`${targetUser.display_name} is now back from leave`, 'success');
@@ -889,7 +888,7 @@ export const Team: React.FC = () => {
                   leader_id: null,
                   candidate_id: '',
                   portal_link: '',
-                  is_on_leave: false,
+                  is_on_leave: false, proxy_priority: 0,
                 });
                 setIsModalOpen(true);
               }}
@@ -1010,7 +1009,7 @@ export const Team: React.FC = () => {
                                   leader_id: member.leader_id || null,
                                   candidate_id: member.candidate_id || '',
                                   portal_link: '', 
-                                  is_on_leave: member.is_on_leave || false,
+                                  is_on_leave: member.is_on_leave || false, proxy_priority: member.proxy_priority || 0,
                                 });
                                 setIsModalOpen(true);
                               }}
@@ -1182,7 +1181,7 @@ export const Team: React.FC = () => {
                             leader_id: null,
                             candidate_id: '',
                             portal_link: '',
-                            is_on_leave: false,
+                            is_on_leave: false, proxy_priority: 0,
                           });
                           setIsModalOpen(true);
                         }}
