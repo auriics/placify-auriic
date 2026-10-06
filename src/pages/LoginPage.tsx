@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { Mail, Lock, User as UserIcon, LogIn, Eye, EyeOff, ArrowRight, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { Eye, EyeOff, ArrowRight, Quote } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export const LoginPage: React.FC = () => {
@@ -47,172 +47,156 @@ export const LoginPage: React.FC = () => {
     visible: {
       opacity: 1,
       transition: {
-        staggerChildren: 0.1,
-        delayChildren: 0.2
+        staggerChildren: 0.05,
+        delayChildren: 0.1
       }
     }
   };
 
   const itemVariants = {
-    hidden: { y: 20, opacity: 0 },
-    visible: { y: 0, opacity: 1 }
+    hidden: { y: 15, opacity: 0 },
+    visible: { y: 0, opacity: 1, transition: { type: 'spring', stiffness: 300, damping: 24 } }
   };
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-bg-primary overflow-hidden">
+    <div className="min-h-screen flex flex-col lg:flex-row bg-bg-primary overflow-hidden font-sans">
       {/* Visual Side */}
-      <div className="hidden md:flex md:w-1/2 lg:w-3/5 relative overflow-hidden bg-black">
-        {/* Background Overlay */}
-        <div className="absolute inset-0 z-10 bg-gradient-to-r from-bg-primary/90 via-bg-primary/40 to-transparent" />
+      <div className="hidden lg:flex lg:w-[45%] xl:w-1/2 relative overflow-hidden bg-zinc-950 flex-col justify-between p-12 xl:p-16">
+        {/* Modern dark gradient background */}
+        <div className="absolute inset-0 bg-gradient-to-br from-zinc-900 to-zinc-950 z-0" />
         
-        {/* Team Photo */}
-        <img 
-          src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&q=80&w=2070"
-          alt="Our Team"
-          className="absolute inset-0 w-full h-full object-cover opacity-60 scale-105 hover:scale-100 transition-transform duration-[10s]"
-        />
+        {/* Abstract soft glows */}
+        <div className="absolute top-1/4 -left-1/4 w-[500px] h-[500px] bg-accent-blue/20 rounded-full mix-blend-screen filter blur-[120px] z-0 animate-pulse duration-[10s]" />
+        <div className="absolute bottom-1/4 -right-1/4 w-[500px] h-[500px] bg-indigo-500/10 rounded-full mix-blend-screen filter blur-[120px] z-0" />
 
-        <div className="absolute inset-0 z-20 p-20 flex flex-col justify-between">
-          <motion.div 
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8 }}
-            className="flex items-center gap-4"
-          >
-            <img 
-              src={theme === 'dark' 
-                ? "https://auriic.co/wp-content/uploads/2026/04/Auriic-logo-Header.webp" 
-                : "https://auriic.co/wp-content/uploads/2026/05/Auriic_dark_Logo.webp"
-              } 
-              alt="Auriic Logo" 
-              className="h-20 w-auto"
-              referrerPolicy="no-referrer"
-            />
-            <div className="h-8 w-px bg-white/20" />
-            <div className="flex flex-col">
-              <span className="text-lg font-bold text-white tracking-tight">Auriic</span>
-              <span className="text-[8px] font-bold text-white/50 uppercase tracking-[0.3em]">Recruitment OS</span>
+        {/* Subtle grid pattern overlay */}
+        <div className="absolute inset-0 z-0 opacity-[0.03] pointer-events-none" 
+             style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', backgroundSize: '32px 32px' }} />
+
+        {/* Top: Logo */}
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8 }}
+          className="relative z-20 flex items-center gap-3"
+        >
+          <img 
+            src="https://auriic.co/wp-content/uploads/2026/04/Auriic-logo-Header.webp"
+            alt="Auriic Logo" 
+            className="h-8 w-auto brightness-0 invert"
+            referrerPolicy="no-referrer"
+          />
+        </motion.div>
+
+        {/* Middle: Value Prop / Quote */}
+        <motion.div 
+          initial={{ opacity: 0, x: -30 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.8, delay: 0.2 }}
+          className="relative z-20 max-w-lg"
+        >
+          <Quote className="w-12 h-12 text-white/10 mb-6" />
+          <h1 className="text-3xl xl:text-4xl font-semibold text-white leading-[1.3] tracking-tight mb-8">
+            "Auriic has completely transformed how we manage our talent pipeline. The efficiency gains are unprecedented."
+          </h1>
+          <div className="flex items-center gap-4">
+            <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah" alt="Sarah J." className="w-12 h-12 rounded-full border-2 border-white/10 bg-white/5" />
+            <div>
+              <div className="text-white font-medium text-sm">Sarah Jenkins</div>
+              <div className="text-white/50 text-sm">Head of Talent Acquisition, TechCorp</div>
             </div>
-          </motion.div>
-
-          <motion.div 
-            initial={{ opacity: 0, x: -30 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.8, delay: 0.2 }}
-            className="max-w-xl"
-          >
-            <h1 className="text-5xl lg:text-7xl font-extrabold text-white leading-[1.1] font-heading mb-8">
-              Empowering <span className="text-accent-blue">Teams</span> to Shape the Future.
-            </h1>
-            <p className="text-xl text-white/70 leading-relaxed mb-12">
-              Join thousands of recruiters worldwide using Auriic to manage high-growth 
-              talent pipelines and build world-class organizations.
-            </p>
-
-            <div className="flex flex-wrap gap-8">
-              {[
-                { label: "10k+", sub: "Active Candidates" },
-                { label: "500+", sub: "Global Partners" },
-                { label: "99.9%", sub: "Service Uptime" }
-              ].map((stat, idx) => (
-                <div key={idx} className="flex flex-col">
-                  <span className="text-2xl font-bold text-white">{stat.label}</span>
-                  <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">{stat.sub}</span>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-
-          <div className="flex items-center gap-6">
-            <div className="flex -space-x-4">
-              {[1, 2, 3, 4].map(i => (
-                <div key={i} className="w-10 h-10 rounded-full border-2 border-bg-primary bg-bg-tertiary overflow-hidden">
-                  <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=Team${i+10}`} alt="Team Member" />
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-white/50 font-medium">Trusted by leading recruitment teams globally</p>
           </div>
-        </div>
+        </motion.div>
+
+        {/* Bottom: Metrics */}
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.4 }}
+          className="relative z-20 flex items-center gap-10 border-t border-white/10 pt-8"
+        >
+          <div className="flex flex-col">
+            <span className="text-2xl font-bold text-white tracking-tight">10k+</span>
+            <span className="text-sm text-white/50 font-medium">Active Candidates</span>
+          </div>
+          <div className="w-px h-10 bg-white/10" />
+          <div className="flex flex-col">
+            <span className="text-2xl font-bold text-white tracking-tight">99.9%</span>
+            <span className="text-sm text-white/50 font-medium">Service Uptime</span>
+          </div>
+        </motion.div>
       </div>
 
       {/* Form Side */}
-      <div className="flex-1 flex flex-col items-center justify-center p-6 md:p-12 lg:p-20 relative bg-bg-primary">
+      <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-12 relative bg-bg-primary">
         <motion.div
           variants={containerVariants}
           initial="hidden"
           animate="visible"
-          className="w-full max-w-md space-y-10"
+          className="w-full max-w-[380px] space-y-8"
         >
-          <div className="md:hidden flex justify-center mb-10">
+          {/* Logo for mobile */}
+          <div className="lg:hidden flex justify-center mb-8">
             <img 
               src={theme === 'dark' 
                 ? "https://auriic.co/wp-content/uploads/2026/04/Auriic-logo-Header.webp" 
                 : "https://auriic.co/wp-content/uploads/2026/05/Auriic_dark_Logo.webp"
               } 
               alt="Auriic Logo" 
-              className="h-16 w-auto"
+              className="h-8 w-auto"
               referrerPolicy="no-referrer"
             />
           </div>
 
-          <div className="text-center md:text-left">
-            <motion.div variants={itemVariants} className="inline-flex items-center gap-2 px-3 py-1 bg-accent-blue/10 rounded-full mb-4">
-              <LogIn className="w-3.5 h-3.5 text-accent-blue" />
-              <span className="text-[10px] font-bold text-accent-blue uppercase tracking-widest">Platform Access</span>
-            </motion.div>
-            <motion.h2 variants={itemVariants} className="text-4xl font-bold text-text-primary tracking-tight font-heading">
-              {isResetting ? 'Recover Access' : 'Sign In'}
+          <div className="text-center sm:text-left space-y-2">
+            <motion.h2 variants={itemVariants} className="text-2xl sm:text-3xl font-semibold text-text-primary tracking-tight">
+              {isResetting ? 'Reset your password' : 'Log in to your account'}
             </motion.h2>
-            <motion.p variants={itemVariants} className="text-text-secondary mt-3">
+            <motion.p variants={itemVariants} className="text-sm text-text-secondary">
               {isResetting 
-                ? 'Enter your email to receive recovery instructions' 
-                : 'Welcome back! Please enter your details to continue.'}
+                ? 'Enter your email and we will send you a reset link.' 
+                : 'Welcome back! Please enter your details.'}
             </motion.p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <motion.div variants={itemVariants} className="space-y-2">
-              <label className="text-xs font-bold text-text-muted uppercase tracking-[0.15em] ml-1 text-inherit">Email Address</label>
-              <div className="relative group">
-                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted group-focus-within:text-accent-blue transition-colors" />
-                <input 
-                  type="email" 
-                  required
-                  value={formData.email}
-                  onChange={e => setFormData({...formData, email: e.target.value})}
-                  placeholder="name@company.com"
-                  className="w-full bg-bg-secondary border border-border-primary rounded-2xl pl-12 pr-4 py-4 text-sm text-text-primary focus:outline-none focus:border-accent-blue/50 focus:ring-4 focus:ring-accent-blue/5 transition-all"
-                />
-              </div>
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <motion.div variants={itemVariants} className="space-y-1.5">
+              <label className="text-sm font-medium text-text-primary block">Email</label>
+              <input 
+                type="email" 
+                required
+                value={formData.email}
+                onChange={e => setFormData({...formData, email: e.target.value})}
+                placeholder="name@company.com"
+                className="w-full bg-bg-secondary border border-border-primary rounded-lg px-4 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue focus:ring-1 focus:ring-accent-blue transition-all"
+              />
             </motion.div>
 
             {!isResetting && (
-              <motion.div variants={itemVariants} className="space-y-2">
-                <div className="flex items-center justify-between px-1">
-                  <label className="text-xs font-bold text-text-muted uppercase tracking-[0.15em]">Password</label>
+              <motion.div variants={itemVariants} className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-text-primary">Password</label>
                   <button 
                     type="button"
                     onClick={() => setIsResetting(true)}
-                    className="text-[10px] font-bold text-accent-blue uppercase tracking-widest hover:underline"
+                    className="text-sm font-medium text-accent-blue hover:text-accent-blue/80 transition-colors"
                   >
-                    Forgot Password?
+                    Forgot password?
                   </button>
                 </div>
-                <div className="relative group">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted group-focus-within:text-accent-blue transition-colors" />
+                <div className="relative">
                   <input 
                     type={showPassword ? "text" : "password"} 
                     required
                     value={formData.password}
                     onChange={e => setFormData({...formData, password: e.target.value})}
                     placeholder="••••••••"
-                    className="w-full bg-bg-secondary border border-border-primary rounded-2xl pl-12 pr-12 py-4 text-sm text-text-primary focus:outline-none focus:border-accent-blue/50 focus:ring-4 focus:ring-accent-blue/5 transition-all"
+                    className="w-full bg-bg-secondary border border-border-primary rounded-lg px-4 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue focus:ring-1 focus:ring-accent-blue transition-all pr-10"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors focus:outline-none"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -221,49 +205,49 @@ export const LoginPage: React.FC = () => {
             )}
 
             <motion.button
+              variants={itemVariants}
               whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.98 }}
+              whileTap={{ scale: 0.99 }}
               type="submit"
               disabled={isLoading}
-              className="w-full flex items-center justify-center gap-3 py-4 bg-accent-blue text-white font-bold rounded-2xl hover:brightness-110 transition-all shadow-xl shadow-accent-blue/20 disabled:opacity-50 mt-4 group"
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-accent-blue text-white text-sm font-medium rounded-lg hover:bg-accent-blue/90 transition-all focus:outline-none focus:ring-2 focus:ring-accent-blue focus:ring-offset-2 focus:ring-offset-bg-primary disabled:opacity-70 mt-4 shadow-sm"
             >
               {isLoading ? (
-                <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
-                <>
-                  <span>{isResetting ? 'Send Recovery Link' : 'Sign In to Dashboard'}</span>
-                  {!isResetting && <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />}
-                </>
+                <span>{isResetting ? 'Send reset link' : 'Sign in'}</span>
               )}
             </motion.button>
           </form>
 
-          {isResetting && (
-            <motion.div variants={itemVariants} className="text-center">
-              <button 
-                onClick={() => setIsResetting(false)} 
-                className="text-accent-blue font-semibold hover:underline text-sm"
+          <AnimatePresence>
+            {isResetting && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="text-center pt-2"
               >
-                Back to Login
-              </button>
-            </motion.div>
-          )}
-
-          <motion.div variants={itemVariants} className="pt-8 border-t border-border-primary">
-            <p className="text-xs text-center text-text-muted leading-relaxed">
-              By signing in, you agree to our <span className="text-text-primary underline cursor-pointer">Terms of Service</span> and <span className="text-text-primary underline cursor-pointer">Privacy Policy</span>.
-            </p>
-          </motion.div>
+                <button 
+                  onClick={() => setIsResetting(false)} 
+                  className="text-sm font-medium text-text-secondary hover:text-text-primary flex items-center justify-center gap-2 w-full transition-colors"
+                >
+                  <ArrowRight className="w-4 h-4 rotate-180" />
+                  Back to log in
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
 
         <motion.div 
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 1 }}
-          className="absolute bottom-10 left-0 right-0 flex flex-col items-center gap-4 pointer-events-none"
+          transition={{ delay: 0.5 }}
+          className="absolute bottom-6 left-0 right-0 flex flex-col items-center pointer-events-none"
         >
-          <p className="text-[10px] font-bold text-text-muted/30 uppercase tracking-[0.4em]">
-            Auriic Enterprise • Stable v3.0.1
+          <p className="text-[11px] text-text-muted/60 font-medium tracking-wide">
+            AURIIC ENTERPRISE © {new Date().getFullYear()}
           </p>
         </motion.div>
       </div>
