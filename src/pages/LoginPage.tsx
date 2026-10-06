@@ -4,13 +4,6 @@ import { useToast } from '../contexts/ToastContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react';
 
-const TEAM_IMAGES = [
-  '/team-1.webp',
-  '/team-2.webp',
-  '/team-3.webp',
-  '/team-4.webp'
-];
-
 export const LoginPage: React.FC = () => {
   const { login, resetPassword } = useAuth();
   const { showToast } = useToast();
@@ -20,7 +13,6 @@ export const LoginPage: React.FC = () => {
   const [isResetting, setIsResetting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
-  const [currentImageIndex, setCurrentImageIndex] = React.useState(0);
   
   const [formData, setFormData] = useState({
     email: '',
@@ -32,13 +24,6 @@ export const LoginPage: React.FC = () => {
     password: '',
     general: ''
   });
-
-  React.useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentImageIndex((prev) => (prev + 1) % TEAM_IMAGES.length);
-    }, 4000);
-    return () => clearInterval(interval);
-  }, []);
 
   const validateForm = () => {
     let isValid = true;
@@ -94,58 +79,33 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen w-full flex font-sans bg-bg-secondary">
+    <div className="min-h-screen w-full flex flex-col justify-center items-center font-sans bg-bg-primary relative overflow-hidden p-4 sm:p-8">
       
-      {/* Left Side - Team Image (Hidden on smaller screens) */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-black">
-        {TEAM_IMAGES.map((src, index) => (
-          <img 
-            key={src}
-            src={src} 
-            alt={`Auriic Team ${index + 1}`} 
-            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ease-in-out ${
-              index === currentImageIndex ? 'opacity-90' : 'opacity-0'
-            }`}
-          />
-        ))}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex flex-col justify-end p-12 pointer-events-none">
-          <div className="max-w-md">
-            <h2 className="text-white text-3xl font-bold mb-3 tracking-tight">Meet the team behind Auriic Services.</h2>
-            <p className="text-white/80 text-lg leading-relaxed">
-              We are dedicated to connecting talent with the right opportunities and helping professionals build successful careers in a rapidly changing workforce.
-            </p>
-          </div>
-        </div>
+      {/* Modern ambient background glows */}
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-accent-blue/10 dark:bg-accent-blue/20 blur-[100px] mix-blend-screen" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-purple-500/10 dark:bg-purple-500/20 blur-[100px] mix-blend-screen" />
       </div>
-
-      {/* Right Side - Login Area */}
-      <div className="w-full lg:w-1/2 flex flex-col justify-center items-center p-4 sm:p-8 relative bg-bg-primary overflow-hidden">
-        
-        {/* Modern ambient background glows */}
-        <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-          <div className="absolute -top-[10%] -left-[10%] w-[50%] h-[50%] rounded-full bg-accent-blue/10 dark:bg-accent-blue/20 blur-[100px] mix-blend-screen" />
-          <div className="absolute top-[40%] -right-[10%] w-[50%] h-[50%] rounded-full bg-purple-500/10 dark:bg-purple-500/20 blur-[100px] mix-blend-screen" />
+      
+      {/* Brand Logos */}
+      <div className="relative z-10 mb-8 md:mb-10 flex items-center justify-center gap-3 md:gap-5">
+        <img 
+          src={theme === 'dark' 
+            ? "https://auriic.co/wp-content/uploads/2026/04/Auriic-logo-Header.webp" 
+            : "https://auriic.co/wp-content/uploads/2026/05/Auriic_dark_Logo.webp"
+          } 
+          alt="Auriic Logo" 
+          className="h-10 md:h-14 w-auto object-contain drop-shadow-sm"
+        />
+        <div className="text-gray-400 dark:text-gray-500 font-light text-xl md:text-2xl mt-1">
+          ✕
         </div>
-        
-        {/* Brand Logos */}
-        <div className="relative z-10 mb-8 md:mb-10 flex items-center justify-center gap-3 md:gap-5">
-          <img 
-            src={theme === 'dark' 
-              ? "https://auriic.co/wp-content/uploads/2026/04/Auriic-logo-Header.webp" 
-              : "https://auriic.co/wp-content/uploads/2026/05/Auriic_dark_Logo.webp"
-            } 
-            alt="Auriic Logo" 
-            className="h-10 md:h-14 w-auto object-contain drop-shadow-sm"
-          />
-          <div className="text-gray-400 dark:text-gray-500 font-light text-xl md:text-2xl mt-1">
-            ✕
-          </div>
-          <img 
-            src="/placify-logo.webp" 
-            alt="Placify Logo" 
-            className={`h-8 md:h-10 w-auto object-contain drop-shadow-sm ${theme !== 'dark' ? 'invert' : ''}`}
-          />
-        </div>
+        <img 
+          src="/placify-logo.webp" 
+          alt="Placify Logo" 
+          className={`h-8 md:h-10 w-auto object-contain drop-shadow-sm ${theme !== 'dark' ? 'invert' : ''}`}
+        />
+      </div>
 
         {/* Main Card (Glassmorphism style) */}
         <div className="relative z-10 w-full max-w-[420px] bg-white/60 dark:bg-black/40 backdrop-blur-2xl rounded-3xl shadow-[0_8px_40px_rgb(0,0,0,0.04)] dark:shadow-[0_8px_40px_rgb(0,0,0,0.16)] border border-white/50 dark:border-white/10 p-8 sm:p-10">
