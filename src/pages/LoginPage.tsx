@@ -81,15 +81,23 @@ export const LoginPage: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col justify-center items-center bg-bg-secondary p-4 font-sans">
       
-      {/* Brand Logo */}
-      <div className="mb-10">
+      {/* Brand Logos */}
+      <div className="mb-10 flex items-center justify-center gap-4 md:gap-6">
         <img 
           src={theme === 'dark' 
             ? "https://auriic.co/wp-content/uploads/2026/04/Auriic-logo-Header.webp" 
             : "https://auriic.co/wp-content/uploads/2026/05/Auriic_dark_Logo.webp"
           } 
-          alt="Placify CRM Logo" 
-          className="h-24 md:h-32 w-auto object-contain"
+          alt="Auriic Logo" 
+          className="h-16 md:h-24 w-auto object-contain"
+        />
+        <div className="text-gray-300 dark:text-gray-700 font-light text-xl md:text-2xl mt-1">
+          ✕
+        </div>
+        <img 
+          src="/placify-logo.webp" 
+          alt="Placify Logo" 
+          className={`h-12 md:h-20 w-auto object-contain ${theme !== 'dark' ? 'invert' : ''}`}
         />
       </div>
 
