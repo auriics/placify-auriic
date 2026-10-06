@@ -64,13 +64,13 @@ try {
     const currentProjectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT || config.projectId;
     
     if (isServerless && !process.env.FIREBASE_SERVICE_ACCOUNT) {
-      console.warn('[Firebase Admin] Running in serverless environment without explicit FIREBASE_SERVICE_ACCOUNT.');
+      console.warn('[Firebase Admin] Skipping initialization in serverless environment without explicit FIREBASE_SERVICE_ACCOUNT to prevent ADC timeout.');
+    } else {
+      admin.initializeApp({
+        projectId: currentProjectId
+      });
+      console.log(`[Firebase Admin] Initialized with projectId: ${currentProjectId}`);
     }
-    
-    admin.initializeApp({
-      projectId: currentProjectId
-    });
-    console.log(`[Firebase Admin] Initialized with projectId: ${currentProjectId}`);
   }
 } catch (error) {
   console.error('[Firebase Admin] Error during initialization:', error);
@@ -78,8 +78,12 @@ try {
 
 // 3. Last resort default initialization (only if still not initialized)
 if (!admin.apps.length) {
-  admin.initializeApp();
-  console.log('[Firebase Admin] Initialized with default settings (ADC)');
+  if (isServerless && !process.env.FIREBASE_SERVICE_ACCOUNT) {
+    console.warn('[Firebase Admin] Skipping default ADC initialization in serverless environment.');
+  } else {
+    admin.initializeApp();
+    console.log('[Firebase Admin] Initialized with default settings (ADC)');
+  }
 }
 
 // Safely initialize Firestore to prevent server-wide crash at startup if credentials aren't loaded yet
