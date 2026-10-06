@@ -119,36 +119,42 @@ export const LoginPage: React.FC = () => {
       </div>
 
       {/* Right Side - Login Area */}
-      <div className="w-full lg:w-1/2 flex flex-col justify-center items-center p-4 sm:p-8">
+      <div className="w-full lg:w-1/2 flex flex-col justify-center items-center p-4 sm:p-8 relative bg-bg-primary overflow-hidden">
+        
+        {/* Modern ambient background glows */}
+        <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
+          <div className="absolute -top-[10%] -left-[10%] w-[50%] h-[50%] rounded-full bg-accent-blue/10 dark:bg-accent-blue/20 blur-[100px] mix-blend-screen" />
+          <div className="absolute top-[40%] -right-[10%] w-[50%] h-[50%] rounded-full bg-purple-500/10 dark:bg-purple-500/20 blur-[100px] mix-blend-screen" />
+        </div>
         
         {/* Brand Logos */}
-        <div className="mb-8 md:mb-10 flex items-center justify-center gap-3 md:gap-5">
+        <div className="relative z-10 mb-8 md:mb-10 flex items-center justify-center gap-3 md:gap-5">
           <img 
             src={theme === 'dark' 
               ? "https://auriic.co/wp-content/uploads/2026/04/Auriic-logo-Header.webp" 
               : "https://auriic.co/wp-content/uploads/2026/05/Auriic_dark_Logo.webp"
             } 
             alt="Auriic Logo" 
-            className="h-12 md:h-16 w-auto object-contain"
+            className="h-10 md:h-14 w-auto object-contain drop-shadow-sm"
           />
-          <div className="text-gray-300 dark:text-gray-600 font-light text-xl md:text-2xl mt-1">
+          <div className="text-gray-400 dark:text-gray-500 font-light text-xl md:text-2xl mt-1">
             ✕
           </div>
           <img 
             src="/placify-logo.webp" 
             alt="Placify Logo" 
-            className={`h-9 md:h-12 w-auto object-contain ${theme !== 'dark' ? 'invert' : ''}`}
+            className={`h-8 md:h-10 w-auto object-contain drop-shadow-sm ${theme !== 'dark' ? 'invert' : ''}`}
           />
         </div>
 
-        {/* Main Card */}
-        <div className="w-full max-w-[400px] bg-bg-primary rounded-xl shadow-sm border border-border-primary p-6 sm:p-8">
+        {/* Main Card (Glassmorphism style) */}
+        <div className="relative z-10 w-full max-w-[420px] bg-white/60 dark:bg-black/40 backdrop-blur-2xl rounded-3xl shadow-[0_8px_40px_rgb(0,0,0,0.04)] dark:shadow-[0_8px_40px_rgb(0,0,0,0.16)] border border-white/50 dark:border-white/10 p-8 sm:p-10">
           
           <div className="mb-8 text-center sm:text-left">
-            <h1 className="text-2xl font-semibold text-text-primary tracking-tight">
-              {isResetting ? 'Reset your password' : 'Sign in to Placify'}
+            <h1 className="text-2xl sm:text-3xl font-bold text-text-primary tracking-tight">
+              {isResetting ? 'Reset password' : 'Sign in to Placify'}
             </h1>
-            <p className="text-sm text-text-secondary mt-2">
+            <p className="text-sm sm:text-base text-text-secondary mt-2">
               {isResetting 
                 ? 'Enter your email and we\'ll send you instructions.' 
                 : 'Welcome back! Please enter your details.'}
@@ -156,7 +162,7 @@ export const LoginPage: React.FC = () => {
           </div>
 
           {errors.general && (
-            <div className="mb-6 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-3 text-red-600 dark:text-red-400 text-sm">
+            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-start gap-3 text-red-600 dark:text-red-400 text-sm">
               <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
               <p>{errors.general}</p>
             </div>
@@ -164,8 +170,8 @@ export const LoginPage: React.FC = () => {
 
           <form onSubmit={handleSubmit} className="space-y-5" noValidate>
             {/* Email Field */}
-            <div className="space-y-1.5">
-              <label htmlFor="email" className="text-sm font-medium text-text-primary">
+            <div className="space-y-2">
+              <label htmlFor="email" className="text-sm font-semibold text-text-primary ml-1">
                 Email Address
               </label>
               <input 
@@ -177,17 +183,17 @@ export const LoginPage: React.FC = () => {
                   if (errors.email) setErrors({...errors, email: ''});
                 }}
                 placeholder="name@company.com"
-                className={`w-full bg-bg-secondary border ${errors.email ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-border-primary focus:border-accent-blue focus:ring-accent-blue'} rounded-lg px-3.5 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 transition-shadow`}
+                className={`w-full bg-black/5 dark:bg-white/5 border ${errors.email ? 'border-red-500 focus:ring-red-500' : 'border-transparent focus:border-accent-blue focus:bg-white dark:focus:bg-black'} rounded-2xl px-4 py-3.5 text-[15px] text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent-blue/20 transition-all`}
               />
               {errors.email && (
-                <p className="text-sm text-red-500 mt-1">{errors.email}</p>
+                <p className="text-sm text-red-500 mt-1 ml-1">{errors.email}</p>
               )}
             </div>
 
-            {/* Password Field (Only when not resetting) */}
+            {/* Password Field */}
             {!isResetting && (
-              <div className="space-y-1.5">
-                <label htmlFor="password" className="text-sm font-medium text-text-primary">
+              <div className="space-y-2">
+                <label htmlFor="password" className="text-sm font-semibold text-text-primary ml-1">
                   Password
                 </label>
                 <div className="relative">
@@ -200,27 +206,27 @@ export const LoginPage: React.FC = () => {
                       if (errors.password) setErrors({...errors, password: ''});
                     }}
                     placeholder="••••••••"
-                    className={`w-full bg-bg-secondary border ${errors.password ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-border-primary focus:border-accent-blue focus:ring-accent-blue'} rounded-lg px-3.5 py-2.5 pr-10 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 transition-shadow`}
+                    className={`w-full bg-black/5 dark:bg-white/5 border ${errors.password ? 'border-red-500 focus:ring-red-500' : 'border-transparent focus:border-accent-blue focus:bg-white dark:focus:bg-black'} rounded-2xl px-4 py-3.5 pr-12 text-[15px] text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent-blue/20 transition-all`}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary focus:outline-none transition-colors"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary focus:outline-none transition-colors"
                     aria-label={showPassword ? "Hide password" : "Show password"}
                   >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
                 </div>
                 {errors.password && (
-                  <p className="text-sm text-red-500 mt-1">{errors.password}</p>
+                  <p className="text-sm text-red-500 mt-1 ml-1">{errors.password}</p>
                 )}
               </div>
             )}
 
             {/* Remember Me & Forgot Password */}
             {!isResetting && (
-              <div className="flex items-center justify-between pt-1">
-                <label className="flex items-center gap-2 cursor-pointer group">
+              <div className="flex items-center justify-between pt-2 px-1">
+                <label className="flex items-center gap-2.5 cursor-pointer group">
                   <div className="relative flex items-center">
                     <input 
                       type="checkbox"
@@ -228,13 +234,13 @@ export const LoginPage: React.FC = () => {
                       onChange={(e) => setRememberMe(e.target.checked)}
                       className="peer sr-only"
                     />
-                    <div className="w-4 h-4 rounded border border-border-primary bg-bg-secondary peer-checked:bg-accent-blue peer-checked:border-accent-blue peer-focus-visible:ring-2 peer-focus-visible:ring-accent-blue peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-bg-primary transition-colors flex items-center justify-center">
-                      <svg className="w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                    <div className="w-5 h-5 rounded-md border-2 border-border-primary bg-transparent peer-checked:bg-accent-blue peer-checked:border-accent-blue peer-focus-visible:ring-2 peer-focus-visible:ring-accent-blue peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-bg-primary transition-all flex items-center justify-center">
+                      <svg className="w-3.5 h-3.5 text-white opacity-0 peer-checked:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                       </svg>
                     </div>
                   </div>
-                  <span className="text-sm text-text-secondary group-hover:text-text-primary transition-colors">Remember me</span>
+                  <span className="text-[15px] text-text-secondary group-hover:text-text-primary transition-colors">Remember me</span>
                 </label>
                 
                 <button 
@@ -243,7 +249,7 @@ export const LoginPage: React.FC = () => {
                     setIsResetting(true);
                     setErrors({ email: '', password: '', general: '' });
                   }}
-                  className="text-sm font-medium text-accent-blue hover:text-accent-blue/80 transition-colors"
+                  className="text-[15px] font-semibold text-accent-blue hover:text-accent-blue/80 transition-colors"
                 >
                   Forgot password?
                 </button>
@@ -254,7 +260,7 @@ export const LoginPage: React.FC = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full flex items-center justify-center py-2.5 px-4 bg-accent-blue hover:brightness-110 active:brightness-95 text-white text-sm font-medium rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-accent-blue focus:ring-offset-2 focus:ring-offset-bg-primary disabled:opacity-70 disabled:cursor-not-allowed mt-2"
+              className="w-full flex items-center justify-center py-3.5 px-4 bg-gradient-to-r from-accent-blue to-teal-500 hover:from-teal-500 hover:to-accent-blue active:scale-[0.98] text-white text-[15px] font-bold rounded-2xl transition-all focus:outline-none focus:ring-2 focus:ring-accent-blue/50 shadow-lg shadow-accent-blue/20 disabled:opacity-70 disabled:cursor-not-allowed mt-6"
             >
               {isLoading ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -265,13 +271,13 @@ export const LoginPage: React.FC = () => {
           </form>
 
           {isResetting && (
-            <div className="mt-6 text-center">
+            <div className="mt-8 text-center">
               <button 
                 onClick={() => {
                   setIsResetting(false);
                   setErrors({ email: '', password: '', general: '' });
                 }}
-                className="text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
+                className="text-[15px] font-semibold text-text-secondary hover:text-text-primary transition-colors"
               >
                 Back to log in
               </button>
@@ -280,13 +286,12 @@ export const LoginPage: React.FC = () => {
         </div>
 
         {/* Footer */}
-        <div className="mt-8 text-center">
-          <p className="text-xs text-text-muted">
+        <div className="relative z-10 mt-10 text-center">
+          <p className="text-[13px] font-medium text-text-muted">
             © {new Date().getFullYear()} Placify CRM. All rights reserved.
           </p>
         </div>
       </div>
-      
     </div>
   );
 };
