@@ -260,18 +260,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentHash, isOpen, setIsOpen
         isOpen ? "translate-x-0" : "-translate-x-full"
       )}>
         {/* Brand Area */}
-        <div className="p-4 sm:p-6 flex items-center gap-3">
-          <img 
-            src={theme === 'dark' 
-              ? "https://auriic.co/wp-content/uploads/2026/04/Auriic-logo-Header.webp" 
-              : "https://auriic.co/wp-content/uploads/2026/05/Auriic_dark_Logo.webp"
-            } 
-            alt="Auriic Logo" 
-            className="h-10 sm:h-12 w-auto scale-105 origin-left"
-            referrerPolicy="no-referrer"
-          />
+        <div className="p-4 sm:p-6 flex items-center justify-between">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <img 
+              src={theme === 'dark' 
+                ? "https://auriic.co/wp-content/uploads/2026/04/Auriic-logo-Header.webp" 
+                : "https://auriic.co/wp-content/uploads/2026/05/Auriic_dark_Logo.webp"
+              } 
+              alt="Auriic Logo" 
+              className="h-8 sm:h-9 w-auto object-contain"
+              referrerPolicy="no-referrer"
+            />
+            <div className="text-gray-300 dark:text-gray-700 font-light text-sm sm:text-base mt-0.5">
+              ✕
+            </div>
+            <img 
+              src="/placify-logo.webp" 
+              alt="Placify Logo" 
+              className={`h-7 sm:h-8 w-auto object-contain ${theme !== 'dark' ? 'invert' : ''}`}
+            />
+          </div>
           <button 
-            className="md:hidden ml-auto p-2 text-text-secondary hover:text-text-primary hover:bg-bg-tertiary rounded-xl transition-all"
+            className="md:hidden p-2 text-text-secondary hover:text-text-primary hover:bg-bg-tertiary rounded-xl transition-all"
             onClick={() => setIsOpen(false)}
             aria-label="Close sidebar menu"
           >
@@ -489,15 +499,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentHash, isOpen, setIsOpen
 
           <div className="pt-4 border-t border-border-primary flex flex-col items-center gap-2">
             <p className="text-[8px] font-bold text-text-muted uppercase tracking-widest">Powered by</p>
-            <img 
-              src={theme === 'dark' 
-                ? "https://auriic.co/wp-content/uploads/2026/04/Auriic-logo-Header.webp" 
-                : "https://auriic.co/wp-content/uploads/2026/05/Auriic_dark_Logo.webp"
-              } 
-              alt="Auriic Logo" 
-              className="h-5 w-auto opacity-50 hover:opacity-100 transition-opacity"
-              referrerPolicy="no-referrer"
-            />
+            <div className="flex items-center gap-1.5 opacity-50 hover:opacity-100 transition-opacity">
+              <img 
+                src={theme === 'dark' 
+                  ? "https://auriic.co/wp-content/uploads/2026/04/Auriic-logo-Header.webp" 
+                  : "https://auriic.co/wp-content/uploads/2026/05/Auriic_dark_Logo.webp"
+                } 
+                alt="Auriic Logo" 
+                className="h-4 w-auto object-contain"
+                referrerPolicy="no-referrer"
+              />
+              <span className="text-text-muted font-light text-[10px]">✕</span>
+              <img 
+                src="/placify-logo.webp" 
+                alt="Placify Logo" 
+                className={`h-3.5 w-auto object-contain ${theme !== 'dark' ? 'invert' : ''}`}
+              />
+            </div>
           </div>
         </div>
       </aside>
