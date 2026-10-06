@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Badge } from "../components/ui/badge";
+
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { subscribeToCollection, handleFirestoreError, OperationType } from '../services/storage';
@@ -7,7 +9,7 @@ import { Search, Filter, X, Package, Phone, Mail, MapPin, Calendar, Users, Chevr
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Candidate, Stage, User, Application, FollowUp } from '../types';
-import { CandidateSheet } from '../components/CandidateSheet';
+import { CandidateWorkspace } from '../components/CandidateWorkspace';
 import { TrackJobSheet } from '../components/TrackJobSheet';
 import { BulkImportModal } from '../components/BulkImportModal';
 import { AddCandidateModal } from '../components/AddCandidateModal';
@@ -47,7 +49,7 @@ const CandidateRow = React.memo(({
   return (
     <div 
       style={style}
-      className="hover:bg-bg-tertiary/30 transition-colors group cursor-pointer border-b border-border-primary flex items-center"
+      className="border-b border-border-primary/50 transition-colors hover:bg-bg-tertiary/50 data-[state=selected]:bg-bg-tertiary flex items-center group cursor-pointer"
       onClick={() => onSelect(candidate)}
     >
       <div className="flex-1 px-6 py-4 flex items-center gap-4 min-w-[250px]">
@@ -96,12 +98,10 @@ const CandidateRow = React.memo(({
         )}
       </div>
       <div className="w-48 px-6 py-4">
-        <div className="inline-flex items-center gap-2 px-3 py-1 bg-bg-tertiary border border-border-primary rounded-full">
-          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: STAGES[candidate.current_stage]?.color || '#94a3b8' }} />
-          <span className="text-[10px] font-bold text-text-primary uppercase tracking-wider">
-            {STAGES[candidate.current_stage]?.label || candidate.current_stage}
-          </span>
-        </div>
+        <Badge variant="outline" className="gap-2 px-3 py-1 bg-bg-tertiary rounded-full uppercase tracking-wider text-[10px] border-border-primary">
+          <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: STAGES[candidate.current_stage]?.color || '#94a3b8' }} />
+          {STAGES[candidate.current_stage]?.label || candidate.current_stage}
+        </Badge>
       </div>
       <div className="w-40 px-6 py-4 hidden sm:block">
         <div className="flex items-center gap-2">
@@ -458,12 +458,10 @@ export const Candidates: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-bg-tertiary border border-border-primary rounded-full shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: stage?.color || '#94a3b8' }} />
-                  <span className="text-[9px] font-bold text-text-primary uppercase tracking-wider">
-                    {stage?.label?.split('. ')[1] || stage?.label || candidate.current_stage}
-                  </span>
-                </div>
+                <Badge variant="outline" className="gap-1.5 px-2.5 py-1 bg-bg-tertiary rounded-full uppercase tracking-wider text-[9px] border-border-primary shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: stage?.color || '#94a3b8' }} />
+                  {stage?.label?.split('. ')[1] || stage?.label || candidate.current_stage}
+                </Badge>
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-xs text-text-muted bg-bg-tertiary/40 rounded-xl p-2.5">
@@ -550,7 +548,7 @@ export const Candidates: React.FC = () => {
         <div className="overflow-x-auto touch-scroll">
           <div className="min-w-[800px]">
             {/* Table Header */}
-            <div className="bg-bg-tertiary/50 border-b border-border-primary flex items-center">
+            <div className="border-b bg-bg-tertiary/50 font-medium flex items-center">
               <div className="flex-1 px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-widest min-w-[250px]">Candidate</div>
               <div className="w-32 px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-widest">ID</div>
               <div className="w-56 px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-widest hidden lg:block">Contact</div>
@@ -590,8 +588,8 @@ export const Candidates: React.FC = () => {
       </div>
 
 
-      <CandidateSheet 
-        candidate={selectedCandidate}
+      <CandidateWorkspace 
+        candidateId={selectedCandidate?.id}
         isOpen={isSheetOpen}
         onClose={() => {
           setIsSheetOpen(false);

@@ -38,19 +38,19 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               initial={{ opacity: 0, y: 20, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg min-w-[300px] border ${
-                toast.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' :
-                toast.type === 'error' ? 'bg-rose-500/10 border-rose-500/20 text-rose-500' :
-                'bg-blue-500/10 border-blue-500/20 text-blue-500'
+              className={`pointer-events-auto flex items-center gap-3 px-4 py-3.5 rounded-xl shadow-xl min-w-[300px] border bg-bg-secondary/95 backdrop-blur-md ${
+                toast.type === 'success' ? 'border-accent-green/30 text-text-primary' :
+                toast.type === 'error' ? 'border-accent-red/30 text-text-primary' :
+                'border-accent-blue/30 text-text-primary'
               }`}
             >
-              {toast.type === 'success' && <CheckCircle className="w-5 h-5" />}
-              {toast.type === 'error' && <AlertCircle className="w-5 h-5" />}
-              {toast.type === 'info' && <Info className="w-5 h-5" />}
-              <span className="flex-1 font-medium">{toast.message}</span>
+              {toast.type === 'success' && <CheckCircle className="w-5 h-5 text-accent-green" />}
+              {toast.type === 'error' && <AlertCircle className="w-5 h-5 text-accent-red" />}
+              {toast.type === 'info' && <Info className="w-5 h-5 text-accent-blue" />}
+              <span className="flex-1 text-sm font-semibold">{toast.message}</span>
               <button 
                 onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
-                className="p-1 hover:bg-black/5 rounded-full transition-colors"
+                className="p-1.5 hover:bg-bg-tertiary rounded-lg transition-colors text-text-muted hover:text-text-primary"
               >
                 <X className="w-4 h-4" />
               </button>

@@ -82,12 +82,14 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signOut as secondarySignOut, updateProfile } from 'firebase/auth';
 import { resolveRecruiterName as resolveRecruiterNameFromUtil, resolveRecruiterUser, isPlaceholderRecruiterName } from '../utils/recruiterResolver';
 
-export const CandidateDetail: React.FC = () => {
+import { Sheet } from "./ui/sheet";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "./ui/tabs";
+export const CandidateWorkspace: React.FC<{ candidateId?: string | null, isOpen?: boolean, onClose?: () => void }> = ({ candidateId, isOpen = true, onClose = () => window.history.back() }) => {
   const { user, isAuthReady } = useAuth();
   const { showToast } = useToast();
   
   const params = new URLSearchParams(window.location.hash.split('?')[1]);
-  const id = params.get('id');
+  const id = candidateId || params.get('id');
 
   const isCandidate = user?.role === 'candidate' || user?.role === 'jpc_candidate';
   const isLeadGen = user?.role === 'jpc_lead_gen';
@@ -517,21 +519,22 @@ export const CandidateDetail: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="h-full flex items-center justify-center">
+      <Sheet isOpen={isOpen} onClose={onClose} side="right" className="w-full sm:w-[95vw] md:w-[85vw] lg:w-[1200px] sm:max-w-none"><div className="h-full flex items-center justify-center">
         <div className="w-12 h-12 border-4 border-accent-blue/30 border-t-accent-blue rounded-full animate-spin" />
       </div>
+      </Sheet>
     );
   }
 
   if (!candidate) {
     return (
-      <div className="h-full flex items-center justify-center">
+      <Sheet isOpen={isOpen} onClose={onClose} side="right" className="w-full sm:w-[95vw] md:w-[85vw] lg:w-[1200px] sm:max-w-none"><div className="h-full flex items-center justify-center">
         <div className="text-center">
           <AlertCircle className="w-12 h-12 text-text-muted mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-text-primary">Candidate Not Found</h2>
           <a href="#candidates" className="text-accent-blue hover:underline mt-2 block">Back to Candidates</a>
         </div>
-      </div>
+      </div></Sheet>
     );
   }
 
@@ -1367,7 +1370,8 @@ export const CandidateDetail: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8 pb-20 px-4 md:px-6 lg:px-8">
+    <Sheet isOpen={isOpen} onClose={onClose} side="right" className="w-full sm:w-[95vw] md:w-[85vw] lg:w-[1200px] sm:max-w-none">
+      <div className="space-y-8 pb-20 px-4 md:px-6 lg:px-8">
       {/* Target Reduction Modal */}
       <AnimatePresence>
         {isRequestingTarget && (
@@ -3967,5 +3971,8 @@ export const CandidateDetail: React.FC = () => {
         </div>
       </div>
     </div>
+  );
+  );
+    </Sheet>
   );
 };
