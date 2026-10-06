@@ -89,7 +89,7 @@ export const LoginPage: React.FC = () => {
             : "https://auriic.co/wp-content/uploads/2026/05/Auriic_dark_Logo.webp"
           } 
           alt="Placify CRM Logo" 
-          className="h-16 md:h-20 w-auto object-contain"
+          className="h-24 md:h-32 w-auto object-contain"
         />
       </div>
 
