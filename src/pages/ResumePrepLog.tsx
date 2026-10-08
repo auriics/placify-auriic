@@ -525,7 +525,7 @@ export const ResumePrepLog: React.FC = () => {
           <select 
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="bg-transparent border-none focus:ring-0 text-sm font-medium text-text-primary cursor-pointer focus:outline-none"
+            className="bg-bg-secondary border-none focus:ring-0 text-sm font-semibold text-text-primary cursor-pointer focus:outline-none"
           >
             <option value="all">All Status</option>
             <option value="pending_resume_team">Pending Resume Team</option>

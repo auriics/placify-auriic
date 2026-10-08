@@ -3047,7 +3047,7 @@ export const CandidateDetail: React.FC = () => {
                         <span className="text-[9px] uppercase font-bold text-text-muted bg-bg-secondary px-2 py-0.5 rounded border border-border-primary/40">Read-Only</span>
                       </div>
                     ) : (
-                      <select value={packageForm.assigned_sales || ''} onChange={e => setPackageForm({...packageForm, assigned_sales: e.target.value})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm">
+                      <select value={packageForm.assigned_sales || ''} onChange={e => setPackageForm({...packageForm, assigned_sales: e.target.value})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm text-text-primary font-medium focus:outline-none focus:border-accent-blue">
                         <option value="">Select Sales (or Unassigned)</option>
                         {salesUsers.map(u => <option key={u.id} value={u.id}>{u.display_name}</option>)}
                       </select>
@@ -3056,7 +3056,7 @@ export const CandidateDetail: React.FC = () => {
                   {(!isLeadGen || isSalesperson) && (
                     <div className="space-y-1">
                       <label className="text-[10px] font-bold text-text-muted uppercase">Assigned Compliance</label>
-                      <select value={packageForm.assigned_cs || ''} onChange={e => setPackageForm({...packageForm, assigned_cs: e.target.value})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm">
+                      <select value={packageForm.assigned_cs || ''} onChange={e => setPackageForm({...packageForm, assigned_cs: e.target.value})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm text-text-primary font-medium focus:outline-none focus:border-accent-blue">
                         <option value="">Select Compliance</option>
                         {csUsers.map(u => <option key={u.id} value={u.id}>{u.display_name} ({u.role === 'jpc_cs' ? 'Compliance Head' : 'Compliance Person'})</option>)}
                       </select>
@@ -3066,7 +3066,7 @@ export const CandidateDetail: React.FC = () => {
                     <>
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold text-text-muted uppercase">Assigned Resume</label>
-                        <select value={packageForm.assigned_resume || ''} onChange={e => setPackageForm({...packageForm, assigned_resume: e.target.value})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm">
+                        <select value={packageForm.assigned_resume || ''} onChange={e => setPackageForm({...packageForm, assigned_resume: e.target.value})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm text-text-primary font-medium focus:outline-none focus:border-accent-blue">
                           <option value="">Select Resume Team</option>
                           {resumeUsers.map(u => <option key={u.id} value={u.id}>{u.display_name}</option>)}
                         </select>
@@ -3076,7 +3076,7 @@ export const CandidateDetail: React.FC = () => {
                         <select 
                           value={packageForm.assigned_marketing_leader || ''} 
                           onChange={e => setPackageForm({...packageForm, assigned_marketing_leader: e.target.value, assigned_recruiter: null})} 
-                          className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm"
+                          className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm text-text-primary font-medium focus:outline-none focus:border-accent-blue"
                         >
                           <option value="">Select Marketing Leader</option>
                           {marketingLeaders.map(u => <option key={u.id} value={u.id}>{u.display_name}</option>)}
@@ -3087,7 +3087,7 @@ export const CandidateDetail: React.FC = () => {
                         <select 
                           value={packageForm.assigned_recruiter || ''} 
                           onChange={e => setPackageForm({...packageForm, assigned_recruiter: e.target.value})} 
-                          className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm"
+                          className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm text-text-primary font-medium focus:outline-none focus:border-accent-blue"
                           disabled={!packageForm.assigned_marketing_leader}
                         >
                           <option value="">Select Recruiter</option>
@@ -3135,7 +3135,7 @@ export const CandidateDetail: React.FC = () => {
                       </div>
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold text-text-muted uppercase">Assigned Marketing</label>
-                        <select value={packageForm.assigned_marketing || ''} onChange={e => setPackageForm({...packageForm, assigned_marketing: e.target.value})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm">
+                        <select value={packageForm.assigned_marketing || ''} onChange={e => setPackageForm({...packageForm, assigned_marketing: e.target.value})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm text-text-primary font-medium focus:outline-none focus:border-accent-blue">
                           <option value="">Select Marketing</option>
                           {marketingUsers.map(u => <option key={u.id} value={u.id}>{u.display_name}</option>)}
                         </select>

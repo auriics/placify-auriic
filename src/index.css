@@ -31,12 +31,37 @@
   --bg-canvas: #09090B;      /* Zinc 950 */
   --bg-card: #18181B;        /* Zinc 900 */
   --bg-muted: #27272A;       /* Zinc 800 */
-  --border: rgba(255, 255, 255, 0.08); /* Minimal subtle border */
+  --border: rgba(255, 255, 255, 0.12); /* Visible border */
   --text-primary: #FAFAFA;   /* Zinc 50 */
   --text-secondary: #A1A1AA; /* Zinc 400 */
   --text-muted: #71717A;     /* Zinc 500 */
   
   --brand-primary: #0F7664;  /* Placify Teal */
+
+  /* Direct aliases for CSS and JavaScript inline styles */
+  --bg-primary: #0A0C10;
+  --bg-secondary: #18181B;
+  --bg-tertiary: #27272A;
+  --border-primary: rgba(255, 255, 255, 0.12);
+  
+  --color-bg-primary: #0A0C10;
+  --color-bg-secondary: #18181B;
+  --color-bg-tertiary: #27272A;
+  --color-border-primary: rgba(255, 255, 255, 0.12);
+  --color-text-primary: #FAFAFA;
+  --color-text-secondary: #A1A1AA;
+  --color-text-muted: #71717A;
+  --color-accent-blue: #0F7664;
+  --color-accent-green: #0F7664;
+  --color-accent-teal: #0F7664;
+  --color-accent-amber: #F59E0B;
+  --color-accent-red: #EF4444;
+  --color-accent-purple: #8B5CF6;
+  --color-accent-gray: #71717A;
+
+  --dropdown-bg: #18181B;
+  --dropdown-hover: #27272A;
+  --dropdown-selected: #0F7664;
 }
 
 /* Light Mode */
@@ -45,84 +70,334 @@
   --bg-canvas: #FAFAFA;      /* Zinc 50 */
   --bg-card: #FFFFFF;        /* Pure White */
   --bg-muted: #F4F4F5;       /* Zinc 100 */
-  --border: rgba(0, 0, 0, 0.08);
+  --border: rgba(0, 0, 0, 0.12);
   --text-primary: #09090B;   /* Zinc 950 */
   --text-secondary: #52525B; /* Zinc 600 */
-  --text-muted: #A1A1AA;     /* Zinc 400 */
+  --text-muted: #71717A;     /* Zinc 500 */
   
   --brand-primary: #0F7664;  /* Placify Teal */
+
+  /* Direct aliases for CSS and JavaScript inline styles */
+  --bg-primary: #FAFAFA;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #F4F4F5;
+  --border-primary: rgba(0, 0, 0, 0.12);
+  
+  --color-bg-primary: #FAFAFA;
+  --color-bg-secondary: #FFFFFF;
+  --color-bg-tertiary: #F4F4F5;
+  --color-border-primary: rgba(0, 0, 0, 0.12);
+  --color-text-primary: #09090B;
+  --color-text-secondary: #52525B;
+  --color-text-muted: #71717A;
+  --color-accent-blue: #0F7664;
+  --color-accent-green: #0F7664;
+  --color-accent-teal: #0F7664;
+  --color-accent-amber: #F59E0B;
+  --color-accent-red: #EF4444;
+  --color-accent-purple: #8B5CF6;
+  --color-accent-gray: #71717A;
+
+  --dropdown-bg: #FFFFFF;
+  --dropdown-hover: #F4F4F5;
+  --dropdown-selected: #0F7664;
 }
 
 /* ==========================================================================
    Global Dropdown & Select Theming (Native & Custom Components)
    ========================================================================== */
 
-/* Native select element theming */
+/* Native select element theming - solid, opaque, legible */
 select {
   color-scheme: dark;
-  background-color: var(--bg-tertiary);
-  color: var(--text-primary);
+  background-color: var(--bg-tertiary, #27272A) !important;
+  color: var(--text-primary, #FAFAFA) !important;
+  border-color: var(--border, rgba(255, 255, 255, 0.12));
+  opacity: 1 !important;
 }
 
 :root[data-theme="light"] select {
   color-scheme: light;
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
+  background-color: var(--bg-secondary, #FFFFFF) !important;
+  color: var(--text-primary, #09090B) !important;
+  border-color: var(--border, rgba(0, 0, 0, 0.12));
+  opacity: 1 !important;
+}
+
+/* Native select arrow indicator */
+select:not([multiple]):not([size]) {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23A1A1AA' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 0.75rem center;
+  background-repeat: no-repeat;
+  background-size: 1.1em 1.1em;
+  padding-right: 2.25rem !important;
+}
+
+:root[data-theme="light"] select:not([multiple]):not([size]) {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2352525B' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+}
+
+/* Ensure focus states on native selects are clear and elevated */
+select:focus {
+  border-color: var(--brand-primary, #0F7664) !important;
+  box-shadow: 0 0 0 2px rgba(15, 118, 100, 0.25) !important;
+  outline: none !important;
 }
 
 /* Native option and optgroup styling across all operating systems & browsers */
+select option,
+select optgroup,
 option,
 optgroup {
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
+  background-color: #18181B !important;
+  color: #FAFAFA !important;
+  font-weight: 500;
+  padding: 8px 12px;
+  opacity: 1 !important;
 }
 
+:root[data-theme="light"] select option,
+:root[data-theme="light"] select optgroup,
 :root[data-theme="light"] option,
 :root[data-theme="light"] optgroup {
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
+  background-color: #FFFFFF !important;
+  color: #09090B !important;
+  font-weight: 500;
+  padding: 8px 12px;
+  opacity: 1 !important;
 }
 
+select option:checked,
 option:checked {
-  background-color: var(--color-accent-blue);
-  color: #FFFFFF;
+  background-color: #0F7664 !important;
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
 }
 
+select option:hover,
+select option:focus,
+option:hover,
+option:focus {
+  background-color: #27272A !important;
+  color: #FAFAFA !important;
+}
+
+:root[data-theme="light"] select option:hover,
+:root[data-theme="light"] select option:focus,
+:root[data-theme="light"] option:hover,
+:root[data-theme="light"] option:focus {
+  background-color: #F4F4F5 !important;
+  color: #09090B !important;
+}
+
+select option:disabled,
 option:disabled {
-  color: var(--text-muted);
-  background-color: var(--bg-tertiary);
+  color: #71717A !important;
+  background-color: #18181B !important;
 }
 
-/* Global react-select theme fallback overrides */
+:root[data-theme="light"] select option:disabled,
+:root[data-theme="light"] option:disabled {
+  color: #A1A1AA !important;
+  background-color: #F4F4F5 !important;
+}
+
+select optgroup,
+optgroup {
+  font-weight: 700;
+  color: #A1A1AA !important;
+  background-color: #121215 !important;
+  padding: 6px 10px;
+}
+
+:root[data-theme="light"] select optgroup,
+:root[data-theme="light"] optgroup {
+  color: #71717A !important;
+  background-color: #F4F4F5 !important;
+}
+
+/* ==========================================================================
+   Global react-select Theme & Visibility Overrides
+   ========================================================================== */
+
+.react-select__control,
+[class*="-control"] {
+  background-color: var(--bg-tertiary, #27272A) !important;
+  border-color: var(--border, rgba(255, 255, 255, 0.12)) !important;
+  color: var(--text-primary, #FAFAFA) !important;
+  opacity: 1 !important;
+}
+
+:root[data-theme="light"] .react-select__control,
+:root[data-theme="light"] [class*="-control"] {
+  background-color: #FFFFFF !important;
+  border-color: var(--border, rgba(0, 0, 0, 0.12)) !important;
+  color: var(--text-primary, #09090B) !important;
+}
+
 .react-select__menu,
 [class*="-menu"] {
-  background-color: var(--bg-secondary) !important;
-  color: var(--text-primary) !important;
+  background-color: #18181B !important;
+  color: var(--text-primary, #FAFAFA) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+  border-radius: 16px !important;
+  overflow: hidden !important;
+  z-index: 99999 !important;
+  opacity: 1 !important;
+}
+
+:root[data-theme="light"] .react-select__menu,
+:root[data-theme="light"] [class*="-menu"] {
+  background-color: #FFFFFF !important;
+  color: #09090B !important;
+  border: 1px solid rgba(0, 0, 0, 0.12) !important;
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05) !important;
 }
 
 .react-select__menu-list,
 [class*="-MenuList"] {
-  background-color: var(--bg-secondary) !important;
+  background-color: #18181B !important;
+  opacity: 1 !important;
+  padding: 4px !important;
+}
+
+:root[data-theme="light"] .react-select__menu-list,
+:root[data-theme="light"] [class*="-MenuList"] {
+  background-color: #FFFFFF !important;
+}
+
+.react-select__menu-portal,
+[class*="-MenuPortal"],
+[class*="-menu-portal"] {
+  z-index: 99999 !important;
+  opacity: 1 !important;
 }
 
 .react-select__option,
 [class*="-option"] {
-  color: var(--text-primary) !important;
+  background-color: #18181B !important;
+  color: #FAFAFA !important;
+  opacity: 1 !important;
+  padding: 10px 14px !important;
+  border-radius: 10px !important;
+  margin: 2px 0 !important;
+  font-size: 0.875rem !important;
+}
+
+:root[data-theme="light"] .react-select__option,
+:root[data-theme="light"] [class*="-option"] {
+  background-color: #FFFFFF !important;
+  color: #09090B !important;
+}
+
+.react-select__option--is-focused,
+[class*="-option"][class*="-is-focused"] {
+  background-color: #27272A !important;
+  color: #FAFAFA !important;
+}
+
+:root[data-theme="light"] .react-select__option--is-focused,
+:root[data-theme="light"] [class*="-option"][class*="-is-focused"] {
+  background-color: #F4F4F5 !important;
+  color: #09090B !important;
+}
+
+.react-select__option--is-selected,
+[class*="-option"][class*="-is-selected"] {
+  background-color: #0F7664 !important;
+  color: #FFFFFF !important;
+  font-weight: 600 !important;
 }
 
 .react-select__single-value,
 [class*="-singleValue"] {
-  color: var(--text-primary) !important;
+  color: var(--text-primary, #FAFAFA) !important;
+  font-weight: 500 !important;
+  opacity: 1 !important;
+}
+
+:root[data-theme="light"] .react-select__single-value,
+:root[data-theme="light"] [class*="-singleValue"] {
+  color: #09090B !important;
 }
 
 .react-select__input,
-[class*="-Input"] {
-  color: var(--text-primary) !important;
+[class*="-Input"],
+[class*="-Input"] input {
+  color: var(--text-primary, #FAFAFA) !important;
+  opacity: 1 !important;
+}
+
+:root[data-theme="light"] .react-select__input,
+:root[data-theme="light"] [class*="-Input"],
+:root[data-theme="light"] [class*="-Input"] input {
+  color: #09090B !important;
 }
 
 .react-select__placeholder,
 [class*="-placeholder"] {
-  color: var(--text-muted) !important;
+  color: var(--text-muted, #71717A) !important;
+  opacity: 1 !important;
+}
+
+:root[data-theme="light"] .react-select__placeholder,
+:root[data-theme="light"] [class*="-placeholder"] {
+  color: #A1A1AA !important;
+}
+
+.react-select__multi-value,
+[class*="-MultiValue"] {
+  background-color: #0F7664 !important;
+  border-radius: 8px !important;
+  opacity: 1 !important;
+}
+
+.react-select__multi-value__label,
+[class*="-MultiValueLabel"] {
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+}
+
+.react-select__multi-value__remove,
+[class*="-MultiValueRemove"] {
+  color: #FFFFFF !important;
+}
+
+.react-select__dropdown-indicator,
+[class*="-DropdownIndicator"] {
+  color: var(--text-muted, #71717A) !important;
+  opacity: 1 !important;
+}
+
+.react-select__dropdown-indicator:hover,
+[class*="-DropdownIndicator"]:hover {
+  color: var(--text-primary, #FAFAFA) !important;
+}
+
+:root[data-theme="light"] .react-select__dropdown-indicator:hover,
+:root[data-theme="light"] [class*="-DropdownIndicator"]:hover {
+  color: #09090B !important;
+}
+
+.react-select__clear-indicator,
+[class*="-ClearIndicator"] {
+  color: var(--text-muted, #71717A) !important;
+  opacity: 1 !important;
+  cursor: pointer !important;
+}
+
+.react-select__clear-indicator:hover,
+[class*="-ClearIndicator"]:hover {
+  color: #EF4444 !important;
+}
+
+/* Elevation and z-index safety for all listboxes, menus, and popovers */
+[role="listbox"],
+[role="menu"],
+[data-radix-popper-content-wrapper] {
+  z-index: 99999 !important;
+  opacity: 1 !important;
 }
 
 body {

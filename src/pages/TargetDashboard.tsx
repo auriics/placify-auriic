@@ -1006,7 +1006,7 @@ export const TargetDashboard: React.FC = () => {
                     <select
                       value={triggerMonth}
                       onChange={(e) => setTriggerMonth(parseInt(e.target.value))}
-                      className="bg-transparent text-[10px] font-black text-text-primary px-2 py-1.5 focus:outline-none cursor-pointer hover:bg-bg-tertiary rounded-xl transition-colors appearance-none"
+                      className="bg-bg-secondary text-[10px] font-black text-text-primary px-2 py-1.5 focus:outline-none cursor-pointer hover:bg-bg-tertiary rounded-xl transition-colors appearance-none"
                     >
                       {[
                         "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -1018,7 +1018,7 @@ export const TargetDashboard: React.FC = () => {
                     <select
                       value={triggerYear}
                       onChange={(e) => setTriggerYear(parseInt(e.target.value))}
-                      className="bg-transparent text-[10px] font-black text-text-primary px-2 py-1.5 focus:outline-none cursor-pointer hover:bg-bg-tertiary rounded-xl transition-colors appearance-none border-l border-border-primary"
+                      className="bg-bg-secondary text-[10px] font-black text-text-primary px-2 py-1.5 focus:outline-none cursor-pointer hover:bg-bg-tertiary rounded-xl transition-colors appearance-none border-l border-border-primary"
                     >
                       {[2024, 2025, 2026, 2027].map(y => (
                         <option key={y} value={y}>{y}</option>
@@ -1151,7 +1151,7 @@ export const TargetDashboard: React.FC = () => {
             <select 
               value={recruiterFilter}
               onChange={(e) => setRecruiterFilter(e.target.value)}
-              className="bg-transparent border-none focus:ring-0 text-sm font-bold text-text-primary cursor-pointer w-full"
+              className="bg-bg-tertiary border-none focus:ring-0 text-sm font-bold text-text-primary cursor-pointer w-full"
             >
               <option value="all">All Recruiters</option>
               {team.filter(u => u.role === 'jpc_recruiter' || u.role === 'jpc_marketing').map(u => (
@@ -1166,7 +1166,7 @@ export const TargetDashboard: React.FC = () => {
           <select 
             value={complianceFilter}
             onChange={(e) => setComplianceFilter(e.target.value as any)}
-            className="bg-transparent border-none focus:ring-0 text-sm font-bold text-text-primary cursor-pointer w-full"
+            className="bg-bg-tertiary border-none focus:ring-0 text-sm font-bold text-text-primary cursor-pointer w-full"
           >
             <option value="all">All Compliance Statuses</option>
             <option value="missed">⚠️ Below Targets (Missed)</option>

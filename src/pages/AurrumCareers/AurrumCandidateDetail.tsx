@@ -633,7 +633,7 @@ export const AurrumCandidateDetail: React.FC = () => {
                 onChange={e => {
                   window.location.hash = `#aurrum-candidate?id=${e.target.value}`;
                 }}
-                className="bg-transparent text-xs font-bold text-text-primary outline-none cursor-pointer max-w-[200px] truncate"
+                className="bg-bg-tertiary px-2.5 py-1 rounded-lg border border-border-primary text-xs font-bold text-text-primary outline-none cursor-pointer max-w-[200px] truncate"
               >
                 {allAurrumCandidates.map(c => (
                   <option key={c.id} value={c.id} className="bg-bg-secondary text-text-primary">
