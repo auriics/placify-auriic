@@ -121,6 +121,8 @@ export interface Candidate {
   custom_daily_target?: number;
   not_interested_at?: string | null;
   not_eligible_at?: string | null;
+  backed_out_at?: string | null;
+  backout_reason?: string | null;
   deleted_at: string | null;
   created_at: string;
   updated_at: string;

@@ -332,17 +332,251 @@ if (process.env.NODE_ENV !== 'test' && !isServerless) {
 }
 
 
-async function sendMonthlyPerformanceReport(targetMonth?: number, targetYear?: number) {
+export function getNYDateString(dateVal: any): string | null {
+  if (!dateVal) return null;
+  const str = String(dateVal).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    return str;
+  }
   try {
-    const now = new Date();
-    const currentMonth = targetMonth !== undefined ? targetMonth : now.getMonth();
-    const currentYear = targetYear !== undefined ? targetYear : now.getFullYear();
-    const lastDay = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).format(d);
+    }
+  } catch (e) {}
+  return str.slice(0, 10);
+}
+
+export function generateMonthlyPerformanceReportData(options: {
+  targetMonth?: number;
+  targetYear?: number;
+  users: any[];
+  candidates: any[];
+  applications: any[];
+  interviewRounds: any[];
+  interviewRequests: any[];
+  backoutLogs?: any[];
+}) {
+  const now = new Date();
+  const currentMonth = options.targetMonth !== undefined ? options.targetMonth : now.getMonth();
+  const currentYear = options.targetYear !== undefined ? options.targetYear : now.getFullYear();
+  const lastDay = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const monthStartStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
+
+  const usersMap = new Map();
+  Object.entries(KNOWN_DELETED_USERS).forEach(([id, info]) => {
+    usersMap.set(String(id), { id, ...info });
+  });
+  (options.users || []).forEach(u => {
+    const id = u.id || u.uid;
+    if (id) usersMap.set(String(id), { ...u, id });
+  });
+
+  const backoutLogsMap = new Map<string, string>();
+  (options.backoutLogs || []).forEach(log => {
+    const candidateId = log.candidate_id || log.candidateId;
+    const createdAt = log.created_at || log.createdAt;
+    if (candidateId && createdAt) {
+      const cId = String(candidateId);
+      const existing = backoutLogsMap.get(cId);
+      if (!existing || createdAt > existing) {
+        backoutLogsMap.set(cId, createdAt);
+      }
+    }
+  });
+
+  const getCandidateBackoutDateStr = (cand: any): string | null => {
+    if (cand.current_stage !== 'backout' && !cand.backed_out_at) {
+      return null;
+    }
+    const rawDate = cand.backed_out_at || backoutLogsMap.get(String(cand.id)) || cand.updated_at || cand.created_at;
+    return getNYDateString(rawDate);
+  };
+
+  const reqsMap = new Map();
+  (options.interviewRequests || []).forEach(req => {
+    if (req.id) reqsMap.set(String(req.id), req);
+  });
+
+  const candidates = (options.candidates || []).filter((c: any) => c.crm_brand !== 'aurrum');
+  const allApps = options.applications || [];
+  const allRounds = options.interviewRounds || [];
+
+  const summaryData: any[] = [];
+  const detailedData: any[] = [];
+
+  // Filter relevant candidates: those in active marketing or interviewing stages,
+  // or backout candidates who backed out after the month began
+  const relevantCandidates = candidates.filter(c => {
+    const monitoredStages = ['marketing_active', 'interviewing', 'backout'];
+    if (!monitoredStages.includes(c.current_stage)) return false;
+
+    // EXCLUSION: If SIVIUM is selected but NOT Recruiter, skip from target tracking
+    const entities = c.marketing_entity || [];
+    if (entities.includes('sivium') && !entities.includes('recruiter')) {
+      return false;
+    }
+
+    // If candidate is a backout candidate:
+    // In the Monthly Report, backout candidates should not be included from the date they were marked as backed out onward.
+    // If they backed out on or before the first day of the month, exclude them completely.
+    if (c.current_stage === 'backout') {
+      const backoutDateStr = getCandidateBackoutDateStr(c);
+      if (backoutDateStr && backoutDateStr <= monthStartStr) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  for (const candidate of relevantCandidates) {
+    const recruiterId = candidate.assigned_recruiter ? String(candidate.assigned_recruiter) : null;
+    const tlId = candidate.assigned_marketing_leader ? String(candidate.assigned_marketing_leader) : null;
     
-    // Period: 1st to Last Day of the month
-    const startDate = new Date(currentYear, currentMonth, 1);
-    const endDate = new Date(currentYear, currentMonth, lastDay);
+    const recruiter = recruiterId ? usersMap.get(recruiterId) : null;
+    const tl = tlId ? usersMap.get(tlId) : null;
+
+    const recruiterName = recruiter ? (recruiter.display_name || recruiter.full_name || recruiter.username) : 'Unassigned';
+    const tlName = tl ? (tl.display_name || tl.full_name || tl.username) : 'Unassigned';
+
+    const isBackout = candidate.current_stage === 'backout';
+    const backoutDateStr = isBackout ? getCandidateBackoutDateStr(candidate) : null;
+
+    let candTotalApps = 0;
+    let candTotalTarget = 0;
+    let candTotalScreenings = 0;
+    let candTotalInterviews = 0;
+    let activeDaysCount = 0;
+
+    // Process day by day for detail
+    for (let day = 1; day <= lastDay; day++) {
+      const d = new Date(currentYear, currentMonth, day);
+      const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+      // In the Monthly Report, backout candidates should not be included from the date they were marked as backed out onward.
+      if (backoutDateStr && dateStr >= backoutDateStr) {
+        continue;
+      }
+
+      activeDaysCount++;
+      const dayOfWeek = d.getDay();
+      
+      const isWorkingDay = dayOfWeek !== 0 && dayOfWeek !== 6;
+      const profilesCount = candidate.profiles_count || 1;
+      const dailyTarget = candidate.custom_daily_target || 40;
+      const targetForDay = isWorkingDay ? (profilesCount * dailyTarget) : 0;
+      
+      const actualApps = allApps.filter(a => 
+        String(a.candidate_id) === String(candidate.id) && 
+        a.applied_at && String(a.applied_at).startsWith(dateStr)
+      ).length;
+
+      // Screenings and interviews for this candidate on this day
+      const dayRounds = allRounds.filter(r => {
+        const requestId = r.request_id ? String(r.request_id) : null;
+        const req = requestId ? reqsMap.get(requestId) : null;
+        if (!req) return false;
+        
+        const isForThisCandidate = String(req.candidate_id) === String(candidate.id);
+        if (!isForThisCandidate) return false;
+
+        // Don't count cancelled
+        if (r.status === 'cancelled') return false;
+        
+        // Date check: try booked_slot_time, then interview_date, then created_at
+        const rDate = r.booked_slot_time || r.interview_date || r.created_at;
+        if (!rDate) return false;
+        const rDateStr = String(rDate);
+        return rDateStr === dateStr || rDateStr.startsWith(dateStr + 'T') || rDateStr.startsWith(dateStr + ' ');
+      });
+
+      const screenings = dayRounds.filter(r => r.round_type === 'screening').length;
+      const interviews = dayRounds.filter(r => r.round_type !== 'screening').length;
+
+      candTotalApps += actualApps;
+      candTotalTarget += targetForDay;
+      candTotalScreenings += screenings;
+      candTotalInterviews += interviews;
+
+      detailedData.push({
+        'Date': dateStr,
+        'TL Name': tlName,
+        'Recruiter': recruiterName,
+        'Candidate': candidate.display_name || candidate.full_name,
+        'Daily Target Apps': targetForDay,
+        'Daily Actual Apps': actualApps,
+        'Daily Screenings': screenings,
+        'Daily Interviews': interviews,
+        'Daily KPI %': targetForDay > 0 ? (Math.min(1.2, actualApps / targetForDay) * 100).toFixed(2) : '100.00'
+      });
+    }
+
+    // If candidate had no active days in the month (e.g. backed out before month began or no active dates), skip summary
+    if (activeDaysCount === 0) {
+      continue;
+    }
+
+    // Calculate Candidate KPI and Status based on business logic
+    // Total activities: combined screenings and interviews
+    const totalActivities = candTotalScreenings + candTotalInterviews;
     
+    // Update Candidate Status based on requested logic:
+    // Pass: >= 4 screenings/interviews
+    // Stable: 2-3 screenings/interviews
+    // Fail: 1 screening/interview
+    let status = 'FAIL';
+    if (totalActivities >= 4) {
+      status = 'PASS';
+    } else if (totalActivities >= 2) {
+      status = 'STABLE';
+    } else {
+      status = 'FAIL';
+    }
+
+    // Updated KPI Percentage calculation:
+    // Applications weight: 40% (capped at 100% target met)
+    // Screenings/Interviews weight: 60% (goal is 4 activities per month)
+    const appRate = candTotalTarget > 0 ? Math.min(1, candTotalApps / candTotalTarget) : 1;
+    const activityRate = Math.min(1, totalActivities / 4);
+    const candKPI = (appRate * 0.4 + activityRate * 0.6) * 100;
+
+    summaryData.push({
+      'TL Name': tlName,
+      'Recruiter': recruiterName,
+      'Candidate': candidate.display_name || candidate.full_name,
+      'Total Target Apps': candTotalTarget,
+      'Total Actual Apps': candTotalApps,
+      'Total Screenings': candTotalScreenings,
+      'Total Interviews': candTotalInterviews,
+      'Total Activities': totalActivities,
+      'KPI %': candKPI.toFixed(2),
+      'Status': status
+    });
+  }
+
+  const targetDate = new Date(currentYear, currentMonth, 1);
+  const monthName = targetDate.toLocaleString('default', { month: 'long' });
+  const fileName = `Performance_Report_${monthName}_${currentYear}.xlsx`;
+
+  return {
+    summaryData,
+    detailedData,
+    fileName,
+    monthName,
+    currentYear,
+    currentMonth,
+    lastDay
+  };
+}
+
+export async function sendMonthlyPerformanceReport(targetMonth?: number, targetYear?: number) {
+  try {
     // Fetch data - get all users to ensure TLs and recruiters are found
     const [usersSnapshot, candidatesSnapshot, appsSnapshot, roundsSnapshot, reqsSnapshot] = await Promise.all([
       db.collection('jpc_users').get(),
@@ -352,147 +586,32 @@ async function sendMonthlyPerformanceReport(targetMonth?: number, targetYear?: n
       db.collection('jpc_interview_requests').get()
     ]);
 
-    const usersMap = new Map();
-    Object.entries(KNOWN_DELETED_USERS).forEach(([id, info]) => {
-      usersMap.set(String(id), { id, ...info });
-    });
-    usersSnapshot.forEach(doc => {
-      const data = doc.data();
-      usersMap.set(String(doc.id), { id: doc.id, ...data });
-    });
-
-    const candidates = candidatesSnapshot.docs
-      .map(doc => ({ id: doc.id, ...doc.data() as any }))
-      .filter((c: any) => c.crm_brand !== 'aurrum');
-    const allApps = appsSnapshot.docs.map(doc => doc.data());
-    const allRounds = roundsSnapshot.docs.map(doc => doc.data());
-    const reqsMap = new Map();
-    reqsSnapshot.forEach(doc => reqsMap.set(String(doc.id), doc.data()));
-
-    const summaryData = [];
-    const detailedData = [];
-
-    // Filter relevant candidates: those in active marketing or interviewing stages
-    const relevantCandidates = candidates.filter(c => {
-      const monitoredStages = ['marketing_active', 'interviewing'];
-      if (!monitoredStages.includes(c.current_stage)) return false;
-
-      // EXCLUSION: If SIVIUM is selected but NOT Recruiter, skip from target tracking
-      const entities = c.marketing_entity || [];
-      if (entities.includes('sivium') && !entities.includes('recruiter')) {
-        return false;
-      }
-      return true;
-    });
-
-    for (const candidate of relevantCandidates) {
-      const recruiterId = candidate.assigned_recruiter ? String(candidate.assigned_recruiter) : null;
-      const tlId = candidate.assigned_marketing_leader ? String(candidate.assigned_marketing_leader) : null;
-      
-      const recruiter = recruiterId ? usersMap.get(recruiterId) : null;
-      const tl = tlId ? usersMap.get(tlId) : null;
-
-      const recruiterName = recruiter ? (recruiter.display_name || recruiter.full_name || recruiter.username) : 'Unassigned';
-      const tlName = tl ? (tl.display_name || tl.full_name || tl.username) : 'Unassigned';
-
-      let candTotalApps = 0;
-      let candTotalTarget = 0;
-      let candTotalScreenings = 0;
-      let candTotalInterviews = 0;
-
-      // Process day by day for detail
-      for (let day = 1; day <= lastDay; day++) {
-        const d = new Date(currentYear, currentMonth, day);
-        const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        const dayOfWeek = d.getDay();
-        
-        const isWorkingDay = dayOfWeek !== 0 && dayOfWeek !== 6;
-        const profilesCount = candidate.profiles_count || 1;
-        const dailyTarget = candidate.custom_daily_target || 40;
-        const targetForDay = isWorkingDay ? (profilesCount * dailyTarget) : 0;
-        
-        const actualApps = allApps.filter(a => 
-          String(a.candidate_id) === String(candidate.id) && 
-          a.applied_at && String(a.applied_at).startsWith(dateStr)
-        ).length;
-
-        // Screenings and interviews for this candidate on this day
-        const dayRounds = allRounds.filter(r => {
-          const requestId = r.request_id ? String(r.request_id) : null;
-          const req = requestId ? reqsMap.get(requestId) : null;
-          if (!req) return false;
-          
-          const isForThisCandidate = String(req.candidate_id) === String(candidate.id);
-          if (!isForThisCandidate) return false;
-
-          // Don't count cancelled
-          if (r.status === 'cancelled') return false;
-          
-          // Date check: try booked_slot_time, then interview_date, then created_at
-          const rDate = r.booked_slot_time || r.interview_date || r.created_at;
-          if (!rDate) return false;
-          const rDateStr = String(rDate);
-          return rDateStr === dateStr || rDateStr.startsWith(dateStr + 'T') || rDateStr.startsWith(dateStr + ' ');
-        });
-
-        const screenings = dayRounds.filter(r => r.round_type === 'screening').length;
-        const interviews = dayRounds.filter(r => r.round_type !== 'screening').length;
-
-        candTotalApps += actualApps;
-        candTotalTarget += targetForDay;
-        candTotalScreenings += screenings;
-        candTotalInterviews += interviews;
-
-        detailedData.push({
-          'Date': dateStr,
-          'TL Name': tlName,
-          'Recruiter': recruiterName,
-          'Candidate': candidate.display_name || candidate.full_name,
-          'Daily Target Apps': targetForDay,
-          'Daily Actual Apps': actualApps,
-          'Daily Screenings': screenings,
-          'Daily Interviews': interviews,
-          'Daily KPI %': targetForDay > 0 ? (Math.min(1.2, actualApps / targetForDay) * 100).toFixed(2) : '100.00'
-        });
-      }
-
-      // Calculate Candidate KPI and Status based on business logic
-      // Total activities: combined screenings and interviews
-      const totalActivities = candTotalScreenings + candTotalInterviews;
-      
-      // Update Candidate Status based on requested logic:
-      // Pass: >= 4 screenings/interviews
-      // Stable: 2-3 screenings/interviews
-      // Fail: 1 screening/interview
-      let status = 'FAIL';
-      if (totalActivities >= 4) {
-        status = 'PASS';
-      } else if (totalActivities >= 2) {
-        status = 'STABLE';
-      } else {
-        status = 'FAIL';
-      }
-
-      // Updated KPI Percentage calculation:
-      // Applications weight: 40% (capped at 100% target met)
-      // Screenings/Interviews weight: 60% (goal is 4 activities per month)
-      const appRate = candTotalTarget > 0 ? Math.min(1, candTotalApps / candTotalTarget) : 1;
-      const activityRate = Math.min(1, totalActivities / 4);
-      const candKPI = (appRate * 0.4 + activityRate * 0.6) * 100;
-
-      summaryData.push({
-        'TL Name': tlName,
-        'Recruiter': recruiterName,
-        'Candidate': candidate.display_name || candidate.full_name,
-        'Total Target Apps': candTotalTarget,
-        'Total Actual Apps': candTotalApps,
-        'Total Screenings': candTotalScreenings,
-        'Total Interviews': candTotalInterviews,
-        'Total Activities': totalActivities,
-        'KPI %': candKPI.toFixed(2),
-        'Status': status
-      });
+    let backoutLogs: any[] = [];
+    try {
+      const backoutLogsSnapshot = await db.collection('jpc_activity_logs')
+        .where('action', '==', 'Status: Backout')
+        .get();
+      backoutLogs = backoutLogsSnapshot.docs.map(doc => doc.data());
+    } catch (e) {
+      console.warn('[Monthly Report] Could not fetch backout activity logs, falling back to candidate timestamps:', e);
     }
+
+    const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const candidates = candidatesSnapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
+    const applications = appsSnapshot.docs.map(doc => doc.data());
+    const interviewRounds = roundsSnapshot.docs.map(doc => doc.data());
+    const interviewRequests = reqsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    const { summaryData, detailedData, fileName, monthName, currentYear, lastDay } = generateMonthlyPerformanceReportData({
+      targetMonth,
+      targetYear,
+      users,
+      candidates,
+      applications,
+      interviewRounds,
+      interviewRequests,
+      backoutLogs
+    });
 
     // Create Excel with Summary and Day-wise details
     const wb = XLSX.utils.book_new();
@@ -525,10 +644,6 @@ async function sendMonthlyPerformanceReport(targetMonth?: number, targetYear?: n
         auth: { user: smtp.user, pass: smtp.pass },
         tls: { rejectUnauthorized: false }
       });
-
-      const targetDate = new Date(currentYear, currentMonth, 1);
-      const monthName = targetDate.toLocaleString('default', { month: 'long' });
-      const fileName = `Performance_Report_${monthName}_${currentYear}.xlsx`;
 
       await transporter.sendMail({
         from: `${smtp.from_name} <${smtp.from_email}>`,

@@ -198,20 +198,30 @@ export const TargetDashboard: React.FC = () => {
   // Filter & calculate target metrics per candidate
   const candidatesStats = useMemo(() => {
     // Only check candidates in active marketing stages:
-    // 'marketing_active', 'interviewing'
+    // 'marketing_active', 'interviewing', or backout candidates who were active during the month
     const monitoredStages = ['marketing_active', 'interviewing'];
     const filteredCandidates = candidates.filter(c => {
-      if (!monitoredStages.includes(c.current_stage)) return false;
-
       // EXCLUSION: If SIVIUM is selected but NOT Recruiter, skip from target tracking
       const entities = c.marketing_entity || [];
       if (entities.includes('sivium') && !entities.includes('recruiter')) {
         return false;
       }
-      return true;
+
+      if (monitoredStages.includes(c.current_stage)) return true;
+
+      // In the Monthly Report, backout candidates should be included up until the date they backed out
+      if (c.current_stage === 'backout' && period === 'monthly') {
+        const backoutDate = (c.backed_out_at || c.updated_at || '').slice(0, 10);
+        return Boolean(backoutDate && backoutDate > firstOfMonthStr);
+      }
+
+      return false;
     });
 
     return filteredCandidates.map(c => {
+      const isBackout = c.current_stage === 'backout';
+      const backoutDate = isBackout ? (c.backed_out_at || c.updated_at || '').slice(0, 10) : null;
+
       // Find candidate's applications in selected period (across all recruiters)
       const candidateApps = applications.filter(app => {
         if (app.candidate_id !== c.id) return false;
@@ -221,6 +231,10 @@ export const TargetDashboard: React.FC = () => {
         } else if (period === 'weekly') {
           return app.applied_at >= mondayStr && app.applied_at <= todayStr;
         } else {
+          // Backout candidates should not be included from the date they were marked as backed out onward
+          if (isBackout && backoutDate && app.applied_at >= backoutDate) {
+            return false;
+          }
           return app.applied_at >= firstOfMonthStr && app.applied_at <= todayStr;
         }
       });
@@ -278,7 +292,22 @@ export const TargetDashboard: React.FC = () => {
       if (period === 'weekly') {
         expectedTarget = baseDailyTarget * 5; // Standard 5 working days
       } else if (period === 'monthly') {
-        expectedTarget = baseDailyTarget * 22; // Standard 22 working days
+        if (isBackout && backoutDate) {
+          let activeWorkingDays = 0;
+          const [fYear, fMonth] = firstOfMonthStr.split('-').map(Number);
+          const backoutD = new Date(backoutDate + 'T12:00:00');
+          for (let d = 1; d <= 31; d++) {
+            const curDate = new Date(fYear, fMonth - 1, d);
+            if (curDate.getMonth() !== fMonth - 1 || curDate >= backoutD) break;
+            const dow = curDate.getDay();
+            if (dow !== 0 && dow !== 6) {
+              activeWorkingDays++;
+            }
+          }
+          expectedTarget = baseDailyTarget * activeWorkingDays;
+        } else {
+          expectedTarget = baseDailyTarget * 22; // Standard 22 working days
+        }
       }
 
       const actualSum = candidateApps.length;
@@ -613,6 +642,11 @@ export const TargetDashboard: React.FC = () => {
 
         const isCurrentRecruiter = String(c.assigned_recruiter) === String(selectedRecruiterId);
         if (isCurrentRecruiter) {
+          if (c.current_stage === 'backout') {
+            const backoutDate = (c.backed_out_at || c.updated_at || '').slice(0, 10);
+            if (!backoutDate || date >= backoutDate) return false;
+            return c.created_at.slice(0, 10) <= date;
+          }
           if (!monitoredStages.includes(c.current_stage)) return false;
           return c.created_at.slice(0, 10) <= date;
         }
@@ -750,6 +784,12 @@ export const TargetDashboard: React.FC = () => {
 
         const isCurrentlyAssigned = String(c.assigned_recruiter) === String(selectedRecruiterId);
         if (isCurrentlyAssigned) {
+          if (c.current_stage === 'backout') {
+            const backoutDate = (c.backed_out_at || c.updated_at || '').slice(0, 10);
+            const earliestDate = datesList[datesList.length - 1] || todayStr;
+            if (backoutDate && backoutDate <= earliestDate) return false;
+            return true;
+          }
           return monitoredStages.includes(c.current_stage);
         }
 

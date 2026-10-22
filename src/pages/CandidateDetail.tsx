@@ -1054,10 +1054,13 @@ export const CandidateDetail: React.FC = () => {
       showToast('Please provide a reason', 'error');
       return;
     }
+    const nowIso = new Date().toISOString();
     const updated = { 
       ...candidate!, 
       current_stage: 'backout' as Stage,
-      updated_at: new Date().toISOString()
+      backed_out_at: candidate?.backed_out_at || nowIso,
+      backout_reason: backoutReason,
+      updated_at: nowIso
     };
     await saveCandidate(updated as Candidate, user?.id ? String(user.id) : null);
     await logActivity(candidate!.id, 'Status: Backout', `Reason: ${backoutReason}`, user?.id || null);
@@ -1113,6 +1116,8 @@ export const CandidateDetail: React.FC = () => {
         current_stage: newStage,
         not_interested_at: newStage === 'not_interested' ? now() : null,
         not_eligible_at: newStage === 'not_eligible' ? now() : null,
+        backed_out_at: newStage === 'backout' ? (candidate.backed_out_at || now()) : null,
+        backout_reason: newStage === 'backout' ? (candidate.backout_reason || null) : null,
         flags: {
           ...candidate.flags,
           sla_timeout_notified: false
