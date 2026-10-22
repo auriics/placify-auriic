@@ -14,6 +14,8 @@ import nodemailer from 'nodemailer';
 import { google } from 'googleapis';
 import * as XLSX from 'xlsx';
 import { parseResumeLocally } from './src/services/localResumeParser.ts';
+import { isDirectInterviewSupportCandidate } from './src/lib/utils.ts';
+export { isDirectInterviewSupportCandidate };
 
 dotenv.config();
 
@@ -214,6 +216,12 @@ cron.schedule('15 18 * * *', async () => {
       if (entities.includes('sivium') && !entities.includes('recruiter')) {
         return false;
       }
+
+      // EXCLUSION: Direct Interview Support candidates should not be tracked for targets
+      if (isDirectInterviewSupportCandidate(c)) {
+        return false;
+      }
+
       return true;
     });
     
@@ -419,6 +427,11 @@ export function generateMonthlyPerformanceReportData(options: {
     // EXCLUSION: If SIVIUM is selected but NOT Recruiter, skip from target tracking
     const entities = c.marketing_entity || [];
     if (entities.includes('sivium') && !entities.includes('recruiter')) {
+      return false;
+    }
+
+    // EXCLUSION: Direct Interview Support only candidates should not come in report
+    if (isDirectInterviewSupportCandidate(c)) {
       return false;
     }
 

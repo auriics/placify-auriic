@@ -31,7 +31,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn, getEasternDate, isEasternDayOngoing, getCalendarDateInfo, formatDisplayDateWithWeekday } from '../lib/utils';
+import { cn, getEasternDate, isEasternDayOngoing, getCalendarDateInfo, formatDisplayDateWithWeekday, isDirectInterviewSupportCandidate } from '../lib/utils';
 import { useToast } from '../contexts/ToastContext';
 import * as XLSX from 'xlsx';
 import { resolveRecruiterName, resolveRecruiterUser, isPlaceholderRecruiterName, KNOWN_DELETED_USERS } from '../utils/recruiterResolver';
@@ -204,6 +204,11 @@ export const TargetDashboard: React.FC = () => {
       // EXCLUSION: If SIVIUM is selected but NOT Recruiter, skip from target tracking
       const entities = c.marketing_entity || [];
       if (entities.includes('sivium') && !entities.includes('recruiter')) {
+        return false;
+      }
+
+      // EXCLUSION: Direct Interview Support only candidates should not come in report
+      if (isDirectInterviewSupportCandidate(c)) {
         return false;
       }
 
@@ -640,6 +645,11 @@ export const TargetDashboard: React.FC = () => {
           return false;
         }
 
+        // EXCLUSION: Direct Interview Support only candidates should not come in report
+        if (isDirectInterviewSupportCandidate(c)) {
+          return false;
+        }
+
         const isCurrentRecruiter = String(c.assigned_recruiter) === String(selectedRecruiterId);
         if (isCurrentRecruiter) {
           if (c.current_stage === 'backout') {
@@ -753,6 +763,7 @@ export const TargetDashboard: React.FC = () => {
     // Filter interview support requests created for this recruiter's assigned or previously assigned candidates during range
     const recruiterCandidatesIds = candidates
       .filter(c => {
+        if (isDirectInterviewSupportCandidate(c)) return false;
         if (String(c.assigned_recruiter) === String(selectedRecruiterId)) return true;
         if (Array.isArray(c.previous_recruiters) && c.previous_recruiters.some(p => String(p.recruiter_id) === String(selectedRecruiterId))) return true;
         return false;
@@ -779,6 +790,11 @@ export const TargetDashboard: React.FC = () => {
         // EXCLUSION: If SIVIUM is selected but NOT Recruiter, skip from target tracking
         const entities = c.marketing_entity || [];
         if (entities.includes('sivium') && !entities.includes('recruiter')) {
+          return false;
+        }
+
+        // EXCLUSION: Direct Interview Support only candidates should not come in report
+        if (isDirectInterviewSupportCandidate(c)) {
           return false;
         }
 

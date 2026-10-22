@@ -5,7 +5,8 @@ process.env.NODE_ENV = 'test';
 
 import {
   generateMonthlyPerformanceReportData,
-  getNYDateString
+  getNYDateString,
+  isDirectInterviewSupportCandidate
 } from '../server';
 
 test('getNYDateString converts ISO strings and date values to YYYY-MM-DD in America/New_York', () => {
@@ -216,3 +217,110 @@ test('Backout date resolution falls back to activity log or updated_at if backed
   assert.equal(detailedUpdated.length, 9, 'Days 1 to 9 should be included before backout on Oct 10');
   assert.ok(detailedUpdated.every(d => d.Date < '2026-10-10'));
 });
+
+test('isDirectInterviewSupportCandidate accurately identifies Direct Interview Support candidates', () => {
+  assert.equal(isDirectInterviewSupportCandidate(null), false);
+  assert.equal(isDirectInterviewSupportCandidate({}), false);
+
+  // Flag set to true
+  assert.equal(isDirectInterviewSupportCandidate({ is_direct_interview_support: true }), true);
+
+  // Domain interested
+  assert.equal(isDirectInterviewSupportCandidate({ domain_interested: 'Interview Support Only' }), true);
+  assert.equal(isDirectInterviewSupportCandidate({ domain_interested: 'Direct Interview Support' }), true);
+
+  // Lead source
+  assert.equal(isDirectInterviewSupportCandidate({ lead_source: 'Interview Support Self-Service' }), true);
+  assert.equal(isDirectInterviewSupportCandidate({ lead_source: 'Interview Support Landing Page' }), true);
+
+  // Package name
+  assert.equal(isDirectInterviewSupportCandidate({ package_name: 'Interview Support' }), true);
+  assert.equal(isDirectInterviewSupportCandidate({ package_name: 'Direct Interview Support' }), true);
+
+  // Notes signature
+  assert.equal(isDirectInterviewSupportCandidate({ notes: 'Registered and self-booked via interview support direct landing form.' }), true);
+
+  // Normal candidates must NOT be flagged
+  assert.equal(isDirectInterviewSupportCandidate({
+    full_name: 'Regular Candidate',
+    domain_interested: 'Full Stack Java',
+    package_name: 'Elite Placement',
+    lead_source: 'LinkedIn Organic',
+    notes: 'Standard candidate enrolled for marketing'
+  }), false);
+});
+
+test('Direct Interview Support candidates are completely excluded from Monthly Performance Report', () => {
+  const users = [
+    { id: 'u_rec1', full_name: 'Test Recruiter', role: 'jpc_recruiter' }
+  ];
+
+  const candidates = [
+    // 1. Direct Interview Support Candidate in 'interviewing' stage (from BookingPage)
+    {
+      id: 'c_direct_support_1',
+      full_name: 'Direct Support Booking Candidate',
+      current_stage: 'interviewing',
+      is_direct_interview_support: true,
+      domain_interested: 'Interview Support Only',
+      lead_source: 'Interview Support Self-Service',
+      package_name: 'Interview Support',
+      notes: 'Registered and self-booked via interview support direct landing form.',
+      assigned_recruiter: 'u_rec1',
+      profiles_count: 1,
+      custom_daily_target: 40,
+      marketing_entity: ['recruiter']
+    },
+    // 2. Direct Interview Support Candidate in 'marketing_active' stage
+    {
+      id: 'c_direct_support_2',
+      full_name: 'Direct Support Marketing Candidate',
+      current_stage: 'marketing_active',
+      domain_interested: 'Interview Support Only',
+      assigned_recruiter: 'u_rec1',
+      profiles_count: 1,
+      custom_daily_target: 40,
+      marketing_entity: ['recruiter']
+    },
+    // 3. Regular marketing candidate in 'interviewing' stage
+    {
+      id: 'c_regular_candidate',
+      full_name: 'Regular Active Candidate',
+      current_stage: 'interviewing',
+      domain_interested: 'Full Stack Java',
+      package_name: 'Elite Placement',
+      assigned_recruiter: 'u_rec1',
+      profiles_count: 1,
+      custom_daily_target: 40,
+      marketing_entity: ['recruiter']
+    }
+  ];
+
+  const report = generateMonthlyPerformanceReportData({
+    targetMonth: 9, // October 2026
+    targetYear: 2026,
+    users,
+    candidates,
+    applications: [],
+    interviewRounds: [],
+    interviewRequests: []
+  });
+
+  // Verify direct interview support candidates are completely excluded
+  const detailedDirect1 = report.detailedData.filter(d => d.Candidate === 'Direct Support Booking Candidate');
+  const summaryDirect1 = report.summaryData.filter(s => s.Candidate === 'Direct Support Booking Candidate');
+  assert.equal(detailedDirect1.length, 0, 'Direct support candidate 1 must have 0 detailed rows');
+  assert.equal(summaryDirect1.length, 0, 'Direct support candidate 1 must have 0 summary rows');
+
+  const detailedDirect2 = report.detailedData.filter(d => d.Candidate === 'Direct Support Marketing Candidate');
+  const summaryDirect2 = report.summaryData.filter(s => s.Candidate === 'Direct Support Marketing Candidate');
+  assert.equal(detailedDirect2.length, 0, 'Direct support candidate 2 must have 0 detailed rows');
+  assert.equal(summaryDirect2.length, 0, 'Direct support candidate 2 must have 0 summary rows');
+
+  // Verify regular candidate is included as expected
+  const detailedRegular = report.detailedData.filter(d => d.Candidate === 'Regular Active Candidate');
+  const summaryRegular = report.summaryData.filter(s => s.Candidate === 'Regular Active Candidate');
+  assert.equal(detailedRegular.length, 31, 'Regular candidate should have all days of October');
+  assert.equal(summaryRegular.length, 1, 'Regular candidate should have a summary row');
+});
+

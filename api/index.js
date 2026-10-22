@@ -1280,6 +1280,33 @@ function parseResumeLocally(rawText) {
   };
 }
 
+// src/lib/utils.ts
+import { clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
+var isDirectInterviewSupportCandidate = (c) => {
+  if (!c) return false;
+  if (c.is_direct_interview_support === true) {
+    return true;
+  }
+  const domain = String(c.domain_interested || "").toLowerCase().trim();
+  if (domain.includes("interview support")) {
+    return true;
+  }
+  const leadSource = String(c.lead_source || "").toLowerCase().trim();
+  if (leadSource.includes("interview support")) {
+    return true;
+  }
+  const pkg = String(c.package_name || "").toLowerCase().trim();
+  if (pkg === "interview support" || pkg === "direct interview support" || pkg === "aurrum interview support" || pkg.includes("interview support only") || pkg.includes("direct interview support")) {
+    return true;
+  }
+  const notes = String(c.notes || "").toLowerCase();
+  if (notes.includes("direct interview support") || notes.includes("interview support direct landing form") || notes.includes("interview-support-only") || notes.includes("online direct interview support link")) {
+    return true;
+  }
+  return false;
+};
+
 // server.ts
 dotenv.config();
 var isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
@@ -1425,6 +1452,9 @@ if (process.env.NODE_ENV !== "test" && !isServerless) {
         if (c.current_stage !== "marketing_active") return false;
         const entities = c.marketing_entity || [];
         if (entities.includes("sivium") && !entities.includes("recruiter")) {
+          return false;
+        }
+        if (isDirectInterviewSupportCandidate(c)) {
           return false;
         }
         return true;
@@ -1588,6 +1618,9 @@ function generateMonthlyPerformanceReportData(options) {
     if (!monitoredStages.includes(c.current_stage)) return false;
     const entities = c.marketing_entity || [];
     if (entities.includes("sivium") && !entities.includes("recruiter")) {
+      return false;
+    }
+    if (isDirectInterviewSupportCandidate(c)) {
       return false;
     }
     if (c.current_stage === "backout") {
@@ -3916,6 +3949,7 @@ export {
   server_default as default,
   generateMonthlyPerformanceReportData,
   getNYDateString,
+  isDirectInterviewSupportCandidate,
   isSalesWorkingHours,
   isServerless,
   processUnassignedLeadsEngine,

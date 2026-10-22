@@ -462,6 +462,7 @@ export const BookingPage: React.FC = () => {
             package_amount: 0,
             domain_suggested: 'N/A',
             notes: 'Registered and self-booked via interview support direct landing form.',
+            is_direct_interview_support: true,
             current_stage: 'interviewing',
             resume_url: uploadedResumeUrl || null,
             resume_base64: uploadedResumeUrl || null,

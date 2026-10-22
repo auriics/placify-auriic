@@ -123,6 +123,7 @@ export interface Candidate {
   not_eligible_at?: string | null;
   backed_out_at?: string | null;
   backout_reason?: string | null;
+  is_direct_interview_support?: boolean;
   deleted_at: string | null;
   created_at: string;
   updated_at: string;

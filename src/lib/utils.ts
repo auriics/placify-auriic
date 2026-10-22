@@ -254,3 +254,50 @@ export const formatDisplayDate = (dateStr: string | undefined | null) => {
     return dateStr;
   }
 };
+
+/**
+ * Detects whether a candidate is exclusively from the Interview Support System
+ * (e.g. self-booked via Direct Interview Support form) and should not be tracked
+ * in Recruiter Compliance Central or Performance reports.
+ */
+export const isDirectInterviewSupportCandidate = (c: any): boolean => {
+  if (!c) return false;
+
+  if (c.is_direct_interview_support === true) {
+    return true;
+  }
+
+  const domain = String(c.domain_interested || '').toLowerCase().trim();
+  if (domain.includes('interview support')) {
+    return true;
+  }
+
+  const leadSource = String(c.lead_source || '').toLowerCase().trim();
+  if (leadSource.includes('interview support')) {
+    return true;
+  }
+
+  const pkg = String(c.package_name || '').toLowerCase().trim();
+  if (
+    pkg === 'interview support' ||
+    pkg === 'direct interview support' ||
+    pkg === 'aurrum interview support' ||
+    pkg.includes('interview support only') ||
+    pkg.includes('direct interview support')
+  ) {
+    return true;
+  }
+
+  const notes = String(c.notes || '').toLowerCase();
+  if (
+    notes.includes('direct interview support') ||
+    notes.includes('interview support direct landing form') ||
+    notes.includes('interview-support-only') ||
+    notes.includes('online direct interview support link')
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
