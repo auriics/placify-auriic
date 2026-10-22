@@ -2417,7 +2417,7 @@ const RequestModal: React.FC<{
                             newRounds[idx].type = e.target.value as any;
                             setFormData({...formData, rounds: newRounds});
                           }}
-                          className="bg-transparent border-none p-0 text-[10px] text-text-muted uppercase font-black focus:ring-0 outline-none cursor-pointer mt-1"
+                          className="bg-bg-tertiary px-2 py-1 rounded-lg border border-border-primary text-[10px] text-text-primary uppercase font-black focus:ring-1 focus:ring-accent-blue/30 outline-none cursor-pointer mt-1"
                         >
                           <option value="screening">Screening</option>
                           <option value="technical">Technical</option>

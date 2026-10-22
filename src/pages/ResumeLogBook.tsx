@@ -641,7 +641,7 @@ export const ResumeLogBook: React.FC = () => {
           <select 
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="bg-transparent border-none focus:ring-0 text-xs sm:text-sm font-medium text-text-primary cursor-pointer w-full sm:w-auto"
+            className="bg-bg-secondary border-none focus:ring-0 text-xs sm:text-sm font-semibold text-text-primary cursor-pointer w-full sm:w-auto"
           >
             <option value="all">All Status</option>
             <option value="pending_tl">Pending TL</option>

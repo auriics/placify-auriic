@@ -163,7 +163,17 @@ export const Team: React.FC = () => {
   const [newPassword, setNewPassword] = useState('');
   const [isResettingPassword, setIsResettingPassword] = useState(false);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    username: string;
+    display_name: string;
+    role: UserRole;
+    password: string;
+    leader_id: string | number | null;
+    candidate_id: string;
+    portal_link: string;
+    is_on_leave: boolean;
+    proxy_priority?: number;
+  }>({
     username: '',
     display_name: '',
     role: 'jpc_sales' as UserRole,
@@ -1261,7 +1271,7 @@ export const Team: React.FC = () => {
               <select 
                 value={formData.role}
                 onChange={e => setFormData({...formData, role: e.target.value as UserRole, leader_id: null})}
-                className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors appearance-none"
+                className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
               >
                 {ROLES.map(r => (
                   <option key={r.value} value={r.value}>{r.label}</option>
@@ -1341,7 +1351,7 @@ export const Team: React.FC = () => {
                 <select 
                   value={formData.leader_id || ''}
                   onChange={e => setFormData({...formData, leader_id: e.target.value})}
-                  className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors appearance-none"
+                  className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
                   required
                 >
                   <option value="">Select Marketing Leader</option>
@@ -1370,7 +1380,7 @@ export const Team: React.FC = () => {
                 <select 
                   value={formData.leader_id || ''}
                   onChange={e => setFormData({...formData, leader_id: e.target.value})}
-                  className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors appearance-none"
+                  className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
                   required
                 >
                   <option value="">Select Compliance Head</option>
@@ -1580,7 +1590,7 @@ export const Team: React.FC = () => {
             <select 
               value={reassigningToId}
               onChange={e => setReassigningToId(e.target.value)}
-              className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors appearance-none"
+              className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
             >
               <option value="">Select Target Recruiter</option>
               {team
