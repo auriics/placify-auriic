@@ -283,13 +283,17 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
       }
 
       const now = new Date().toISOString();
+      const adminId = String(user?.id || auth.currentUser?.uid || 'admin');
+      const adminName = String(user?.display_name || user?.username || auth.currentUser?.displayName || 'Admin');
+      const adminEmail = String(user?.email || auth.currentUser?.email || '');
+
       const record: RolePermissionsRecord = {
         id: role,
         role,
         modules: newPermissions,
         updated_at: now,
-        updated_by: String(user.id),
-        updated_by_name: user.display_name || user.username || 'Admin',
+        updated_by: adminId,
+        updated_by_name: adminName,
       };
 
       try {
@@ -306,39 +310,47 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
           'Content-Type': 'application/json',
         };
         if (token) headers['Authorization'] = `Bearer ${token}`;
-        if (user.email) headers['x-admin-email'] = user.email;
-        if (user.id) headers['x-admin-id'] = String(user.id);
+        if (adminEmail) headers['x-admin-email'] = adminEmail;
+        if (adminId) headers['x-admin-id'] = adminId;
 
-        // 1. PRIMARY: Save to Backend Server API (runs with Firebase Admin SDK, bypasses client rule issues)
-        const apiRes = await fetch('/api/permissions', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            role,
-            modules: newPermissions,
-            adminUser: {
-              id: user.id,
-              name: user.display_name || user.username,
-              email: user.email,
-              role: user.role
-            },
-            changes
-          }),
-        });
+        // 1. PRIMARY: Save to Backend Server API (runs with Firebase Admin SDK, writes role perms & audit log)
+        let serverSaved = false;
+        try {
+          const apiRes = await fetch('/api/permissions', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              role,
+              modules: newPermissions,
+              adminUser: {
+                id: adminId,
+                name: adminName,
+                email: adminEmail,
+                role: user?.role || 'administrator'
+              },
+              changes
+            }),
+          });
 
-        if (!apiRes.ok) {
-          const errData = await apiRes.json().catch(() => ({}));
-          throw new Error(errData.error || `Server responded with status ${apiRes.status}`);
+          if (apiRes.ok) {
+            serverSaved = true;
+          } else {
+            const errData = await apiRes.json().catch(() => ({}));
+            console.warn('[PermissionsContext] Server API returned non-OK status:', errData.error || apiRes.status);
+          }
+        } catch (apiErr) {
+          console.warn('[PermissionsContext] Server API unreachable, will fallback to direct Firestore:', apiErr);
         }
 
-        // 2. Best-effort direct Firestore sync if client permissions allow
+        // 2. Direct Firestore sync
         try {
           await setDoc(doc(db, 'jpc_role_permissions', role), record);
-          if (changes.length > 0) {
-            const auditEntry: Omit<PermissionAuditLog, 'id'> = {
-              admin_id: String(user.id),
-              admin_name: user.display_name || user.username || 'Admin',
-              admin_email: user.email,
+          // Only create audit log from client if server API did not already write it
+          if (!serverSaved && changes.length > 0) {
+            const auditEntry = {
+              admin_id: adminId,
+              admin_name: adminName,
+              admin_email: adminEmail,
               affected_role: role,
               changes,
               summary: `Updated ${changes.length} permission(s) for role "${role}".`,
@@ -347,7 +359,11 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
             await addDoc(collection(db, 'jpc_permission_audit_logs'), auditEntry);
           }
         } catch (clientFsErr) {
-          console.info('[PermissionsContext] Direct Firestore client write skipped (persisted securely via server API):', clientFsErr);
+          console.info('[PermissionsContext] Direct Firestore client write notice:', clientFsErr);
+          // If server didn't save either, throw error
+          if (!serverSaved) {
+            throw clientFsErr;
+          }
         }
 
         // 3. Update local state immediately for instant feedback
@@ -389,12 +405,16 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
           // Token retrieval failure
         }
 
+        const adminId = String(user?.id || auth.currentUser?.uid || 'admin');
+        const adminName = String(user?.display_name || user?.username || auth.currentUser?.displayName || 'Admin');
+        const adminEmail = String(user?.email || auth.currentUser?.email || '');
+
         const headers: Record<string, string> = {
           'Content-Type': 'application/json',
         };
         if (token) headers['Authorization'] = `Bearer ${token}`;
-        if (user?.email) headers['x-admin-email'] = user.email;
-        if (user?.id) headers['x-admin-id'] = String(user.id);
+        if (adminEmail) headers['x-admin-email'] = adminEmail;
+        if (adminId) headers['x-admin-id'] = adminId;
 
         const res = await fetch('/api/permissions/reset', {
           method: 'POST',
@@ -402,10 +422,10 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
           body: JSON.stringify({
             role,
             adminUser: {
-              id: user?.id,
-              name: user?.display_name || user?.username,
-              email: user?.email,
-              role: user?.role
+              id: adminId,
+              name: adminName,
+              email: adminEmail,
+              role: user?.role || 'administrator'
             }
           }),
         });
