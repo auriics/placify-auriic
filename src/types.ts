@@ -19,6 +19,8 @@ export type Role =
 
 export type UserRole = Role;
 
+export type ShiftPreference = 'Day Shift' | 'Night Shift' | 'Not Set';
+
 export const isAurrumRole = (role?: string | null): boolean =>
   role === 'aurrum_admin' || role === 'aurrum_sales' || role === 'aurrum_team';
 
@@ -160,6 +162,7 @@ export interface Candidate {
   expected_ctc?: string;
   work_authorization?: string;
   remote_preference?: string;
+  shift_preference?: ShiftPreference | string | null;
   certifications?: string;
   languages?: string;
   summary?: string;

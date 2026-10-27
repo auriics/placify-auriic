@@ -74,6 +74,7 @@ import * as XLSX from 'xlsx';
 import { cn, getEasternDate, formatDisplayDate } from '../lib/utils';
 import { canManageFreeTrial, isComplianceHead } from '../lib/permissions';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
+import { ShiftPreferenceBadge } from '../components/ShiftPreferenceBadge';
 import { sendWelcomeEmail } from '../services/welcomeEmail';
 import { Candidate, Payment, Promise as PromiseType, QCChecklistItem, FollowUp, ActivityLog, User, Stage, ResumeChangeRequest, Application, InterviewSupportRequest, TargetReductionRequest, ResumeVersion, InterviewOfferRequest, RecruiterAssignmentHistory } from '../types';
 import { InterviewCompletionModal } from '../components/InterviewCompletionModal';
@@ -1896,6 +1897,7 @@ export const CandidateDetail: React.FC = () => {
                   {candidate.job_interest}
                 </span>
               )}
+              <ShiftPreferenceBadge shift={candidate.shift_preference} size="md" />
               {candidate.is_free_trial && (
                 <FreeTrialBadge 
                   startDate={candidate.free_trial_start_date}
@@ -2430,7 +2432,7 @@ export const CandidateDetail: React.FC = () => {
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="font-bold text-text-primary">15-Day Free Trial</h3>
-                    {candidate.is_free_trial && (
+              {candidate.is_free_trial && (
                       <FreeTrialBadge 
                         startDate={candidate.free_trial_start_date}
                         endDate={candidate.free_trial_end_date}
@@ -2630,6 +2632,18 @@ export const CandidateDetail: React.FC = () => {
                     <input type="text" value={personalForm.linkedin_url || ''} onChange={e => setPersonalForm({...personalForm, linkedin_url: e.target.value})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm text-text-primary" />
                   </div>
                   <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-text-muted uppercase">Shift Preference</label>
+                    <select 
+                      value={personalForm.shift_preference || ''} 
+                      onChange={e => setPersonalForm({...personalForm, shift_preference: (e.target.value as any) || null})} 
+                      className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm text-text-primary"
+                    >
+                      <option value="">Not Set</option>
+                      <option value="Day Shift">Day Shift</option>
+                      <option value="Night Shift">Night Shift</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
                     <label className="text-[10px] font-bold text-text-muted uppercase">Lead Source</label>
                     <select value={personalForm.lead_source || ''} onChange={e => setPersonalForm({...personalForm, lead_source: e.target.value})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm text-text-primary">
                       {LEAD_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -2792,6 +2806,12 @@ export const CandidateDetail: React.FC = () => {
                       </div>
                     </div>
                   )}
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Shift Preference</p>
+                    <div className="pt-0.5">
+                      <ShiftPreferenceBadge shift={candidate.shift_preference} size="sm" />
+                    </div>
+                  </div>
                   <div className="space-y-1">
                     <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Lead Source</p>
                     <p className="text-text-primary font-medium">{candidate.lead_source}</p>

@@ -15,6 +15,7 @@ import {
 import { Candidate } from '../types';
 import { cn } from '../lib/utils';
 import { FreeTrialBadge } from './FreeTrialBadge';
+import { ShiftPreferenceBadge } from './ShiftPreferenceBadge';
 
 interface CandidateSheetProps {
   candidate: Candidate | null;
@@ -55,6 +56,7 @@ export const CandidateSheet: React.FC<CandidateSheetProps> = ({ candidate, isOpe
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <h2 className="text-xl font-bold text-text-primary tracking-tight">{candidate.full_name}</h2>
+                    <ShiftPreferenceBadge shift={candidate.shift_preference} size="sm" />
                     {candidate.is_free_trial && (
                       <FreeTrialBadge 
                         startDate={candidate.free_trial_start_date}
@@ -129,6 +131,12 @@ export const CandidateSheet: React.FC<CandidateSheetProps> = ({ candidate, isOpe
                   <div className="space-y-1">
                     <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Job Interest</p>
                     <p className="text-sm text-text-primary">{candidate.job_interest || 'N/A'}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Shift Preference</p>
+                    <div className="pt-0.5">
+                      <ShiftPreferenceBadge shift={candidate.shift_preference} size="xs" />
+                    </div>
                   </div>
                   <div className="space-y-1">
                     <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Experience</p>

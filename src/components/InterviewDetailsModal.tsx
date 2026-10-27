@@ -16,6 +16,7 @@ import { isProxyUser, getInterviewResumeInfo } from '../services/interviewServic
 import { ResumeSubstitutionModal } from './ResumeSubstitutionModal';
 import { ProxyAssignmentModal } from './ProxyAssignmentModal';
 import { FreeTrialBadge } from './FreeTrialBadge';
+import { ShiftPreferenceBadge } from './ShiftPreferenceBadge';
 import { resolveRecruiterUser } from '../utils/recruiterResolver';
 
 interface InterviewDetailsModalProps {
@@ -373,6 +374,7 @@ export const InterviewDetailsModal: React.FC<InterviewDetailsModalProps> = ({
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="text-sm font-black text-text-primary">{candidate?.full_name || 'Candidate Name'}</h4>
+                        <ShiftPreferenceBadge shift={candidate?.shift_preference} size="xs" />
                         {candidate?.is_free_trial && (
                           <FreeTrialBadge 
                             size="sm" 

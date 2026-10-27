@@ -11,6 +11,7 @@ import { canUserAccessCandidate } from '../lib/permissions';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
+import { ShiftPreferenceBadge } from '../components/ShiftPreferenceBadge';
 
 const STAGE_ENTRIES = Object.entries(STAGES).filter(
   ([key]) => key !== 'not_interested' && key !== 'not_eligible' && key !== 'application_tracking'
@@ -194,6 +195,7 @@ export const Pipeline: React.FC = () => {
                               <h4 className="font-bold text-text-primary text-xs sm:text-sm group-hover:text-accent-blue transition-colors truncate">
                                 {candidate.full_name}
                               </h4>
+                              <ShiftPreferenceBadge shift={candidate.shift_preference} size="xs" />
                               {candidate.is_free_trial && (
                                 <FreeTrialBadge 
                                   startDate={candidate.free_trial_start_date}

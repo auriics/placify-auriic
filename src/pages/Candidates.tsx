@@ -18,6 +18,7 @@ import * as XLSX from 'xlsx';
 import { db } from '../firebase';
 import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
+import { ShiftPreferenceBadge } from '../components/ShiftPreferenceBadge';
 
 type CandidateRowExtraProps = {
   items: Candidate[];
@@ -57,6 +58,7 @@ const CandidateRow = React.memo(({
         <div className="truncate">
           <div className="flex items-center gap-2">
             <p className="text-sm font-bold text-text-primary group-hover:text-accent-blue transition-colors truncate">{candidate.full_name || 'Unnamed Candidate'}</p>
+            <ShiftPreferenceBadge shift={candidate.shift_preference} size="xs" />
             {candidate.is_free_trial && (
               <FreeTrialBadge 
                 startDate={candidate.free_trial_start_date}
@@ -150,6 +152,7 @@ export const Candidates: React.FC = () => {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
   const [stageFilter, setStageFilter] = useState('');
+  const [shiftFilter, setShiftFilter] = useState('');
   
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
@@ -217,15 +220,20 @@ export const Candidates: React.FC = () => {
           (c.email || '').toLowerCase().includes(searchLower);
         
         const matchesStage = stageFilter ? c.current_stage === stageFilter : true;
+        const matchesShift = !shiftFilter 
+          ? true 
+          : shiftFilter === 'Not Set' 
+          ? (!c.shift_preference || c.shift_preference === 'Not Set') 
+          : c.shift_preference === shiftFilter;
         
-        return matchesSearch && matchesStage;
+        return matchesSearch && matchesStage && matchesShift;
       })
       .sort((a, b) => {
         const timeA = a.created_at ? new Date(a.created_at).getTime() : (a.updated_at ? new Date(a.updated_at).getTime() : 0);
         const timeB = b.created_at ? new Date(b.created_at).getTime() : (b.updated_at ? new Date(b.updated_at).getTime() : 0);
         return timeB - timeA;
       });
-  }, [candidates, debouncedSearch, stageFilter, user, allUsers]);
+  }, [candidates, debouncedSearch, stageFilter, shiftFilter, user, allUsers]);
 
   const handleSelect = useCallback((candidate: Candidate) => {
     setSelectedCandidate(candidate);
@@ -418,6 +426,19 @@ export const Candidates: React.FC = () => {
                 ))}
               </select>
             </div>
+            <div className="relative w-full sm:w-44">
+              <Filter className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+              <select 
+                value={shiftFilter}
+                onChange={e => setShiftFilter(e.target.value)}
+                className="w-full bg-bg-secondary border border-border-primary rounded-xl sm:rounded-2xl pl-10 pr-4 py-2.5 sm:py-3 text-xs sm:text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors shadow-sm appearance-none cursor-pointer"
+              >
+                <option value="">All Shifts</option>
+                <option value="Day Shift">Day Shift</option>
+                <option value="Night Shift">Night Shift</option>
+                <option value="Not Set">Not Set</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>
@@ -444,6 +465,7 @@ export const Candidates: React.FC = () => {
                       <h4 className="text-sm font-bold text-text-primary hover:text-accent-blue transition-colors truncate">
                         {candidate.full_name || 'Unnamed Candidate'}
                       </h4>
+                      <ShiftPreferenceBadge shift={candidate.shift_preference} size="xs" />
                       {candidate.is_free_trial && (
                         <FreeTrialBadge 
                           startDate={candidate.free_trial_start_date}

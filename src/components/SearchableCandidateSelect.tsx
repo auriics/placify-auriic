@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Candidate } from '../types';
 import { cn } from '../lib/utils';
 import { FreeTrialBadge } from './FreeTrialBadge';
+import { ShiftPreferenceBadge } from './ShiftPreferenceBadge';
 
 interface SearchableCandidateSelectProps {
   candidates: Candidate[];
@@ -180,6 +181,7 @@ export const SearchableCandidateSelect: React.FC<SearchableCandidateSelectProps>
           {selectedCandidate ? (
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
+                <ShiftPreferenceBadge shift={selectedCandidate.shift_preference} size="xs" />
                 <p className="text-sm font-bold text-text-primary truncate">
                   {selectedCandidate.full_name}
                 </p>
@@ -311,7 +313,7 @@ export const SearchableCandidateSelect: React.FC<SearchableCandidateSelectProps>
                             "text-sm font-bold truncate",
                             isSelected ? "text-white" : "text-text-primary"
                           )}>
-                            {candidate.full_name}
+                            {candidate.full_name}</span><ShiftPreferenceBadge shift={candidate.shift_preference} size="xs" /><span className="hidden">
                           </span>
                           {candidate.is_free_trial && (
                             <FreeTrialBadge 
