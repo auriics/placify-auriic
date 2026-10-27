@@ -11,7 +11,6 @@ import { CandidateSheet } from '../components/CandidateSheet';
 import { TrackJobSheet } from '../components/TrackJobSheet';
 import { BulkImportModal } from '../components/BulkImportModal';
 import { AddCandidateModal } from '../components/AddCandidateModal';
-import { usePermissions } from '../contexts/PermissionsContext';
 import { useDebounce } from '../lib/hooks';
 import { canUserAccessCandidate } from '../lib/permissions';
 import { List } from 'react-window';
@@ -145,7 +144,6 @@ CandidateRow.displayName = 'CandidateRow';
 export const Candidates: React.FC = () => {
   const { user, isAuthReady } = useAuth();
   const { showToast } = useToast();
-  const { canCreate, canExport } = usePermissions();
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -373,34 +371,28 @@ export const Candidates: React.FC = () => {
         </div>
         <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 sm:gap-4">
           <div className="flex flex-wrap items-center gap-2">
-            {canExport('candidates') && (
-              <button 
-                onClick={handleExportLeadsAndSales}
-                disabled={isExporting}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3.5 py-2.5 sm:px-4 sm:py-3 bg-bg-secondary border border-border-primary rounded-xl sm:rounded-2xl text-xs sm:text-sm font-bold text-text-primary hover:bg-bg-tertiary transition-all cursor-pointer disabled:opacity-50"
-              >
-                <Download className="w-4 h-4 sm:w-5 sm:h-5 text-accent-green" />
-                <span>{isExporting ? 'Exporting...' : 'Export'}</span>
-              </button>
-            )}
-            {canCreate('candidates') && (
-              <button 
-                onClick={() => setIsImportModalOpen(true)}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3.5 py-2.5 sm:px-4 sm:py-3 bg-bg-secondary border border-border-primary rounded-xl sm:rounded-2xl text-xs sm:text-sm font-bold text-text-primary hover:bg-bg-tertiary transition-all"
-              >
-                <Table className="w-4 h-4 sm:w-5 sm:h-5 text-accent-blue" />
-                <span>Import</span>
-              </button>
-            )}
-            {canCreate('candidates') && (
-              <button 
-                onClick={() => setIsAddModalOpen(true)}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 sm:px-6 sm:py-3 bg-accent-blue text-white font-bold rounded-xl sm:rounded-2xl hover:bg-accent-blue/90 transition-all shadow-lg shadow-accent-blue/20 text-xs sm:text-sm"
-              >
-                <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
-                <span>Add Candidate</span>
-              </button>
-            )}
+            <button 
+              onClick={handleExportLeadsAndSales}
+              disabled={isExporting}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3.5 py-2.5 sm:px-4 sm:py-3 bg-bg-secondary border border-border-primary rounded-xl sm:rounded-2xl text-xs sm:text-sm font-bold text-text-primary hover:bg-bg-tertiary transition-all cursor-pointer disabled:opacity-50"
+            >
+              <Download className="w-4 h-4 sm:w-5 sm:h-5 text-accent-green" />
+              <span>{isExporting ? 'Exporting...' : 'Export'}</span>
+            </button>
+            <button 
+              onClick={() => setIsImportModalOpen(true)}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3.5 py-2.5 sm:px-4 sm:py-3 bg-bg-secondary border border-border-primary rounded-xl sm:rounded-2xl text-xs sm:text-sm font-bold text-text-primary hover:bg-bg-tertiary transition-all"
+            >
+              <Table className="w-4 h-4 sm:w-5 sm:h-5 text-accent-blue" />
+              <span>Import</span>
+            </button>
+            <button 
+              onClick={() => setIsAddModalOpen(true)}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 sm:px-6 sm:py-3 bg-accent-blue text-white font-bold rounded-xl sm:rounded-2xl hover:bg-accent-blue/90 transition-all shadow-lg shadow-accent-blue/20 text-xs sm:text-sm"
+            >
+              <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span>Add Candidate</span>
+            </button>
           </div>
           <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-4 w-full sm:w-auto">
             <div className="relative w-full sm:w-64">

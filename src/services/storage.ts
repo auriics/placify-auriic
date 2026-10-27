@@ -142,33 +142,6 @@ export const subscribeToCollection = <T>(collectionName: string, callback: (data
         .catch(() => callback([]));
       return;
     }
-    if (collectionName === 'jpc_role_permissions') {
-      console.warn('Direct Firestore onSnapshot unavailable for jpc_role_permissions, using API fallback:', error.message);
-      fetch('/api/permissions')
-        .then(res => res.ok ? res.json() : null)
-        .then(data => {
-          if (data?.permissions) {
-            const list = Object.entries(data.permissions).map(([role, modules]) => ({
-              id: role,
-              role,
-              modules
-            }));
-            callback(list as any);
-          }
-        })
-        .catch(() => {});
-      return;
-    }
-    if (collectionName === 'jpc_permission_audit_logs') {
-      console.warn('Direct Firestore onSnapshot unavailable for jpc_permission_audit_logs, using API fallback:', error.message);
-      fetch('/api/permissions/audit-logs')
-        .then(res => res.ok ? res.json() : null)
-        .then(data => {
-          if (data?.logs) callback(data.logs as any);
-        })
-        .catch(() => {});
-      return;
-    }
     handleFirestoreError(error, OperationType.GET, collectionName);
   });
 };

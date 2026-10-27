@@ -21,13 +21,11 @@ import {
   Zap,
   TrendingUp,
   FolderTree,
-  Sparkles,
-  Key
+  Sparkles
 } from 'lucide-react';
 import { cn, isSalesWorkingHours } from '../lib/utils';
 import { subscribeToCollection, updateSalesAvailability } from '../services/storage';
 import { useToast } from '../contexts/ToastContext';
-import { usePermissions } from '../contexts/PermissionsContext';
 import { isProxyUser } from '../services/interviewService';
 import { FollowUp, Candidate, User, isAurrumRole } from '../types';
 import { canUserAccessCandidate } from '../lib/permissions';
@@ -42,7 +40,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentHash, isOpen, setIsOpen
   const { user, logout, isAuthReady } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { showToast } = useToast();
-  const { canView } = usePermissions();
 
   const [allFollowUps, setAllFollowUps] = useState<FollowUp[]>([]);
   const [allCandidates, setAllCandidates] = useState<Candidate[]>([]);
@@ -121,119 +118,117 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentHash, isOpen, setIsOpen
   const isAurrumOnlyUser = isAurrumRole(user?.role);
 
   const navItems = [
-    { label: 'Dashboard', hash: '#dashboard', icon: LayoutDashboard, visible: !isAurrumOnlyUser && canView('dashboard') },
+    { label: 'Dashboard', hash: '#dashboard', icon: LayoutDashboard, visible: !isAurrumOnlyUser },
     { 
       label: 'CRM Leads & Sales', 
       hash: '#crm-dashboard', 
       icon: TrendingUp, 
-      visible: !isAurrumOnlyUser && canView('crm_dashboard')
+      visible: !isAurrumOnlyUser && (user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager' || user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person')
     },
     { label: 'My Profile', hash: `#candidate?id=${user?.candidate_id}`, icon: UserIcon, visible: (user?.role === 'candidate' || user?.role === 'jpc_candidate') && !!user?.candidate_id },
     { 
       label: 'Pipeline', 
       hash: '#pipeline', 
       icon: Trello, 
-      visible: !isAurrumOnlyUser && canView('pipeline')
+      visible: !isAurrumOnlyUser && (user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager' || user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person' || user?.role === 'jpc_recruiter' || user?.role === 'jpc_marketing' || user?.role === 'jpc_marketing_support' || user?.role === 'jpc_sales' || user?.role === 'jpc_resume')
     },
-    { label: 'Candidates', hash: '#candidates', icon: Users, visible: !isAurrumOnlyUser && user?.role !== 'candidate' && user?.role !== 'jpc_candidate' && canView('candidates') },
+    { label: 'Candidates', hash: '#candidates', icon: Users, visible: !isAurrumOnlyUser && user?.role !== 'candidate' && user?.role !== 'jpc_candidate' },
     { 
       label: 'Follow-Ups', 
       hash: '#followups', 
       icon: Clock, 
-      visible: !isAurrumOnlyUser && user?.role !== 'candidate' && user?.role !== 'jpc_candidate' && canView('followups'), 
+      visible: !isAurrumOnlyUser && user?.role !== 'candidate' && user?.role !== 'jpc_candidate' && user?.role !== 'jpc_lead_gen' && user?.role !== 'jpc_resume' && user?.role !== 'jpc_proxy' && user?.role !== 'jpc_marketing' && user?.role !== 'jpc_marketing_support', 
       badge: followUpsCount 
     },
     { 
       label: 'App Tracker', 
       hash: '#applications', 
       icon: FileText, 
-      visible: !isAurrumOnlyUser && canView('app_tracker')
+      visible: !isAurrumOnlyUser && (user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager' || user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person' || user?.role === 'jpc_recruiter' || user?.role === 'jpc_marketing')
     },
     { 
       label: 'Resume Log', 
       hash: '#resume-log', 
       icon: FileEdit, 
-      visible: !isAurrumOnlyUser && canView('resume_log')
+      visible: !isAurrumOnlyUser && (user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager' || user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person' || user?.role === 'jpc_recruiter' || user?.role === 'jpc_resume' || user?.role === 'jpc_marketing')
     },
     { 
       label: 'Resume Prep Log', 
       hash: '#resume-prep-log', 
       icon: FileText, 
-      visible: !isAurrumOnlyUser && canView('resume_prep')
+      visible: !isAurrumOnlyUser && (user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager' || user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person' || user?.role === 'jpc_recruiter' || user?.role === 'jpc_resume' || user?.role === 'jpc_marketing')
     },
     { 
       label: 'RTR Log', 
       hash: '#rtr-log', 
       icon: FileEdit, 
-      visible: !isAurrumOnlyUser && canView('rtr_log')
+      visible: !isAurrumOnlyUser && (user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager' || user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person' || user?.role === 'jpc_recruiter' || user?.role === 'jpc_resume' || user?.role === 'jpc_marketing')
     },
     { 
       label: 'Target Compliance', 
       hash: '#target-dashboard', 
       icon: TrendingUp, 
-      visible: !isAurrumOnlyUser && canView('target_compliance')
+      visible: !isAurrumOnlyUser && (user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager' || user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person')
     },
     { 
       label: 'CV Repository', 
       hash: '#cv-repository', 
       icon: FileText, 
-      visible: !isAurrumOnlyUser && canView('cv_repository')
+      visible: !isAurrumOnlyUser && (user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager' || user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person' || user?.role === 'jpc_recruiter' || user?.role === 'jpc_resume' || user?.role === 'jpc_marketing')
     },
     { 
       label: 'Domain Resumes', 
       hash: '#domain-resumes', 
       icon: FolderTree, 
-      visible: !isAurrumOnlyUser && canView('domain_resumes')
+      visible: !isAurrumOnlyUser && (user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager' || user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person' || user?.role === 'jpc_recruiter' || user?.role === 'jpc_resume' || user?.role === 'jpc_marketing')
     },
     { 
       label: 'Interview Support', 
       hash: '#interviews', 
       icon: Video, 
-      visible: !isAurrumOnlyUser && canView('interview_support')
+      visible: !isAurrumOnlyUser && (user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager' || user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person' || user?.role === 'jpc_recruiter' || isProxyUser(user) || user?.role === 'jpc_marketing')
     },
     { 
       label: 'Proxy Support', 
       hash: '#interviews-proxy', 
       icon: Clock, 
-      visible: !isAurrumOnlyUser && canView('proxy_support')
+      visible: !isAurrumOnlyUser && (user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager' || isProxyUser(user))
     },
     { 
       label: 'Not Interested', 
       hash: '#not-interested', 
       icon: UserX, 
-      visible: !isAurrumOnlyUser && canView('not_interested'),
+      visible: !isAurrumOnlyUser && (user?.role === 'administrator' || user?.role === 'jpc_manager' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_lead_gen' || user?.role === 'jpc_sales'),
       badge: notInterestedCount
     },
     { 
       label: 'Not Eligible', 
       hash: '#not-eligible', 
       icon: UserX, 
-      visible: !isAurrumOnlyUser && canView('not_eligible'),
+      visible: !isAurrumOnlyUser && (user?.role === 'administrator' || user?.role === 'jpc_manager' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_lead_gen' || user?.role === 'jpc_sales'),
       badge: notEligibleCount
     },
     { 
       label: 'Team', 
       hash: '#team', 
       icon: Shield, 
-      visible: !isAurrumOnlyUser && canView('team')
-    },
-    { 
-      label: 'Permissions', 
-      hash: '#permissions-management', 
-      icon: Key, 
-      visible: !isAurrumOnlyUser && canView('permissions_management')
+      visible: !isAurrumOnlyUser && (user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager' || user?.role === 'jpc_marketing' || user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person')
     },
     { 
       label: 'Feature Alerts', 
       hash: '#feature-alerts', 
       icon: Zap, 
-      visible: !isAurrumOnlyUser && canView('feature_alerts')
+      visible: !isAurrumOnlyUser 
     },
   ];
 
   const canAccessAurrum =
     isAurrumOnlyUser ||
-    canView('aurrum_careers');
+    user?.role === 'administrator' ||
+    user?.role === 'jpc_sysadmin' ||
+    user?.role === 'jpc_manager' ||
+    user?.role === 'jpc_cs' ||
+    isProxyUser(user);
 
   const canManageAurrumTeam =
     user?.role === 'aurrum_admin' ||
