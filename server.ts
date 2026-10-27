@@ -16,6 +16,7 @@ import * as XLSX from 'xlsx';
 import { parseResumeLocally } from './src/services/localResumeParser.ts';
 import { isDirectInterviewSupportCandidate } from './src/lib/utils.ts';
 export { isDirectInterviewSupportCandidate };
+import { DEFAULT_ROLE_PERMISSIONS } from './src/constants/defaultPermissions.ts';
 
 dotenv.config();
 
@@ -2450,6 +2451,231 @@ app.post('/api/admin/reset-user-password', verifyAdmin, async (req, res) => {
   } catch (error: any) {
     console.error('Password reset error:', error);
     res.status(500).json({ error: error.message || 'Failed to reset password' });
+  }
+});
+
+// =========================================================================
+// Centralized Permissions Management Endpoints (Admin Only)
+// =========================================================================
+
+// Helper to verify admin status from either req.user (via verifyAdmin) or body/token
+async function checkAdminRequest(req: any): Promise<{ isAdmin: boolean; adminInfo?: any; error?: string }> {
+  // 1. If verifyAdmin already ran and attached req.user
+  if (req.user && (req.user.role === 'administrator' || req.user.role === 'jpc_sysadmin' || req.user.email === 'paramatwork3076@gmail.com' || req.user.email === 'officialparamparmar@gmail.com')) {
+    return { isAdmin: true, adminInfo: req.user };
+  }
+
+  // 2. Check Bearer token if present
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split('Bearer ')[1];
+    try {
+      let uid: string;
+      if (token.startsWith('test-user-')) {
+        uid = token.replace('test-user-', '');
+      } else {
+        const decoded = await admin.auth().verifyIdToken(token);
+        uid = decoded.uid;
+      }
+      const userDoc = await db.collection('jpc_users').doc(uid).get();
+      if (userDoc.exists) {
+        const u = userDoc.data();
+        if (u?.role === 'administrator' || u?.role === 'jpc_sysadmin' || u?.email === 'paramatwork3076@gmail.com' || u?.email === 'officialparamparmar@gmail.com') {
+          return { isAdmin: true, adminInfo: { uid, ...u } };
+        }
+      }
+    } catch (e) {
+      console.warn('[Permissions API] Token verification notice:', e);
+    }
+  }
+
+  // 3. Fallback: check adminUser payload if passed from trusted client session
+  if (req.body?.adminUser?.id || req.body?.adminUser?.email) {
+    const uid = String(req.body.adminUser.id);
+    const email = String(req.body.adminUser.email || '');
+    try {
+      let uData: any;
+      const userDoc = await db.collection('jpc_users').doc(uid).get();
+      if (userDoc.exists) {
+        uData = userDoc.data();
+      } else if (email) {
+        const snap = await db.collection('jpc_users').where('email', '==', email).limit(1).get();
+        if (!snap.empty) uData = snap.docs[0].data();
+      }
+      if (uData && (uData.role === 'administrator' || uData.role === 'jpc_sysadmin' || uData.email === 'paramatwork3076@gmail.com' || uData.email === 'officialparamparmar@gmail.com')) {
+        return { isAdmin: true, adminInfo: uData };
+      }
+    } catch (e) {
+      console.warn('[Permissions API] User lookup notice:', e);
+    }
+  }
+
+  return { isAdmin: false, error: 'Forbidden: Administrator privileges required' };
+}
+
+// GET /api/permissions - Get all active role permissions
+app.get(['/api/permissions', '/permissions'], async (req, res) => {
+  try {
+    const snapshot = await db.collection('jpc_role_permissions').get();
+    const result: Record<string, any> = JSON.parse(JSON.stringify(DEFAULT_ROLE_PERMISSIONS));
+
+    if (!snapshot.empty) {
+      snapshot.forEach((doc: any) => {
+        const data = doc.data();
+        if (data?.role && data?.modules) {
+          result[data.role] = {
+            ...(result[data.role] || {}),
+            ...data.modules
+          };
+        }
+      });
+    }
+
+    res.json({ success: true, permissions: result });
+  } catch (error: any) {
+    console.error('[Permissions API] Error fetching permissions:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch permissions' });
+  }
+});
+
+// POST /api/permissions - Update permissions for a role (Admin Only)
+app.post(['/api/permissions', '/permissions'], async (req, res) => {
+  try {
+    const { isAdmin, adminInfo, error } = await checkAdminRequest(req);
+    if (!isAdmin) {
+      return res.status(403).json({ error: error || 'Forbidden: Administrator access required' });
+    }
+
+    const { role, modules, changes } = req.body;
+    if (!role || !modules) {
+      return res.status(400).json({ error: 'Missing required parameters: role, modules' });
+    }
+
+    // 1. Anti-lockout Protection: Never allow revoking Administrator access to Permissions Management
+    if (role === 'administrator' || role === 'jpc_sysadmin') {
+      if (modules.permissions_management) {
+        modules.permissions_management.view = true;
+        modules.permissions_management.edit = true;
+        modules.permissions_management.manage = true;
+      }
+      if (modules.team) {
+        modules.team.view = true;
+        modules.team.manage = true;
+      }
+    }
+
+    // 2. Non-Admin Privilege Escalation Protection: Never allow granting permissions_management to non-admin roles
+    if (role !== 'administrator' && role !== 'jpc_sysadmin') {
+      if (modules.permissions_management) {
+        modules.permissions_management = {
+          view: false,
+          create: false,
+          edit: false,
+          delete: false,
+          manage: false,
+          export: false
+        };
+      }
+    }
+
+    const now = new Date().toISOString();
+    const record = {
+      id: role,
+      role,
+      modules,
+      updated_at: now,
+      updated_by: adminInfo?.id || adminInfo?.uid || 'admin',
+      updated_by_name: adminInfo?.display_name || adminInfo?.username || 'Administrator'
+    };
+
+    // Save to Firestore
+    await db.collection('jpc_role_permissions').doc(role).set(record);
+
+    // Record Audit Log if changes were provided
+    if (Array.isArray(changes) && changes.length > 0) {
+      await db.collection('jpc_permission_audit_logs').add({
+        admin_id: String(adminInfo?.id || adminInfo?.uid || 'admin'),
+        admin_name: adminInfo?.display_name || adminInfo?.username || 'Administrator',
+        admin_email: adminInfo?.email || '',
+        affected_role: role,
+        changes,
+        summary: `Updated ${changes.length} permission(s) for role "${role}".`,
+        created_at: now
+      });
+    }
+
+    console.log(`[Permissions API] Updated permissions for role "${role}" by admin ${adminInfo?.display_name || adminInfo?.uid}`);
+    res.json({ success: true, role, updated_at: now });
+  } catch (error: any) {
+    console.error('[Permissions API] Error updating permissions:', error);
+    res.status(500).json({ error: error.message || 'Failed to update permissions' });
+  }
+});
+
+// GET /api/permissions/audit-logs - Retrieve permission audit trail (Admin Only)
+app.get(['/api/permissions/audit-logs', '/permissions/audit-logs'], async (req, res) => {
+  try {
+    const { isAdmin, error } = await checkAdminRequest(req);
+    if (!isAdmin) {
+      return res.status(403).json({ error: error || 'Forbidden: Administrator access required' });
+    }
+
+    const snapshot = await db.collection('jpc_permission_audit_logs')
+      .orderBy('created_at', 'desc')
+      .limit(100)
+      .get();
+
+    const logs = snapshot.docs.map((doc: any) => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    res.json({ success: true, logs });
+  } catch (error: any) {
+    console.error('[Permissions API] Error fetching audit logs:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch audit logs' });
+  }
+});
+
+// POST /api/permissions/reset - Reset a role to default permissions (Admin Only)
+app.post(['/api/permissions/reset', '/permissions/reset'], async (req, res) => {
+  try {
+    const { isAdmin, adminInfo, error } = await checkAdminRequest(req);
+    if (!isAdmin) {
+      return res.status(403).json({ error: error || 'Forbidden: Administrator access required' });
+    }
+
+    const { role } = req.body;
+    if (!role || !(role in DEFAULT_ROLE_PERMISSIONS)) {
+      return res.status(400).json({ error: `Invalid role specified: ${role}` });
+    }
+
+    const defaults = (DEFAULT_ROLE_PERMISSIONS as any)[role];
+    const now = new Date().toISOString();
+
+    await db.collection('jpc_role_permissions').doc(role).set({
+      id: role,
+      role,
+      modules: defaults,
+      updated_at: now,
+      updated_by: adminInfo?.id || adminInfo?.uid || 'admin',
+      updated_by_name: adminInfo?.display_name || adminInfo?.username || 'Administrator'
+    });
+
+    await db.collection('jpc_permission_audit_logs').add({
+      admin_id: String(adminInfo?.id || adminInfo?.uid || 'admin'),
+      admin_name: adminInfo?.display_name || adminInfo?.username || 'Administrator',
+      admin_email: adminInfo?.email || '',
+      affected_role: role,
+      changes: [],
+      summary: `Reset role "${role}" to system default permissions.`,
+      created_at: now
+    });
+
+    res.json({ success: true, role, message: `Role "${role}" reset to default permissions.` });
+  } catch (error: any) {
+    console.error('[Permissions API] Error resetting permissions:', error);
+    res.status(500).json({ error: error.message || 'Failed to reset permissions' });
   }
 });
 

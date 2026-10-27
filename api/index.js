@@ -1307,6 +1307,374 @@ var isDirectInterviewSupportCandidate = (c) => {
   return false;
 };
 
+// src/types/permissions.ts
+var createEmptyModulePermission = () => ({
+  view: false,
+  create: false,
+  edit: false,
+  delete: false,
+  manage: false,
+  export: false
+});
+var createFullModulePermission = () => ({
+  view: true,
+  create: true,
+  edit: true,
+  delete: true,
+  manage: true,
+  export: true
+});
+
+// src/constants/defaultPermissions.ts
+var APP_MODULES = [
+  // Core CRM
+  {
+    id: "dashboard",
+    label: "Dashboard",
+    category: "Core CRM",
+    description: "Executive overview, key performance indicators, and lead metrics.",
+    route: "#dashboard",
+    supportedActions: ["view", "export"]
+  },
+  {
+    id: "crm_dashboard",
+    label: "CRM Leads & Sales",
+    category: "Core CRM",
+    description: "Lead generation performance, conversion rates, and sales activity logs.",
+    route: "#crm-dashboard",
+    supportedActions: ["view", "create", "edit", "delete", "manage", "export"]
+  },
+  {
+    id: "pipeline",
+    label: "Pipeline Board",
+    category: "Core CRM",
+    description: "Interactive Kanban board tracking candidates through recruitment stages.",
+    route: "#pipeline",
+    supportedActions: ["view", "create", "edit", "delete", "manage", "export"]
+  },
+  {
+    id: "candidates",
+    label: "Candidates",
+    category: "Core CRM",
+    description: "Candidate profiles, resume details, contact records, and interview logs.",
+    route: "#candidates",
+    supportedActions: ["view", "create", "edit", "delete", "manage", "export"]
+  },
+  {
+    id: "followups",
+    label: "Follow-Ups",
+    category: "Core CRM",
+    description: "Scheduled reminders, tasks, and interaction notes with candidates.",
+    route: "#followups",
+    supportedActions: ["view", "create", "edit", "delete", "manage", "export"]
+  },
+  {
+    id: "not_interested",
+    label: "Not Interested",
+    category: "Core CRM",
+    description: "Candidates who declined or are not interested in the program.",
+    route: "#not-interested",
+    supportedActions: ["view", "edit", "delete", "export"]
+  },
+  {
+    id: "not_eligible",
+    label: "Not Eligible",
+    category: "Core CRM",
+    description: "Candidates filtered out as not eligible based on criteria.",
+    route: "#not-eligible",
+    supportedActions: ["view", "edit", "delete", "export"]
+  },
+  // Recruitment & Operations
+  {
+    id: "app_tracker",
+    label: "App Tracker",
+    category: "Recruitment & Operations",
+    description: "Tracking external job applications submitted on behalf of candidates.",
+    route: "#applications",
+    supportedActions: ["view", "create", "edit", "delete", "manage", "export"]
+  },
+  {
+    id: "resume_log",
+    label: "Resume Log",
+    category: "Recruitment & Operations",
+    description: "Resume revision requests, marketing resumes, and approval workflow.",
+    route: "#resume-log",
+    supportedActions: ["view", "create", "edit", "delete", "manage", "export"]
+  },
+  {
+    id: "resume_prep",
+    label: "Resume Prep Log",
+    category: "Recruitment & Operations",
+    description: "Technical resume preparation, keyword tuning, and formatting logs.",
+    route: "#resume-prep-log",
+    supportedActions: ["view", "create", "edit", "delete", "manage", "export"]
+  },
+  {
+    id: "rtr_log",
+    label: "RTR Log",
+    category: "Recruitment & Operations",
+    description: "Right-to-Represent requests, candidate consent, and agency submissions.",
+    route: "#rtr-log",
+    supportedActions: ["view", "create", "edit", "delete", "manage", "export"]
+  },
+  {
+    id: "target_compliance",
+    label: "Target Compliance",
+    category: "Recruitment & Operations",
+    description: "Recruiter and team target tracking, KPI compliance, and velocity.",
+    route: "#target-dashboard",
+    supportedActions: ["view", "edit", "manage", "export"]
+  },
+  {
+    id: "cv_repository",
+    label: "CV Repository",
+    category: "Recruitment & Operations",
+    description: "Centralized repository of candidate CVs, original resumes, and drafts.",
+    route: "#cv-repository",
+    supportedActions: ["view", "create", "edit", "delete", "export"]
+  },
+  {
+    id: "domain_resumes",
+    label: "Domain Resumes",
+    category: "Recruitment & Operations",
+    description: "Domain-specific resume bank and reference templates for marketing.",
+    route: "#domain-resumes",
+    supportedActions: ["view", "create", "edit", "delete", "export"]
+  },
+  // Interview Support
+  {
+    id: "interview_support",
+    label: "Interview Support",
+    category: "Interview Support",
+    description: "Interview rounds scheduling, meeting links, and candidate preparation.",
+    route: "#interviews",
+    supportedActions: ["view", "create", "edit", "delete", "manage", "export"]
+  },
+  {
+    id: "proxy_support",
+    label: "Proxy Support",
+    category: "Interview Support",
+    description: "Proxy availability management, assignment engine, and proxy dashboard.",
+    route: "#interviews-proxy",
+    supportedActions: ["view", "create", "edit", "manage", "export"]
+  },
+  // System & Admin
+  {
+    id: "team",
+    label: "Team Management",
+    category: "System & Admin",
+    description: "Manage team members, sales availability, leave dates, and SMTP setup.",
+    route: "#team",
+    supportedActions: ["view", "create", "edit", "delete", "manage", "export"]
+  },
+  {
+    id: "permissions_management",
+    label: "Permissions Management",
+    category: "System & Admin",
+    description: "Centralized role-based permissions matrix and access control (Admin Only).",
+    route: "#permissions-management",
+    supportedActions: ["view", "edit", "manage"]
+  },
+  {
+    id: "receipt",
+    label: "Receipts & Billing",
+    category: "System & Admin",
+    description: "Candidate payments, payment agreements, and financial receipts.",
+    route: "#receipt",
+    supportedActions: ["view", "create", "edit", "manage", "export"]
+  },
+  {
+    id: "feature_alerts",
+    label: "Feature Announcements",
+    category: "System & Admin",
+    description: "System release notes, feature updates, and platform announcements.",
+    route: "#feature-alerts",
+    supportedActions: ["view"]
+  },
+  // Aurrum Careers
+  {
+    id: "aurrum_careers",
+    label: "Aurrum Careers Modules",
+    category: "Aurrum Careers",
+    description: "Aurrum-branded candidate intake, sales pipeline, and interviews.",
+    route: "#aurrum-dashboard",
+    supportedActions: ["view", "create", "edit", "delete", "manage", "export"]
+  }
+];
+var buildRolePermissions = (rules) => {
+  const result = {};
+  for (const mod of APP_MODULES) {
+    const base = createEmptyModulePermission();
+    if (rules[mod.id]) {
+      result[mod.id] = { ...base, ...rules[mod.id] };
+    } else {
+      result[mod.id] = base;
+    }
+  }
+  return result;
+};
+var buildAdminPermissions = () => {
+  const result = {};
+  for (const mod of APP_MODULES) {
+    result[mod.id] = createFullModulePermission();
+  }
+  return result;
+};
+var DEFAULT_ROLE_PERMISSIONS = {
+  administrator: buildAdminPermissions(),
+  jpc_sysadmin: buildAdminPermissions(),
+  jpc_manager: buildRolePermissions({
+    dashboard: { view: true, export: true },
+    crm_dashboard: { view: true, create: true, edit: true, delete: true, manage: true, export: true },
+    pipeline: { view: true, create: true, edit: true, delete: true, manage: true, export: true },
+    candidates: { view: true, create: true, edit: true, delete: true, manage: true, export: true },
+    followups: { view: true, create: true, edit: true, manage: true, export: true },
+    not_interested: { view: true, edit: true, delete: true, export: true },
+    not_eligible: { view: true, edit: true, delete: true, export: true },
+    app_tracker: { view: true, create: true, edit: true, manage: true, export: true },
+    resume_log: { view: true, create: true, edit: true, manage: true, export: true },
+    resume_prep: { view: true, create: true, edit: true, manage: true, export: true },
+    rtr_log: { view: true, create: true, edit: true, manage: true, export: true },
+    target_compliance: { view: true, edit: true, manage: true, export: true },
+    cv_repository: { view: true, create: true, edit: true, export: true },
+    domain_resumes: { view: true, create: true, edit: true, export: true },
+    interview_support: { view: true, create: true, edit: true, manage: true, export: true },
+    proxy_support: { view: true, create: true, edit: true, manage: true, export: true },
+    team: { view: true, create: true, edit: true, manage: true, export: true },
+    receipt: { view: true, create: true, edit: true, manage: true, export: true },
+    feature_alerts: { view: true },
+    aurrum_careers: { view: true, create: true, edit: true, manage: true, export: true }
+  }),
+  jpc_sales: buildRolePermissions({
+    dashboard: { view: true },
+    pipeline: { view: true, edit: true },
+    candidates: { view: true, create: true, edit: true },
+    followups: { view: true, create: true, edit: true },
+    not_interested: { view: true, edit: true },
+    not_eligible: { view: true, edit: true },
+    feature_alerts: { view: true }
+  }),
+  jpc_lead_gen: buildRolePermissions({
+    dashboard: { view: true },
+    candidates: { view: true, create: true },
+    followups: { view: true, create: true, edit: true },
+    not_interested: { view: true, edit: true },
+    not_eligible: { view: true, edit: true },
+    feature_alerts: { view: true }
+  }),
+  jpc_cs: buildRolePermissions({
+    dashboard: { view: true },
+    crm_dashboard: { view: true },
+    pipeline: { view: true, edit: true, manage: true },
+    candidates: { view: true, edit: true, manage: true },
+    followups: { view: true, create: true, edit: true },
+    app_tracker: { view: true, create: true, edit: true, manage: true },
+    resume_log: { view: true, create: true, edit: true, manage: true },
+    resume_prep: { view: true, create: true, edit: true, manage: true },
+    rtr_log: { view: true, create: true, edit: true, manage: true },
+    target_compliance: { view: true, edit: true, manage: true, export: true },
+    cv_repository: { view: true, create: true, edit: true },
+    domain_resumes: { view: true, create: true, edit: true },
+    interview_support: { view: true, create: true, edit: true, manage: true },
+    proxy_support: { view: true, create: true, edit: true },
+    team: { view: true },
+    receipt: { view: true, create: true, edit: true },
+    feature_alerts: { view: true }
+  }),
+  jpc_compliance_person: buildRolePermissions({
+    dashboard: { view: true },
+    crm_dashboard: { view: true },
+    pipeline: { view: true, edit: true },
+    candidates: { view: true, edit: true },
+    followups: { view: true, create: true, edit: true },
+    app_tracker: { view: true, create: true, edit: true },
+    resume_log: { view: true, create: true, edit: true },
+    resume_prep: { view: true, create: true, edit: true },
+    rtr_log: { view: true, create: true, edit: true },
+    target_compliance: { view: true, edit: true, export: true },
+    cv_repository: { view: true, create: true, edit: true },
+    domain_resumes: { view: true, create: true, edit: true },
+    interview_support: { view: true, create: true, edit: true },
+    proxy_support: { view: true, create: true, edit: true },
+    receipt: { view: true, create: true, edit: true },
+    feature_alerts: { view: true }
+  }),
+  jpc_resume: buildRolePermissions({
+    dashboard: { view: true },
+    pipeline: { view: true, edit: true },
+    candidates: { view: true, edit: true },
+    resume_log: { view: true, create: true, edit: true },
+    resume_prep: { view: true, create: true, edit: true },
+    cv_repository: { view: true, create: true, edit: true },
+    domain_resumes: { view: true, create: true, edit: true },
+    feature_alerts: { view: true }
+  }),
+  jpc_recruiter: buildRolePermissions({
+    dashboard: { view: true },
+    pipeline: { view: true, edit: true },
+    candidates: { view: true, edit: true },
+    app_tracker: { view: true, create: true, edit: true },
+    resume_log: { view: true, create: true },
+    resume_prep: { view: true, create: true },
+    rtr_log: { view: true, create: true },
+    domain_resumes: { view: true },
+    interview_support: { view: true, create: true },
+    feature_alerts: { view: true }
+  }),
+  jpc_marketing: buildRolePermissions({
+    dashboard: { view: true },
+    pipeline: { view: true, edit: true, manage: true },
+    candidates: { view: true, edit: true, manage: true },
+    app_tracker: { view: true, create: true, edit: true, manage: true },
+    resume_log: { view: true, create: true, edit: true, manage: true },
+    resume_prep: { view: true, create: true, edit: true, manage: true },
+    rtr_log: { view: true, create: true, edit: true, manage: true },
+    cv_repository: { view: true, create: true, edit: true },
+    domain_resumes: { view: true, create: true, edit: true },
+    interview_support: { view: true, create: true, edit: true },
+    team: { view: true },
+    feature_alerts: { view: true }
+  }),
+  jpc_marketing_support: buildRolePermissions({
+    dashboard: { view: true },
+    pipeline: { view: true, edit: true },
+    candidates: { view: true, edit: true },
+    followups: { view: true, create: true, edit: true },
+    feature_alerts: { view: true }
+  }),
+  jpc_proxy: buildRolePermissions({
+    dashboard: { view: true },
+    interview_support: { view: true, create: true, edit: true },
+    proxy_support: { view: true, create: true, edit: true },
+    feature_alerts: { view: true }
+  }),
+  jpc_candidate: buildRolePermissions({
+    dashboard: { view: true },
+    candidates: { view: true },
+    receipt: { view: true }
+  }),
+  candidate: buildRolePermissions({
+    dashboard: { view: true },
+    candidates: { view: true },
+    receipt: { view: true }
+  }),
+  aurrum_admin: buildRolePermissions({
+    dashboard: { view: true },
+    aurrum_careers: { view: true, create: true, edit: true, delete: true, manage: true, export: true },
+    receipt: { view: true, create: true, edit: true }
+  }),
+  aurrum_sales: buildRolePermissions({
+    dashboard: { view: true },
+    aurrum_careers: { view: true, create: true, edit: true },
+    receipt: { view: true }
+  }),
+  aurrum_team: buildRolePermissions({
+    dashboard: { view: true },
+    aurrum_careers: { view: true, create: true, edit: true, export: true },
+    receipt: { view: true }
+  })
+};
+
 // server.ts
 dotenv.config();
 var isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
@@ -3228,6 +3596,187 @@ app.post("/api/admin/reset-user-password", verifyAdmin, async (req, res) => {
   } catch (error) {
     console.error("Password reset error:", error);
     res.status(500).json({ error: error.message || "Failed to reset password" });
+  }
+});
+async function checkAdminRequest(req) {
+  if (req.user && (req.user.role === "administrator" || req.user.role === "jpc_sysadmin" || req.user.email === "paramatwork3076@gmail.com" || req.user.email === "officialparamparmar@gmail.com")) {
+    return { isAdmin: true, adminInfo: req.user };
+  }
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.split("Bearer ")[1];
+    try {
+      let uid;
+      if (token.startsWith("test-user-")) {
+        uid = token.replace("test-user-", "");
+      } else {
+        const decoded = await admin.auth().verifyIdToken(token);
+        uid = decoded.uid;
+      }
+      const userDoc = await db.collection("jpc_users").doc(uid).get();
+      if (userDoc.exists) {
+        const u = userDoc.data();
+        if (u?.role === "administrator" || u?.role === "jpc_sysadmin" || u?.email === "paramatwork3076@gmail.com" || u?.email === "officialparamparmar@gmail.com") {
+          return { isAdmin: true, adminInfo: { uid, ...u } };
+        }
+      }
+    } catch (e) {
+      console.warn("[Permissions API] Token verification notice:", e);
+    }
+  }
+  if (req.body?.adminUser?.id || req.body?.adminUser?.email) {
+    const uid = String(req.body.adminUser.id);
+    const email = String(req.body.adminUser.email || "");
+    try {
+      let uData;
+      const userDoc = await db.collection("jpc_users").doc(uid).get();
+      if (userDoc.exists) {
+        uData = userDoc.data();
+      } else if (email) {
+        const snap = await db.collection("jpc_users").where("email", "==", email).limit(1).get();
+        if (!snap.empty) uData = snap.docs[0].data();
+      }
+      if (uData && (uData.role === "administrator" || uData.role === "jpc_sysadmin" || uData.email === "paramatwork3076@gmail.com" || uData.email === "officialparamparmar@gmail.com")) {
+        return { isAdmin: true, adminInfo: uData };
+      }
+    } catch (e) {
+      console.warn("[Permissions API] User lookup notice:", e);
+    }
+  }
+  return { isAdmin: false, error: "Forbidden: Administrator privileges required" };
+}
+app.get(["/api/permissions", "/permissions"], async (req, res) => {
+  try {
+    const snapshot = await db.collection("jpc_role_permissions").get();
+    const result = JSON.parse(JSON.stringify(DEFAULT_ROLE_PERMISSIONS));
+    if (!snapshot.empty) {
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        if (data?.role && data?.modules) {
+          result[data.role] = {
+            ...result[data.role] || {},
+            ...data.modules
+          };
+        }
+      });
+    }
+    res.json({ success: true, permissions: result });
+  } catch (error) {
+    console.error("[Permissions API] Error fetching permissions:", error);
+    res.status(500).json({ error: error.message || "Failed to fetch permissions" });
+  }
+});
+app.post(["/api/permissions", "/permissions"], async (req, res) => {
+  try {
+    const { isAdmin, adminInfo, error } = await checkAdminRequest(req);
+    if (!isAdmin) {
+      return res.status(403).json({ error: error || "Forbidden: Administrator access required" });
+    }
+    const { role, modules, changes } = req.body;
+    if (!role || !modules) {
+      return res.status(400).json({ error: "Missing required parameters: role, modules" });
+    }
+    if (role === "administrator" || role === "jpc_sysadmin") {
+      if (modules.permissions_management) {
+        modules.permissions_management.view = true;
+        modules.permissions_management.edit = true;
+        modules.permissions_management.manage = true;
+      }
+      if (modules.team) {
+        modules.team.view = true;
+        modules.team.manage = true;
+      }
+    }
+    if (role !== "administrator" && role !== "jpc_sysadmin") {
+      if (modules.permissions_management) {
+        modules.permissions_management = {
+          view: false,
+          create: false,
+          edit: false,
+          delete: false,
+          manage: false,
+          export: false
+        };
+      }
+    }
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const record = {
+      id: role,
+      role,
+      modules,
+      updated_at: now,
+      updated_by: adminInfo?.id || adminInfo?.uid || "admin",
+      updated_by_name: adminInfo?.display_name || adminInfo?.username || "Administrator"
+    };
+    await db.collection("jpc_role_permissions").doc(role).set(record);
+    if (Array.isArray(changes) && changes.length > 0) {
+      await db.collection("jpc_permission_audit_logs").add({
+        admin_id: String(adminInfo?.id || adminInfo?.uid || "admin"),
+        admin_name: adminInfo?.display_name || adminInfo?.username || "Administrator",
+        admin_email: adminInfo?.email || "",
+        affected_role: role,
+        changes,
+        summary: `Updated ${changes.length} permission(s) for role "${role}".`,
+        created_at: now
+      });
+    }
+    console.log(`[Permissions API] Updated permissions for role "${role}" by admin ${adminInfo?.display_name || adminInfo?.uid}`);
+    res.json({ success: true, role, updated_at: now });
+  } catch (error) {
+    console.error("[Permissions API] Error updating permissions:", error);
+    res.status(500).json({ error: error.message || "Failed to update permissions" });
+  }
+});
+app.get(["/api/permissions/audit-logs", "/permissions/audit-logs"], async (req, res) => {
+  try {
+    const { isAdmin, error } = await checkAdminRequest(req);
+    if (!isAdmin) {
+      return res.status(403).json({ error: error || "Forbidden: Administrator access required" });
+    }
+    const snapshot = await db.collection("jpc_permission_audit_logs").orderBy("created_at", "desc").limit(100).get();
+    const logs = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    res.json({ success: true, logs });
+  } catch (error) {
+    console.error("[Permissions API] Error fetching audit logs:", error);
+    res.status(500).json({ error: error.message || "Failed to fetch audit logs" });
+  }
+});
+app.post(["/api/permissions/reset", "/permissions/reset"], async (req, res) => {
+  try {
+    const { isAdmin, adminInfo, error } = await checkAdminRequest(req);
+    if (!isAdmin) {
+      return res.status(403).json({ error: error || "Forbidden: Administrator access required" });
+    }
+    const { role } = req.body;
+    if (!role || !(role in DEFAULT_ROLE_PERMISSIONS)) {
+      return res.status(400).json({ error: `Invalid role specified: ${role}` });
+    }
+    const defaults = DEFAULT_ROLE_PERMISSIONS[role];
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    await db.collection("jpc_role_permissions").doc(role).set({
+      id: role,
+      role,
+      modules: defaults,
+      updated_at: now,
+      updated_by: adminInfo?.id || adminInfo?.uid || "admin",
+      updated_by_name: adminInfo?.display_name || adminInfo?.username || "Administrator"
+    });
+    await db.collection("jpc_permission_audit_logs").add({
+      admin_id: String(adminInfo?.id || adminInfo?.uid || "admin"),
+      admin_name: adminInfo?.display_name || adminInfo?.username || "Administrator",
+      admin_email: adminInfo?.email || "",
+      affected_role: role,
+      changes: [],
+      summary: `Reset role "${role}" to system default permissions.`,
+      created_at: now
+    });
+    res.json({ success: true, role, message: `Role "${role}" reset to default permissions.` });
+  } catch (error) {
+    console.error("[Permissions API] Error resetting permissions:", error);
+    res.status(500).json({ error: error.message || "Failed to reset permissions" });
   }
 });
 function generateHeuristicAudit(data) {

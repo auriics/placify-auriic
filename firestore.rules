@@ -233,5 +233,20 @@ service cloud.firestore {
     match /jpc_settings/{docId} {
       allow read, write: if isSignedIn();
     }
+
+    // ===============================================================
+    // Centralized Permissions Management
+    // ===============================================================
+
+    match /jpc_role_permissions/{roleId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /jpc_permission_audit_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
   }
 }

@@ -2,6 +2,7 @@ import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ToastProvider } from './contexts/ToastContext';
+import { PermissionsProvider, usePermissions } from './contexts/PermissionsContext';
 import { Sidebar } from './components/Sidebar';
 import { isProxyUser } from './services/interviewService';
 import { isAurrumRole } from './types';
@@ -43,6 +44,7 @@ const AurrumCandidateDetail = lazy(() => import('./pages/AurrumCareers/AurrumCan
 const AurrumSales = lazy(() => import('./pages/AurrumCareers/AurrumSales').then(m => ({ default: m.AurrumSales })));
 const AurrumInterviewSupport = lazy(() => import('./pages/AurrumCareers/AurrumInterviewSupport').then(m => ({ default: m.AurrumInterviewSupport })));
 const AurrumTeam = lazy(() => import('./pages/AurrumCareers/AurrumTeam').then(m => ({ default: m.AurrumTeam })));
+const PermissionsManagement = lazy(() => import('./pages/PermissionsManagement').then(m => ({ default: m.PermissionsManagement })));
 
 const PageLoader = () => (
   <div className="flex-1 flex items-center justify-center p-20">
@@ -52,6 +54,7 @@ const PageLoader = () => (
 
 const AppContent: React.FC = () => {
   const { user, isLoading, isAuthReady } = useAuth();
+  const { canView } = usePermissions();
   const [currentHash, setCurrentHash] = useState(window.location.hash || '#dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -162,55 +165,61 @@ const AppContent: React.FC = () => {
       case '#dashboard': 
         return <Dashboard />;
       case '#crm-dashboard':
-        if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_cs') return <Dashboard />;
+        if (!canView('crm_dashboard')) return <Dashboard />;
         return <CRMDashboard />;
       case '#pipeline': 
-        if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_cs' && user?.role !== 'jpc_recruiter' && user?.role !== 'jpc_marketing' && user?.role !== 'jpc_marketing_support' && user?.role !== 'jpc_sales' && user?.role !== 'jpc_resume') return <Dashboard />;
+        if (!canView('pipeline')) return <Dashboard />;
         return <Pipeline />;
       case '#candidates': 
+        if (!canView('candidates')) return <Dashboard />;
         return <Candidates />;
       case '#candidate': return <CandidateDetail />;
       case '#followups': 
+        if (!canView('followups')) return <Dashboard />;
         return <FollowUps />;
       case '#not-interested': 
-        if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_lead_gen' && user?.role !== 'jpc_sales') return <Dashboard />;
+        if (!canView('not_interested')) return <Dashboard />;
         return <NotInterested />;
       case '#not-eligible': 
-        if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_lead_gen' && user?.role !== 'jpc_sales') return <Dashboard />;
+        if (!canView('not_eligible')) return <Dashboard />;
         return <NotEligible />;
       case '#team': 
-        if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_marketing' && user?.role !== 'jpc_cs') return <Dashboard />;
+        if (!canView('team')) return <Dashboard />;
         return <Team />;
       case '#receipt': return <Receipt />;
       case '#applications': 
-        if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_cs' && user?.role !== 'jpc_compliance_person' && user?.role !== 'jpc_recruiter' && user?.role !== 'jpc_marketing') return <Dashboard />;
+        if (!canView('app_tracker')) return <Dashboard />;
         return <AppTracker />;
       case '#resume-log': 
-        if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_cs' && user?.role !== 'jpc_compliance_person' && user?.role !== 'jpc_recruiter' && user?.role !== 'jpc_resume' && user?.role !== 'jpc_marketing') return <Dashboard />;
+        if (!canView('resume_log')) return <Dashboard />;
         return <ResumeLogBook />;
       case '#resume-prep-log': 
-        if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_cs' && user?.role !== 'jpc_compliance_person' && user?.role !== 'jpc_recruiter' && user?.role !== 'jpc_resume' && user?.role !== 'jpc_marketing') return <Dashboard />;
+        if (!canView('resume_prep')) return <Dashboard />;
         return <ResumePrepLog />;
       case '#rtr-log': 
-        if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_cs' && user?.role !== 'jpc_compliance_person' && user?.role !== 'jpc_recruiter' && user?.role !== 'jpc_resume' && user?.role !== 'jpc_marketing') return <Dashboard />;
+        if (!canView('rtr_log')) return <Dashboard />;
         return <RTRLogBook />;
       case '#target-dashboard':
-        if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_cs' && user?.role !== 'jpc_compliance_person') return <Dashboard />;
+        if (!canView('target_compliance')) return <Dashboard />;
         return <TargetDashboard />;
       case '#cv-repository':
-        if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_cs' && user?.role !== 'jpc_compliance_person' && user?.role !== 'jpc_resume' && user?.role !== 'jpc_marketing') return <Dashboard />;
+        if (!canView('cv_repository')) return <Dashboard />;
         return <CVRepository />;
       case '#domain-resumes':
-        if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_cs' && user?.role !== 'jpc_compliance_person' && user?.role !== 'jpc_recruiter' && user?.role !== 'jpc_resume' && user?.role !== 'jpc_marketing') return <Dashboard />;
+        if (!canView('domain_resumes')) return <Dashboard />;
         return <DomainResumeRepository />;
       case '#feature-alerts':
+        if (!canView('feature_alerts')) return <Dashboard />;
         return <FeatureAnnouncements />;
       case '#interviews': 
-        if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_cs' && user?.role !== 'jpc_compliance_person' && user?.role !== 'jpc_recruiter' && !isProxyUser(user) && user?.role !== 'jpc_marketing') return <Dashboard />;
+        if (!canView('interview_support')) return <Dashboard />;
         return <InterviewSupportDashboard />;
-      case '#interviews-proxy':
-        if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_cs' && user?.role !== 'jpc_compliance_person' && !isProxyUser(user)) return <Dashboard />;
+      case '#interviews-proxy': 
+        if (!canView('proxy_support')) return <Dashboard />;
         return <ProxyDashboard />;
+      case '#permissions-management':
+      case '#permissions':
+        return <PermissionsManagement />;
       case '#aurrum-dashboard':
         return <AurrumDashboard />;
       case '#aurrum-candidates':
@@ -251,6 +260,8 @@ const AppContent: React.FC = () => {
       case '#feature-alerts': return 'Feature Alerts';
       case '#interviews': return 'Interview Support';
       case '#interviews-proxy': return 'Proxy Support';
+      case '#permissions-management':
+      case '#permissions': return 'Permissions Management';
       case '#aurrum-dashboard': return 'Aurrum Dashboard';
       case '#aurrum-candidates': return 'Aurrum Candidates';
       case '#aurrum-candidate': return 'Aurrum Candidate Profile';
@@ -359,7 +370,9 @@ export default function App() {
     <ThemeProvider>
       <AuthProvider>
         <ToastProvider>
-          <AppContent />
+          <PermissionsProvider>
+            <AppContent />
+          </PermissionsProvider>
         </ToastProvider>
       </AuthProvider>
     </ThemeProvider>
