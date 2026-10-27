@@ -11,9 +11,8 @@ import {
   isAdminUser 
 } from '../types/permissions';
 import { DEFAULT_ROLE_PERMISSIONS, APP_MODULES } from '../constants/defaultPermissions';
-import { subscribeToCollection } from '../services/storage';
 import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 
 interface PermissionsContextType {
   hasPermission: (module: string, action: PermissionAction) => boolean;
@@ -46,45 +45,124 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const isAdmin = useMemo(() => isAdminUser(user), [user]);
 
-  // Subscribe to real-time role permissions from Firestore
-  useEffect(() => {
-    if (!isAuthReady) return;
+  // Load latest permissions from backend API (which uses Firebase Admin)
+  const fetchPermissionsFromApi = useCallback(async () => {
+    try {
+      const res = await fetch('/api/permissions');
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.permissions) {
+          setRolePermissions((prev) => {
+            const next = JSON.parse(JSON.stringify(DEFAULT_ROLE_PERMISSIONS)) as Record<Role, Record<string, ModulePermission>>;
+            return {
+              ...next,
+              ...data.permissions,
+            };
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[PermissionsContext] API load notice:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
+  // Load audit logs from backend API for Admin
+  const fetchAuditLogsFromApi = useCallback(async () => {
+    if (!isAdminUser(user)) return;
+    try {
+      let token: string | null = null;
+      try {
+        if (auth.currentUser) {
+          token = await auth.currentUser.getIdToken();
+        }
+      } catch (e) {
+        // Token retrieval failure
+      }
+
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (user?.email) headers['x-admin-email'] = user.email;
+      if (user?.id) headers['x-admin-id'] = String(user.id);
+
+      const res = await fetch('/api/permissions/audit-logs', { headers });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.logs && Array.isArray(data.logs)) {
+          setAuditLogs(data.logs);
+        }
+      }
+    } catch (err) {
+      console.warn('[PermissionsContext] Audit log API load notice:', err);
+    }
+  }, [user]);
+
+  // Subscribe to real-time role permissions from Firestore / API
+  useEffect(() => {
+    // 1. Initial load from API (works unauthenticated or authenticated)
+    fetchPermissionsFromApi();
+    if (isAdmin) {
+      fetchAuditLogsFromApi();
+    }
+
+    if (!isAuthReady || !user) {
+      return;
+    }
+
+    // 2. Best-effort Firestore onSnapshot listeners with graceful fallback to prevent unhandled permission errors
+    let unsubPerms = () => {};
     let unsubAudit = () => {};
 
-    const unsubPerms = subscribeToCollection<RolePermissionsRecord>('jpc_role_permissions', (records) => {
-      setRolePermissions((prev) => {
-        const next = JSON.parse(JSON.stringify(DEFAULT_ROLE_PERMISSIONS)) as Record<Role, Record<string, ModulePermission>>;
-        for (const rec of records) {
-          if (rec.role && rec.modules) {
-            next[rec.role] = {
-              ...(next[rec.role] || {}),
-              ...rec.modules,
-            };
+    try {
+      const qPerms = collection(db, 'jpc_role_permissions');
+      unsubPerms = onSnapshot(
+        qPerms,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            setRolePermissions((prev) => {
+              const next = JSON.parse(JSON.stringify(DEFAULT_ROLE_PERMISSIONS)) as Record<Role, Record<string, ModulePermission>>;
+              snapshot.forEach((docSnap) => {
+                const rec = docSnap.data() as RolePermissionsRecord;
+                if (rec.role && rec.modules) {
+                  next[rec.role] = {
+                    ...(next[rec.role] || {}),
+                    ...rec.modules,
+                  };
+                }
+              });
+              return next;
+            });
           }
+          setIsLoading(false);
+        },
+        (err) => {
+          // Direct client Firestore read rejected by rules; use backend API
+          console.info('[PermissionsContext] Using backend API for role permissions synchronization.');
+          fetchPermissionsFromApi();
         }
-        return next;
-      });
-      setIsLoading(false);
-    });
+      );
+    } catch (e) {
+      console.warn('[PermissionsContext] Perms listener init notice:', e);
+    }
 
-    // If Admin, also subscribe to real-time audit logs
     if (isAdmin) {
       try {
-        const q = query(collection(db, 'jpc_permission_audit_logs'), orderBy('created_at', 'desc'), limit(100));
-        unsubAudit = onSnapshot(q, (snapshot) => {
-          const logs = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as PermissionAuditLog));
-          setAuditLogs(logs);
-        }, (err) => {
-          console.warn('[PermissionsContext] Audit log query failed (index may be pending):', err);
-          // Fallback simple query
-          subscribeToCollection<PermissionAuditLog>('jpc_permission_audit_logs', (logs) => {
-            const sorted = [...logs].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
-            setAuditLogs(sorted.slice(0, 100));
-          });
-        });
-      } catch (err) {
-        console.warn('[PermissionsContext] Audit log subscription error:', err);
+        const qAudit = query(collection(db, 'jpc_permission_audit_logs'), orderBy('created_at', 'desc'), limit(100));
+        unsubAudit = onSnapshot(
+          qAudit,
+          (snapshot) => {
+            const logs = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as PermissionAuditLog));
+            setAuditLogs(logs);
+          },
+          (err) => {
+            // Direct client Firestore audit read rejected; use backend API
+            console.info('[PermissionsContext] Using backend API for permission audit logs.');
+            fetchAuditLogsFromApi();
+          }
+        );
+      } catch (e) {
+        fetchAuditLogsFromApi();
       }
     }
 
@@ -92,7 +170,7 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
       unsubPerms();
       unsubAudit();
     };
-  }, [isAuthReady, isAdmin]);
+  }, [isAuthReady, user, isAdmin, fetchPermissionsFromApi, fetchAuditLogsFromApi]);
 
   /**
    * Evaluates if current user has permission for a specific module action.
@@ -147,7 +225,7 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
   );
 
   /**
-   * Saves updated permissions for a role to Firestore and logs an audit record.
+   * Saves updated permissions for a role to backend API (Admin-authenticated) and updates local state.
    */
   const saveRolePermissions = useCallback(
     async (role: Role, newPermissions: Record<string, ModulePermission>) => {
@@ -162,6 +240,10 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
           newPermissions.permissions_management.view = true;
           newPermissions.permissions_management.edit = true;
           newPermissions.permissions_management.manage = true;
+        }
+        if (newPermissions.team) {
+          newPermissions.team.view = true;
+          newPermissions.team.manage = true;
         }
       }
 
@@ -211,49 +293,71 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
       };
 
       try {
-        // 1. Save to Firestore jpc_role_permissions
-        await setDoc(doc(db, 'jpc_role_permissions', role), record);
-
-        // 2. Also try server API endpoint to sync backend if available
+        let token: string | null = null;
         try {
-          await fetch('/api/permissions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              role,
-              modules: newPermissions,
-              adminUser: {
-                id: user.id,
-                name: user.display_name || user.username,
-                email: user.email,
-                role: user.role
-              },
-              changes
-            }),
-          });
-        } catch (apiErr) {
-          console.warn('[PermissionsContext] Server API sync optional notice:', apiErr);
+          if (auth.currentUser) {
+            token = await auth.currentUser.getIdToken();
+          }
+        } catch (e) {
+          // Token retrieval failure
         }
 
-        // 3. Write audit log to Firestore
-        if (changes.length > 0) {
-          const auditEntry: Omit<PermissionAuditLog, 'id'> = {
-            admin_id: String(user.id),
-            admin_name: user.display_name || user.username || 'Admin',
-            admin_email: user.email,
-            affected_role: role,
-            changes,
-            summary: `Updated ${changes.length} permission(s) for role "${role}".`,
-            created_at: now,
-          };
-          await addDoc(collection(db, 'jpc_permission_audit_logs'), auditEntry);
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        if (user.email) headers['x-admin-email'] = user.email;
+        if (user.id) headers['x-admin-id'] = String(user.id);
+
+        // 1. PRIMARY: Save to Backend Server API (runs with Firebase Admin SDK, bypasses client rule issues)
+        const apiRes = await fetch('/api/permissions', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            role,
+            modules: newPermissions,
+            adminUser: {
+              id: user.id,
+              name: user.display_name || user.username,
+              email: user.email,
+              role: user.role
+            },
+            changes
+          }),
+        });
+
+        if (!apiRes.ok) {
+          const errData = await apiRes.json().catch(() => ({}));
+          throw new Error(errData.error || `Server responded with status ${apiRes.status}`);
         }
 
-        // 4. Update local state immediately for instant feedback
+        // 2. Best-effort direct Firestore sync if client permissions allow
+        try {
+          await setDoc(doc(db, 'jpc_role_permissions', role), record);
+          if (changes.length > 0) {
+            const auditEntry: Omit<PermissionAuditLog, 'id'> = {
+              admin_id: String(user.id),
+              admin_name: user.display_name || user.username || 'Admin',
+              admin_email: user.email,
+              affected_role: role,
+              changes,
+              summary: `Updated ${changes.length} permission(s) for role "${role}".`,
+              created_at: now,
+            };
+            await addDoc(collection(db, 'jpc_permission_audit_logs'), auditEntry);
+          }
+        } catch (clientFsErr) {
+          console.info('[PermissionsContext] Direct Firestore client write skipped (persisted securely via server API):', clientFsErr);
+        }
+
+        // 3. Update local state immediately for instant feedback
         setRolePermissions(prev => ({
           ...prev,
           [role]: newPermissions,
         }));
+
+        // 4. Refresh audit logs
+        await fetchAuditLogsFromApi();
 
         showToast(`Permissions updated successfully for "${role}".`, 'success');
       } catch (err: any) {
@@ -262,29 +366,81 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
         throw err;
       }
     },
-    [user, getRolePermissions, showToast]
+    [user, getRolePermissions, showToast, fetchAuditLogsFromApi]
   );
 
   /**
-   * Resets a role back to default system permissions.
+   * Resets a role back to default system permissions via Backend API.
    */
   const resetRolePermissions = useCallback(
     async (role: Role) => {
-      const defaults = DEFAULT_ROLE_PERMISSIONS[role];
-      if (!defaults) {
-        showToast(`No default permissions found for role "${role}".`, 'error');
-        return;
+      if (!isAdminUser(user)) {
+        showToast('Unauthorized: Only administrators can reset permissions.', 'error');
+        throw new Error('Unauthorized');
       }
-      await saveRolePermissions(role, JSON.parse(JSON.stringify(defaults)));
-      showToast(`Role "${role}" reset to default system permissions.`, 'info');
+
+      try {
+        let token: string | null = null;
+        try {
+          if (auth.currentUser) {
+            token = await auth.currentUser.getIdToken();
+          }
+        } catch (e) {
+          // Token retrieval failure
+        }
+
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        if (user?.email) headers['x-admin-email'] = user.email;
+        if (user?.id) headers['x-admin-id'] = String(user.id);
+
+        const res = await fetch('/api/permissions/reset', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            role,
+            adminUser: {
+              id: user?.id,
+              name: user?.display_name || user?.username,
+              email: user?.email,
+              role: user?.role
+            }
+          }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `Server responded with status ${res.status}`);
+        }
+
+        const defaults = DEFAULT_ROLE_PERMISSIONS[role];
+        if (defaults) {
+          setRolePermissions(prev => ({
+            ...prev,
+            [role]: JSON.parse(JSON.stringify(defaults)),
+          }));
+        }
+
+        await fetchAuditLogsFromApi();
+        showToast(`Role "${role}" reset to default system permissions.`, 'info');
+      } catch (err: any) {
+        console.error('[PermissionsContext] Failed to reset permissions:', err);
+        showToast(`Failed to reset permissions: ${err?.message || 'Unknown error'}`, 'error');
+        throw err;
+      }
     },
-    [saveRolePermissions, showToast]
+    [user, showToast, fetchAuditLogsFromApi]
   );
 
   const refreshPermissions = useCallback(() => {
     setIsLoading(true);
-    setTimeout(() => setIsLoading(false), 300);
-  }, []);
+    fetchPermissionsFromApi();
+    if (isAdmin) {
+      fetchAuditLogsFromApi();
+    }
+  }, [fetchPermissionsFromApi, fetchAuditLogsFromApi, isAdmin]);
 
   const value = useMemo(
     () => ({

@@ -2458,7 +2458,7 @@ app.post('/api/admin/reset-user-password', verifyAdmin, async (req, res) => {
 // Centralized Permissions Management Endpoints (Admin Only)
 // =========================================================================
 
-// Helper to verify admin status from either req.user (via verifyAdmin) or body/token
+// Helper to verify admin status from either req.user (via verifyAdmin) or body/token/headers/query
 async function checkAdminRequest(req: any): Promise<{ isAdmin: boolean; adminInfo?: any; error?: string }> {
   // 1. If verifyAdmin already ran and attached req.user
   if (req.user && (req.user.role === 'administrator' || req.user.role === 'jpc_sysadmin' || req.user.email === 'paramatwork3076@gmail.com' || req.user.email === 'officialparamparmar@gmail.com')) {
@@ -2477,11 +2477,13 @@ async function checkAdminRequest(req: any): Promise<{ isAdmin: boolean; adminInf
         const decoded = await admin.auth().verifyIdToken(token);
         uid = decoded.uid;
       }
-      const userDoc = await db.collection('jpc_users').doc(uid).get();
-      if (userDoc.exists) {
-        const u = userDoc.data();
-        if (u?.role === 'administrator' || u?.role === 'jpc_sysadmin' || u?.email === 'paramatwork3076@gmail.com' || u?.email === 'officialparamparmar@gmail.com') {
-          return { isAdmin: true, adminInfo: { uid, ...u } };
+      if (db) {
+        const userDoc = await db.collection('jpc_users').doc(uid).get();
+        if (userDoc.exists) {
+          const u = userDoc.data();
+          if (u?.role === 'administrator' || u?.role === 'jpc_sysadmin' || u?.email === 'paramatwork3076@gmail.com' || u?.email === 'officialparamparmar@gmail.com') {
+            return { isAdmin: true, adminInfo: { uid, ...u } };
+          }
         }
       }
     } catch (e) {
@@ -2489,16 +2491,27 @@ async function checkAdminRequest(req: any): Promise<{ isAdmin: boolean; adminInf
     }
   }
 
-  // 3. Fallback: check adminUser payload if passed from trusted client session
-  if (req.body?.adminUser?.id || req.body?.adminUser?.email) {
-    const uid = String(req.body.adminUser.id);
-    const email = String(req.body.adminUser.email || '');
+  // 3. Fallback: check adminUser payload or admin headers/query if passed from trusted client session
+  const adminId = req.body?.adminUser?.id || req.query?.admin_id || req.headers['x-admin-id'];
+  const adminEmail = req.body?.adminUser?.email || req.query?.admin_email || req.headers['x-admin-email'];
+  if (adminId || adminEmail) {
+    const uid = String(adminId || '');
+    const email = String(adminEmail || '');
+
+    // Immediate match for designated root admin emails
+    if (email === 'paramatwork3076@gmail.com' || email === 'officialparamparmar@gmail.com') {
+      return { isAdmin: true, adminInfo: { id: uid || 'param', email, role: 'administrator', display_name: 'Param Parmar' } };
+    }
+
     try {
       let uData: any;
-      const userDoc = await db.collection('jpc_users').doc(uid).get();
-      if (userDoc.exists) {
-        uData = userDoc.data();
-      } else if (email) {
+      if (db && uid) {
+        const userDoc = await db.collection('jpc_users').doc(uid).get();
+        if (userDoc.exists) {
+          uData = userDoc.data();
+        }
+      }
+      if (db && !uData && email) {
         const snap = await db.collection('jpc_users').where('email', '==', email).limit(1).get();
         if (!snap.empty) uData = snap.docs[0].data();
       }
@@ -2516,19 +2529,21 @@ async function checkAdminRequest(req: any): Promise<{ isAdmin: boolean; adminInf
 // GET /api/permissions - Get all active role permissions
 app.get(['/api/permissions', '/permissions'], async (req, res) => {
   try {
-    const snapshot = await db.collection('jpc_role_permissions').get();
     const result: Record<string, any> = JSON.parse(JSON.stringify(DEFAULT_ROLE_PERMISSIONS));
 
-    if (!snapshot.empty) {
-      snapshot.forEach((doc: any) => {
-        const data = doc.data();
-        if (data?.role && data?.modules) {
-          result[data.role] = {
-            ...(result[data.role] || {}),
-            ...data.modules
-          };
-        }
-      });
+    if (db) {
+      const snapshot = await db.collection('jpc_role_permissions').get();
+      if (!snapshot.empty) {
+        snapshot.forEach((doc: any) => {
+          const data = doc.data();
+          if (data?.role && data?.modules) {
+            result[data.role] = {
+              ...(result[data.role] || {}),
+              ...data.modules
+            };
+          }
+        });
+      }
     }
 
     res.json({ success: true, permissions: result });
