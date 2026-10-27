@@ -66,13 +66,15 @@ import {
   Lock,
   Sparkles,
   Award,
-  Globe
+  Globe,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 import { cn, getEasternDate, formatDisplayDate } from '../lib/utils';
 import { canManageFreeTrial, isComplianceHead } from '../lib/permissions';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
+import { sendWelcomeEmail } from '../services/welcomeEmail';
 import { Candidate, Payment, Promise as PromiseType, QCChecklistItem, FollowUp, ActivityLog, User, Stage, ResumeChangeRequest, Application, InterviewSupportRequest, TargetReductionRequest, ResumeVersion, InterviewOfferRequest, RecruiterAssignmentHistory } from '../types';
 import { InterviewCompletionModal } from '../components/InterviewCompletionModal';
 import { ComplianceOfferApprovalModal } from '../components/ComplianceOfferApprovalModal';
@@ -282,6 +284,9 @@ export const CandidateDetail: React.FC = () => {
   const [isResumeUploadModalOpen, setIsResumeUploadModalOpen] = useState(false);
   const [isGeneratingAccess, setIsGeneratingAccess] = useState(false);
   const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
+  const [emailSendingStatus, setEmailSendingStatus] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
+  const [emailStatusMessage, setEmailStatusMessage] = useState<string>('');
+  const [isResendingEmail, setIsResendingEmail] = useState(false);
   
   const [isMarketingInactiveModalOpen, setIsMarketingInactiveModalOpen] = useState(false);
   const [isBackoutModalOpen, setIsBackoutModalOpen] = useState(false);
@@ -592,6 +597,32 @@ export const CandidateDetail: React.FC = () => {
         setGeneratedPassword(password);
         showToast('Portal access created successfully!', 'success');
         await logActivity(candidate.id, 'Portal access generated', `Login credentials created for ${candidate.email}`, user?.id || null);
+
+        // Automatically dispatch branded Auriic Placify welcome email via SMTP
+        setEmailSendingStatus('sending');
+        setEmailStatusMessage('');
+        sendWelcomeEmail({
+          to: candidate.email,
+          displayName: candidate.full_name,
+          username: candidate.email.split('@')[0],
+          email: candidate.email,
+          password: password,
+          role: 'candidate',
+          loginUrl: `${window.location.origin}/#candidate?id=${candidate.id}`
+        }).then(res => {
+          if (res.success) {
+            setEmailSendingStatus('sent');
+            setEmailStatusMessage(`Welcome email delivered via SMTP to ${candidate.email}`);
+            showToast(`Welcome email sent to ${candidate.email}!`, 'success');
+          } else {
+            setEmailSendingStatus('failed');
+            setEmailStatusMessage(res.error || 'SMTP delivery failed');
+            showToast(`Access created! (Welcome email: ${res.error || 'Check SMTP'})`, 'info');
+          }
+        }).catch(err => {
+          setEmailSendingStatus('failed');
+          setEmailStatusMessage(err.message || 'SMTP delivery failed');
+        });
       } catch (authError: any) {
         console.error('Auth creation error:', authError);
         let message = 'Failed to create portal access';
@@ -631,6 +662,39 @@ export const CandidateDetail: React.FC = () => {
       showToast('An error occurred while creating access', 'error');
     } finally {
       setIsGeneratingAccess(false);
+    }
+  };
+
+  const handleResendWelcomeEmail = async () => {
+    if (!candidate || !generatedPassword) return;
+    setIsResendingEmail(true);
+    setEmailSendingStatus('sending');
+    setEmailStatusMessage('');
+    try {
+      const res = await sendWelcomeEmail({
+        to: candidate.email,
+        displayName: candidate.full_name,
+        username: candidate.email.split('@')[0],
+        email: candidate.email,
+        password: generatedPassword,
+        role: 'candidate',
+        loginUrl: `${window.location.origin}/#candidate?id=${candidate.id}`
+      });
+      if (res.success) {
+        setEmailSendingStatus('sent');
+        setEmailStatusMessage(`Welcome email delivered via SMTP to ${candidate.email}`);
+        showToast(`Welcome email resent to ${candidate.email}!`, 'success');
+      } else {
+        setEmailSendingStatus('failed');
+        setEmailStatusMessage(res.error || 'SMTP delivery failed');
+        showToast(res.error || 'Failed to send welcome email', 'error');
+      }
+    } catch (err: any) {
+      setEmailSendingStatus('failed');
+      setEmailStatusMessage(err.message || 'SMTP delivery failed');
+      showToast('Failed to send welcome email', 'error');
+    } finally {
+      setIsResendingEmail(false);
     }
   };
 
@@ -1578,7 +1642,66 @@ export const CandidateDetail: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Welcome Email Status Banner */}
+                <div className="mb-6">
+                  {emailSendingStatus === 'sending' && (
+                    <div className="p-3.5 bg-accent-blue/10 border border-accent-blue/20 rounded-2xl flex items-center gap-3 text-left">
+                      <Loader2 className="w-5 h-5 text-accent-blue animate-spin shrink-0" />
+                      <div>
+                        <p className="text-xs font-bold text-accent-blue">Sending Welcome Email via SMTP...</p>
+                        <p className="text-[11px] text-accent-blue/80">Delivering credentials to {candidate.email}</p>
+                      </div>
+                    </div>
+                  )}
+                  {emailSendingStatus === 'sent' && (
+                    <div className="p-3.5 bg-accent-green/10 border border-accent-green/20 rounded-2xl flex items-start gap-3 text-left">
+                      <CheckCircle2 className="w-5 h-5 text-accent-green shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-accent-green">Welcome Email Sent via SMTP!</p>
+                        <p className="text-[11px] text-accent-green/80 mt-0.5">
+                          Auriic Placify onboarding email with credentials delivered to <strong>{candidate.email}</strong>.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {emailSendingStatus === 'failed' && (
+                    <div className="p-3.5 bg-accent-amber/10 border border-accent-amber/20 rounded-2xl flex items-start gap-3 text-left">
+                      <AlertCircle className="w-5 h-5 text-accent-amber shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-accent-amber">Welcome Email Not Sent</p>
+                        <p className="text-[11px] text-accent-amber/80 mt-0.5">
+                          {emailStatusMessage || 'Could not connect to SMTP server. Verify SMTP configuration in settings.'}
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleResendWelcomeEmail}
+                        disabled={isResendingEmail}
+                        className="px-2.5 py-1 text-[11px] font-bold bg-accent-amber/20 text-accent-amber rounded-lg hover:bg-accent-amber/30 transition-colors shrink-0"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex flex-col gap-3">
+                  <button 
+                    onClick={handleResendWelcomeEmail}
+                    disabled={isResendingEmail}
+                    className="w-full py-3.5 bg-accent-teal/15 text-accent-teal border border-accent-teal/30 font-bold rounded-2xl hover:bg-accent-teal/25 transition-all flex items-center justify-center gap-2"
+                  >
+                    {isResendingEmail ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Sending Welcome Email...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mail className="w-4 h-4" />
+                        <span>Resend Welcome Email via SMTP</span>
+                      </>
+                    )}
+                  </button>
                   <button 
                     onClick={() => {
                       const message = `Hello ${candidate.full_name}, your portal is ready!\n\nLogin at: ${window.location.origin}\nEmail: ${candidate.email}\nPassword: ${generatedPassword}\n\nPlease change your password after logging in.`;
@@ -1591,7 +1714,11 @@ export const CandidateDetail: React.FC = () => {
                     Copy Full Invite
                   </button>
                   <button 
-                    onClick={() => setGeneratedPassword(null)}
+                    onClick={() => {
+                      setGeneratedPassword(null);
+                      setEmailSendingStatus('idle');
+                      setEmailStatusMessage('');
+                    }}
                     className="w-full py-4 bg-bg-tertiary text-text-primary font-bold rounded-2xl hover:bg-bg-tertiary/80 transition-all"
                   >
                     Close

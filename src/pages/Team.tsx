@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { subscribeToCollection, saveUser, generateId } from '../services/storage';
-import { Users, UserPlus, Shield, Mail, Phone, MoreVertical, Edit2, Trash2, X, Save, AlertCircle, ShieldCheck, UserCheck, Lock, Copy, TrendingUp, Sparkles } from 'lucide-react';
+import { Users, UserPlus, Shield, Mail, Phone, MoreVertical, Edit2, Trash2, X, Save, AlertCircle, ShieldCheck, UserCheck, Lock, Copy, TrendingUp, Sparkles, CheckCircle2, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { User, UserRole, Candidate, isAurrumRole } from '../types';
 import { Modal } from '../components/Modal';
 import { SMTPConfigModal } from '../components/SMTPConfigModal';
+import { sendWelcomeEmail } from '../services/welcomeEmail';
 import { MarketingProfileDashboard } from '../components/MarketingProfileDashboard';
 import { LeadRoundRobinDashboard } from '../components/LeadRoundRobinDashboard';
 import { useToast } from '../contexts/ToastContext';
@@ -162,6 +163,19 @@ export const Team: React.FC = () => {
   const [userToResetPassword, setUserToResetPassword] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [sendEmailOnReset, setSendEmailOnReset] = useState(true);
+
+  // Welcome email status and states
+  const [emailSendingStatus, setEmailSendingStatus] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
+  const [emailStatusMessage, setEmailStatusMessage] = useState<string>('');
+  const [emailRecipient, setEmailRecipient] = useState<string>('');
+  const [isResendingEmail, setIsResendingEmail] = useState(false);
+
+  // Manual welcome email modal state for existing team members
+  const [userToSendWelcome, setUserToSendWelcome] = useState<User | null>(null);
+  const [manualSendEmailTarget, setManualSendEmailTarget] = useState<string>('');
+  const [manualSendPassword, setManualSendPassword] = useState<string>('');
+  const [isSendingManualWelcome, setIsSendingManualWelcome] = useState(false);
 
   const [formData, setFormData] = useState<{
     username: string;
@@ -173,6 +187,7 @@ export const Team: React.FC = () => {
     portal_link: string;
     is_on_leave: boolean;
     proxy_priority?: number;
+    notification_email?: string;
   }>({
     username: '',
     display_name: '',
@@ -181,7 +196,9 @@ export const Team: React.FC = () => {
     leader_id: '' as string | number | null,
     candidate_id: '',
     portal_link: '',
-    is_on_leave: false, proxy_priority: 0,
+    is_on_leave: false, 
+    proxy_priority: 0,
+    notification_email: '',
   });
 
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -322,6 +339,36 @@ export const Team: React.FC = () => {
           
           setGeneratedEmail(email);
           setGeneratedPassword(formData.password);
+
+          // Automatically send branded Auriic Placify welcome email via SMTP with credentials
+          const targetRecipient = (formData.notification_email?.trim()) || email;
+          setEmailRecipient(targetRecipient);
+          setEmailSendingStatus('sending');
+          setEmailStatusMessage('');
+
+          sendWelcomeEmail({
+            to: targetRecipient,
+            displayName: formData.display_name.trim(),
+            username: cleanUsername,
+            email: email,
+            password: formData.password,
+            role: formData.role,
+            loginUrl: window.location.origin
+          }).then((res) => {
+            if (res.success) {
+              setEmailSendingStatus('sent');
+              setEmailStatusMessage(`Welcome email delivered via SMTP to ${targetRecipient}`);
+              showToast(`Account created & welcome email sent to ${targetRecipient}!`, 'success');
+            } else {
+              setEmailSendingStatus('failed');
+              setEmailStatusMessage(res.error || 'SMTP delivery failed');
+              showToast(`Account created! (Welcome email: ${res.error || 'Check SMTP'})`, 'info');
+            }
+          }).catch((err) => {
+            setEmailSendingStatus('failed');
+            setEmailStatusMessage(err.message || 'SMTP delivery failed');
+          });
+
           showToast('Team member account created successfully!', 'success');
         } catch (authError: any) {
           console.error('Auth creation error:', authError);
@@ -358,7 +405,7 @@ export const Team: React.FC = () => {
               setIsLoading(false);
               setIsModalOpen(false);
               setEditingUser(null);
-              setFormData({ username: '', display_name: '', role: defaultRole, password: '', leader_id: null, candidate_id: '', portal_link: '', is_on_leave: false, proxy_priority: 0 });
+              setFormData({ username: '', display_name: '', role: defaultRole, password: '', leader_id: null, candidate_id: '', portal_link: '', is_on_leave: false, proxy_priority: 0, notification_email: '' });
               return;
             } else {
               // Auth account exists without a Firestore jpc_users record (e.g. from an interrupted creation).
@@ -396,11 +443,38 @@ export const Team: React.FC = () => {
               await setDoc(doc(db, 'jpc_users', String(recoveredUser.id)), recoveredUser);
               setGeneratedEmail(email);
               setGeneratedPassword(formData.password);
+
+              // Send welcome email on recovery
+              const targetRecipient = (formData.notification_email?.trim()) || email;
+              setEmailRecipient(targetRecipient);
+              setEmailSendingStatus('sending');
+              setEmailStatusMessage('');
+              sendWelcomeEmail({
+                to: targetRecipient,
+                displayName: formData.display_name.trim(),
+                username: cleanUsername,
+                email: email,
+                password: formData.password,
+                role: formData.role,
+                loginUrl: window.location.origin
+              }).then(res => {
+                if (res.success) {
+                  setEmailSendingStatus('sent');
+                  setEmailStatusMessage(`Welcome email delivered via SMTP to ${targetRecipient}`);
+                } else {
+                  setEmailSendingStatus('failed');
+                  setEmailStatusMessage(res.error || 'SMTP delivery failed');
+                }
+              }).catch(err => {
+                setEmailSendingStatus('failed');
+                setEmailStatusMessage(err.message || 'SMTP delivery failed');
+              });
+
               showToast('Team member account linked & created successfully!', 'success');
               setIsLoading(false);
               setIsModalOpen(false);
               setEditingUser(null);
-              setFormData({ username: '', display_name: '', role: defaultRole, password: '', leader_id: null, candidate_id: '', portal_link: '', is_on_leave: false, proxy_priority: 0 });
+              setFormData({ username: '', display_name: '', role: defaultRole, password: '', leader_id: null, candidate_id: '', portal_link: '', is_on_leave: false, proxy_priority: 0, notification_email: '' });
               return;
             }
           } else if (authError.code === 'auth/weak-password') {
@@ -445,7 +519,7 @@ export const Team: React.FC = () => {
 
       setIsModalOpen(false);
       setEditingUser(null);
-      setFormData({ username: '', display_name: '', role: defaultRole, password: '', leader_id: null, candidate_id: '', portal_link: '', is_on_leave: false, proxy_priority: 0 });
+      setFormData({ username: '', display_name: '', role: defaultRole, password: '', leader_id: null, candidate_id: '', portal_link: '', is_on_leave: false, proxy_priority: 0, notification_email: '' });
     } catch (error) {
       console.error('Save user error:', error);
       showToast('Failed to save user', 'error');
@@ -483,6 +557,26 @@ export const Team: React.FC = () => {
       const data = await response.json();
       if (response.ok) {
         showToast(`Password reset successfully for ${userToResetPassword.display_name}`, 'success');
+
+        if (sendEmailOnReset) {
+          const targetEmail = userToResetPassword.email || (userToResetPassword.username.includes('@') ? userToResetPassword.username : `${userToResetPassword.username}@placify-crm.com`);
+          sendWelcomeEmail({
+            to: targetEmail,
+            displayName: userToResetPassword.display_name,
+            username: userToResetPassword.username,
+            email: targetEmail,
+            password: newPassword,
+            role: userToResetPassword.role,
+            loginUrl: window.location.origin
+          }).then(res => {
+            if (res.success) {
+              showToast(`Updated credentials emailed to ${targetEmail}!`, 'success');
+            } else {
+              showToast(`Password reset, but email failed: ${res.error || 'Check SMTP'}`, 'info');
+            }
+          }).catch(() => {});
+        }
+
         setUserToResetPassword(null);
         setNewPassword('');
       } else {
@@ -493,6 +587,75 @@ export const Team: React.FC = () => {
       showToast('Failed to reset password', 'error');
     } finally {
       setIsResettingPassword(false);
+    }
+  };
+
+  const handleResendWelcomeEmail = async () => {
+    if (!generatedPassword) return;
+    const cleanUsername = formData.username.trim();
+    const email = cleanUsername.includes('@') ? cleanUsername : `${cleanUsername}@placify-crm.com`;
+    const targetRecipient = emailRecipient || (formData.notification_email?.trim()) || generatedEmail || email;
+    setIsResendingEmail(true);
+    setEmailSendingStatus('sending');
+    setEmailStatusMessage('');
+    try {
+      const res = await sendWelcomeEmail({
+        to: targetRecipient,
+        displayName: formData.display_name.trim() || 'Team Member',
+        username: cleanUsername,
+        email: generatedEmail || email,
+        password: generatedPassword,
+        role: formData.role,
+        loginUrl: window.location.origin
+      });
+      if (res.success) {
+        setEmailSendingStatus('sent');
+        setEmailStatusMessage(`Welcome email delivered via SMTP to ${targetRecipient}`);
+        showToast(`Welcome email resent to ${targetRecipient}!`, 'success');
+      } else {
+        setEmailSendingStatus('failed');
+        setEmailStatusMessage(res.error || 'SMTP delivery failed');
+        showToast(res.error || 'Failed to send welcome email', 'error');
+      }
+    } catch (err: any) {
+      setEmailSendingStatus('failed');
+      setEmailStatusMessage(err.message || 'SMTP delivery failed');
+      showToast('Failed to send welcome email', 'error');
+    } finally {
+      setIsResendingEmail(false);
+    }
+  };
+
+  const handleManualSendWelcomeEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userToSendWelcome || !manualSendEmailTarget || !manualSendPassword) {
+      showToast('Please provide email and password', 'error');
+      return;
+    }
+    setIsSendingManualWelcome(true);
+    try {
+      const res = await sendWelcomeEmail({
+        to: manualSendEmailTarget.trim(),
+        displayName: userToSendWelcome.display_name,
+        username: userToSendWelcome.username,
+        email: userToSendWelcome.email || manualSendEmailTarget.trim(),
+        password: manualSendPassword,
+        role: userToSendWelcome.role,
+        loginUrl: window.location.origin
+      });
+
+      if (res.success) {
+        showToast(`Welcome email sent via SMTP to ${manualSendEmailTarget.trim()}!`, 'success');
+        setUserToSendWelcome(null);
+        setManualSendEmailTarget('');
+        setManualSendPassword('');
+      } else {
+        showToast(res.error || 'Failed to send welcome email', 'error');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to send welcome email', 'error');
+    } finally {
+      setIsSendingManualWelcome(false);
     }
   };
 
@@ -822,7 +985,66 @@ export const Team: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Welcome Email Status Banner */}
+                <div className="mb-6">
+                  {emailSendingStatus === 'sending' && (
+                    <div className="p-3.5 bg-accent-blue/10 border border-accent-blue/20 rounded-2xl flex items-center gap-3 text-left">
+                      <Loader2 className="w-5 h-5 text-accent-blue animate-spin shrink-0" />
+                      <div>
+                        <p className="text-xs font-bold text-accent-blue">Sending Welcome Email via SMTP...</p>
+                        <p className="text-[11px] text-accent-blue/80">Delivering credentials to {emailRecipient}</p>
+                      </div>
+                    </div>
+                  )}
+                  {emailSendingStatus === 'sent' && (
+                    <div className="p-3.5 bg-accent-green/10 border border-accent-green/20 rounded-2xl flex items-start gap-3 text-left">
+                      <CheckCircle2 className="w-5 h-5 text-accent-green shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-accent-green">Welcome Email Sent via SMTP!</p>
+                        <p className="text-[11px] text-accent-green/80 mt-0.5">
+                          Auriic Placify onboarding email with credentials delivered to <strong>{emailRecipient}</strong>.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {emailSendingStatus === 'failed' && (
+                    <div className="p-3.5 bg-accent-amber/10 border border-accent-amber/20 rounded-2xl flex items-start gap-3 text-left">
+                      <AlertCircle className="w-5 h-5 text-accent-amber shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-accent-amber">Welcome Email Not Sent</p>
+                        <p className="text-[11px] text-accent-amber/80 mt-0.5">
+                          {emailStatusMessage || 'Could not connect to SMTP server. Verify SMTP configuration in settings.'}
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleResendWelcomeEmail}
+                        disabled={isResendingEmail}
+                        className="px-2.5 py-1 text-[11px] font-bold bg-accent-amber/20 text-accent-amber rounded-lg hover:bg-accent-amber/30 transition-colors shrink-0"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex flex-col gap-3">
+                  <button 
+                    onClick={handleResendWelcomeEmail}
+                    disabled={isResendingEmail}
+                    className="w-full py-3.5 bg-accent-teal/15 text-accent-teal border border-accent-teal/30 font-bold rounded-2xl hover:bg-accent-teal/25 transition-all flex items-center justify-center gap-2"
+                  >
+                    {isResendingEmail ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Sending Welcome Email...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mail className="w-4 h-4" />
+                        <span>Resend Welcome Email via SMTP</span>
+                      </>
+                    )}
+                  </button>
                   <button 
                     onClick={() => {
                       const signupUrl = window.location.origin;
@@ -840,6 +1062,9 @@ export const Team: React.FC = () => {
                     onClick={() => {
                       setGeneratedPassword(null);
                       setGeneratedEmail(null);
+                      setEmailSendingStatus('idle');
+                      setEmailStatusMessage('');
+                      setEmailRecipient('');
                     }}
                     className="w-full py-4 bg-bg-tertiary text-text-primary font-bold rounded-2xl hover:bg-bg-tertiary/80 transition-all"
                   >
@@ -1037,6 +1262,17 @@ export const Team: React.FC = () => {
                               title="Reset Password"
                             >
                               <Lock className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => {
+                                setUserToSendWelcome(member);
+                                setManualSendEmailTarget(member.email || (member.username.includes('@') ? member.username : `${member.username}@placify-crm.com`));
+                                setManualSendPassword('');
+                              }}
+                              className="p-2 text-text-muted hover:text-accent-teal transition-colors"
+                              title="Send Auriic Placify Welcome Email"
+                            >
+                              <Mail className="w-4 h-4" />
                             </button>
                             <button 
                               onClick={() => setDeletingUser(member)}
@@ -1255,6 +1491,24 @@ export const Team: React.FC = () => {
             </div>
             {!editingUser && (
               <div className="space-y-1.5">
+                <label className="text-xs font-bold text-text-muted uppercase tracking-widest flex items-center justify-between">
+                  <span>Gmail ID / Welcome Email</span>
+                  <span className="text-[10px] text-text-muted font-normal lowercase">(Optional if username is an email)</span>
+                </label>
+                <input 
+                  type="email" 
+                  value={formData.notification_email || ''}
+                  onChange={e => setFormData({...formData, notification_email: e.target.value})}
+                  placeholder="e.g. member@gmail.com"
+                  className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
+                />
+                <p className="text-[11px] text-text-muted">
+                  A welcome email from <strong>Auriic Placify</strong> containing login ID &amp; password will be sent to this Gmail ID via SMTP upon account creation.
+                </p>
+              </div>
+            )}
+            {!editingUser && (
+              <div className="space-y-1.5">
                 <label className="text-xs font-bold text-text-muted uppercase tracking-widest">Password</label>
                 <input 
                   type="password" 
@@ -1468,6 +1722,18 @@ export const Team: React.FC = () => {
             </div>
           </div>
 
+          <div className="pt-1">
+            <label className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold text-text-secondary select-none">
+              <input 
+                type="checkbox" 
+                checked={sendEmailOnReset}
+                onChange={e => setSendEmailOnReset(e.target.checked)}
+                className="w-4 h-4 rounded text-accent-blue focus:ring-accent-blue"
+              />
+              <span>Send updated credentials to <strong>{userToResetPassword?.email || userToResetPassword?.username}</strong> via welcome email</span>
+            </label>
+          </div>
+
           <div className="flex gap-3">
             <button
               type="button"
@@ -1488,6 +1754,102 @@ export const Team: React.FC = () => {
                 <Lock className="w-4 h-4" />
               )}
               Update Password
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Send Auriic Placify Welcome Email Modal for Existing Member */}
+      <Modal
+        isOpen={!!userToSendWelcome}
+        onClose={() => {
+          if (!isSendingManualWelcome) {
+            setUserToSendWelcome(null);
+            setManualSendEmailTarget('');
+            setManualSendPassword('');
+          }
+        }}
+        title={`Send Welcome Email: ${userToSendWelcome?.display_name}`}
+      >
+        <form onSubmit={handleManualSendWelcomeEmail} className="space-y-6">
+          <div className="p-4 bg-accent-teal/10 border border-accent-teal/20 rounded-2xl flex items-start gap-3">
+            <Mail className="w-5 h-5 text-accent-teal shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-bold text-accent-teal">Auriic Placify Welcome Email</p>
+              <p className="text-xs text-accent-teal/80 mt-1">
+                This will send a branded welcome email via SMTP containing their login ID and password.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-text-muted uppercase tracking-widest">Recipient Email / Gmail ID</label>
+              <input 
+                type="email" 
+                required
+                value={manualSendEmailTarget}
+                onChange={e => setManualSendEmailTarget(e.target.value)}
+                placeholder="e.g. member@gmail.com"
+                className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-text-muted uppercase tracking-widest">Password to Send in Email</label>
+              <div className="relative">
+                <input 
+                  type="text" 
+                  required
+                  value={manualSendPassword}
+                  onChange={e => setManualSendPassword(e.target.value)}
+                  placeholder="Enter current or temporary password"
+                  className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors pr-12"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
+                    let retVal = "";
+                    for (let i = 0; i < 10; ++i) {
+                      retVal += charset.charAt(Math.floor(Math.random() * charset.length));
+                    }
+                    setManualSendPassword(retVal);
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-text-muted hover:text-accent-blue transition-colors"
+                  title="Generate Password"
+                >
+                  <TrendingUp className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              type="button"
+              disabled={isSendingManualWelcome}
+              onClick={() => setUserToSendWelcome(null)}
+              className="flex-1 py-3 bg-bg-tertiary text-text-primary font-bold rounded-xl hover:bg-bg-tertiary/80 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSendingManualWelcome || !manualSendEmailTarget || !manualSendPassword}
+              className="flex-1 py-3 bg-accent-teal text-white font-bold rounded-xl hover:bg-accent-teal/90 transition-all shadow-lg shadow-accent-teal/20 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {isSendingManualWelcome ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Sending Email...</span>
+                </>
+              ) : (
+                <>
+                  <Mail className="w-4 h-4" />
+                  <span>Send Welcome Email</span>
+                </>
+              )}
             </button>
           </div>
         </form>

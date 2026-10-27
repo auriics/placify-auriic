@@ -917,6 +917,307 @@ app.post('/api/send-email', async (req, res) => {
     }
 });
 
+// Role helper function for friendly display titles
+export function formatRoleName(role?: string): string {
+  if (!role) return 'Team Member';
+  const mapping: Record<string, string> = {
+    'jpc_sales': 'Sales Specialist',
+    'jpc_cs': 'Compliance Head',
+    'jpc_compliance_person': 'Compliance Person',
+    'jpc_marketing': 'Team Leader',
+    'jpc_marketing_support': 'Team Leader Support',
+    'jpc_recruiter': 'Recruiter',
+    'jpc_proxy': 'Proxy Interviewer',
+    'jpc_resume': 'Resume Specialist',
+    'jpc_lead_gen': 'Lead Generator',
+    'jpc_manager': 'Operations Manager',
+    'administrator': 'System Administrator',
+    'jpc_sysadmin': 'System Administrator',
+    'jpc_candidate': 'Candidate Portal',
+    'candidate': 'Candidate Portal',
+    'aurrum_sales': 'Aurrum Sales Specialist',
+    'aurrum_admin': 'Aurrum Administrator',
+    'aurrum_team': 'Aurrum Team Member',
+  };
+  return mapping[role] || role.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// Generate styled HTML email branded with Auriic Placify
+export function generateWelcomeEmailHtml(data: {
+  displayName?: string;
+  username?: string;
+  email: string;
+  password: string;
+  role?: string;
+  loginUrl: string;
+  recipientEmail?: string;
+}): string {
+  const { displayName, username, email, password, role, loginUrl } = data;
+  const name = displayName || username || 'Team Member';
+  const roleLabel = formatRoleName(role);
+  const currentYear = new Date().getFullYear();
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to Auriic Placify</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; -webkit-font-smoothing: antialiased;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 32px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04); border: 1px solid #e2e8f0;">
+          
+          <!-- BRAND HEADER -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #0F7664 0%, #115e59 40%, #1e3a8a 100%); padding: 36px 32px; text-align: center;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center">
+                    <div style="display: inline-block; padding: 6px 14px; background: rgba(255, 255, 255, 0.18); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 9999px; margin-bottom: 14px;">
+                      <span style="font-size: 11px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: #ffffff;">Auriic Placify CRM</span>
+                    </div>
+                    <h1 style="margin: 0 0 8px 0; font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.02em;">Welcome to Auriic Placify</h1>
+                    <p style="margin: 0; font-size: 14px; color: rgba(255, 255, 255, 0.9); font-weight: 500;">Your account is ready &amp; active</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- MAIN CONTENT BODY -->
+          <tr>
+            <td style="padding: 36px 32px 28px 32px;">
+              <p style="margin: 0 0 16px 0; font-size: 17px; font-weight: 700; color: #0f172a;">
+                Hello ${name},
+              </p>
+              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 1.6; color: #334155;">
+                Welcome to <strong>Auriic Placify</strong>! Your account has been created by the system administrator with the role of:
+              </p>
+
+              <!-- ROLE BADGE -->
+              <div style="margin-bottom: 24px;">
+                <span style="display: inline-block; background-color: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; font-size: 13px; font-weight: 700; padding: 6px 14px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.05em;">
+                  ✦ ${roleLabel}
+                </span>
+              </div>
+
+              <!-- CREDENTIALS BOX -->
+              <div style="background-color: #0f172a; border-radius: 16px; padding: 24px; color: #ffffff; margin-bottom: 28px; box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.2);">
+                <div style="display: flex; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 12px; margin-bottom: 18px;">
+                  <span style="font-size: 11px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: #38bdf8;">
+                    🔐 Official Login Credentials
+                  </span>
+                </div>
+
+                <!-- LOGIN EMAIL / GMAIL ID -->
+                <div style="margin-bottom: 16px;">
+                  <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; margin-bottom: 6px; font-weight: 600;">
+                    Login Email / Gmail ID:
+                  </div>
+                  <div style="font-family: 'SF Mono', Monaco, Menlo, Consolas, monospace; font-size: 15px; font-weight: 700; color: #38bdf8; word-break: break-all; background: rgba(56, 189, 248, 0.08); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.2);">
+                    ${email}
+                  </div>
+                </div>
+
+                <!-- PASSWORD -->
+                <div style="margin-bottom: 16px;">
+                  <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; margin-bottom: 6px; font-weight: 600;">
+                    Password:
+                  </div>
+                  <div style="font-family: 'SF Mono', Monaco, Menlo, Consolas, monospace; font-size: 16px; font-weight: 700; color: #4ade80; background: rgba(74, 222, 128, 0.1); padding: 8px 12px; border-radius: 8px; border: 1px dashed rgba(74, 222, 128, 0.35); display: inline-block;">
+                    ${password}
+                  </div>
+                </div>
+
+                <!-- PORTAL URL -->
+                <div>
+                  <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; margin-bottom: 6px; font-weight: 600;">
+                    Portal Link:
+                  </div>
+                  <div style="font-size: 13px; color: #cbd5e1; word-break: break-all;">
+                    <a href="${loginUrl}" style="color: #60a5fa; text-decoration: underline; font-weight: 600;">
+                      ${loginUrl}
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              <!-- CTA BUTTON -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-bottom: 30px;">
+                <tr>
+                  <td align="center">
+                    <a href="${loginUrl}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, #0F7664 0%, #1e3a8a 100%); color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 700; padding: 14px 34px; border-radius: 12px; box-shadow: 0 4px 14px rgba(15, 118, 100, 0.35); text-align: center;">
+                      Sign In to Auriic Placify &rarr;
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- SECURITY NOTICE -->
+              <div style="background-color: #fffbeb; border: 1px solid #fef3c7; border-radius: 14px; padding: 16px 20px; margin-bottom: 12px;">
+                <div style="font-size: 12px; font-weight: 800; color: #b45309; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em;">
+                  🛡️ Important Security Instructions:
+                </div>
+                <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #92400e; line-height: 1.6;">
+                  <li>Please change your password immediately after logging in for the first time.</li>
+                  <li>Do not share your login credentials with anyone.</li>
+                  <li>Make sure to access the portal from a secure device and browser.</li>
+                </ul>
+              </div>
+
+            </td>
+          </tr>
+
+          <!-- FOOTER -->
+          <tr>
+            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 24px 32px; text-align: center;">
+              <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 700; color: #475569;">
+                Auriic Placify CRM
+              </p>
+              <p style="margin: 0 0 10px 0; font-size: 12px; color: #94a3b8; line-height: 1.5;">
+                This automated welcome email was generated securely via Auriic Placify Mail Service.
+              </p>
+              <p style="margin: 0; font-size: 11px; color: #cbd5e1;">
+                &copy; ${currentYear} Auriic Placify. All rights reserved.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `.trim();
+}
+
+// Generate plain text email fallback
+export function generateWelcomeEmailText(data: {
+  displayName?: string;
+  username?: string;
+  email: string;
+  password: string;
+  role?: string;
+  loginUrl: string;
+  recipientEmail?: string;
+}): string {
+  const { displayName, username, email, password, role, loginUrl } = data;
+  const name = displayName || username || 'Team Member';
+  const roleLabel = formatRoleName(role);
+
+  return `
+Hello ${name},
+
+Welcome to Auriic Placify! Your account has been officially created by the administrator.
+
+Account Role: ${roleLabel}
+
+Here are your login credentials:
+==================================================
+Login Email / Gmail ID: ${email}
+Password: ${password}
+Platform URL: ${loginUrl}
+==================================================
+
+Important Security Instructions:
+1. Please change your password immediately after logging in for the first time.
+2. Do not share your login credentials with anyone.
+3. Keep your account secure.
+
+You can log in directly at:
+${loginUrl}
+
+Best regards,
+Auriic Placify Team
+  `.trim();
+}
+
+// Welcome Email handler for newly created user accounts
+export const handleSendWelcomeEmail = async (req: any, res: any) => {
+  const {
+    to,
+    displayName,
+    username,
+    email,
+    password,
+    role,
+    loginUrl,
+    smtpSettings
+  } = req.body;
+
+  try {
+    const targetEmail = (to || email || '').trim();
+    if (!targetEmail || !targetEmail.includes('@')) {
+      return res.status(400).json({ error: 'Valid recipient email address is required' });
+    }
+    if (!password) {
+      return res.status(400).json({ error: 'Password is required to send credentials email' });
+    }
+
+    const settings = smtpSettings || await getSMTPSettings();
+    if (!settings || !settings.host) {
+      console.warn('[Welcome Email] SMTP settings not configured. Delivery skipped.');
+      return res.status(400).json({ 
+        error: 'SMTP settings not configured. Please configure SMTP in Settings.' 
+      });
+    }
+
+    const portalUrl = loginUrl || process.env.VITE_APP_URL || 'https://auriic.co';
+    const fromName = settings.from_name || 'Auriic Placify';
+    const fromEmail = settings.from_email || settings.user;
+
+    const transporter = nodemailer.createTransport({
+      host: settings.host,
+      port: Number(settings.port),
+      secure: !!settings.secure,
+      auth: { user: settings.user, pass: settings.pass },
+      tls: { rejectUnauthorized: false }
+    });
+
+    const subject = `Welcome to Auriic Placify - Your Account Credentials`;
+    const htmlContent = generateWelcomeEmailHtml({
+      displayName,
+      username,
+      email: email || targetEmail,
+      password,
+      role,
+      loginUrl: portalUrl,
+      recipientEmail: targetEmail
+    });
+    const textContent = generateWelcomeEmailText({
+      displayName,
+      username,
+      email: email || targetEmail,
+      password,
+      role,
+      loginUrl: portalUrl,
+      recipientEmail: targetEmail
+    });
+
+    await transporter.sendMail({
+      from: `"${fromName.replace(/"/g, '')}" <${fromEmail}>`,
+      to: targetEmail,
+      subject,
+      text: textContent,
+      html: htmlContent
+    });
+
+    console.log(`[Welcome Email] Successfully sent welcome email to ${targetEmail} for user ${email || username}`);
+    res.json({ success: true, message: `Welcome email sent successfully to ${targetEmail}`, recipient: targetEmail });
+  } catch (error: any) {
+    console.error('[Welcome Email Error]:', error);
+    res.status(500).json({ error: error.message || 'Failed to send welcome email' });
+  }
+};
+
+app.post('/api/user/send-welcome-email', handleSendWelcomeEmail);
+app.post('/api/send-welcome-email', handleSendWelcomeEmail);
+
 app.post('/api/candidate/notify-offer-approved', async (req, res) => {
   const { candidate, request, reviewerName } = req.body;
   try {

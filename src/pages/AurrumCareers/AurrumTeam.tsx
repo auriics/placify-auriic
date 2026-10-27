@@ -12,7 +12,10 @@ import {
   Mail,
   CheckCircle2,
   TrendingUp,
+  AlertCircle,
+  Loader2,
 } from 'lucide-react';
+import { sendWelcomeEmail } from '../../services/welcomeEmail';
 import { motion, AnimatePresence } from 'motion/react';
 import { deleteDoc, doc, setDoc, getDocs, collection, query, where } from 'firebase/firestore';
 import { initializeApp, getApps } from 'firebase/app';
@@ -107,6 +110,9 @@ export const AurrumTeam: React.FC = () => {
   // Credentials Modal after creation
   const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
   const [generatedEmail, setGeneratedEmail] = useState<string | null>(null);
+  const [emailSendingStatus, setEmailSendingStatus] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
+  const [emailStatusMessage, setEmailStatusMessage] = useState<string>('');
+  const [isResendingEmail, setIsResendingEmail] = useState(false);
 
   // Password Reset Modal
   const [userToResetPassword, setUserToResetPassword] = useState<User | null>(null);
@@ -204,6 +210,32 @@ export const AurrumTeam: React.FC = () => {
 
           setGeneratedEmail(email);
           setGeneratedPassword(formData.password);
+
+          // Dispatch welcome email via SMTP
+          setEmailSendingStatus('sending');
+          setEmailStatusMessage('');
+          sendWelcomeEmail({
+            to: email,
+            displayName: formData.display_name.trim(),
+            username: cleanUsername,
+            email: email,
+            password: formData.password,
+            role: formData.role,
+            loginUrl: window.location.origin
+          }).then(res => {
+            if (res.success) {
+              setEmailSendingStatus('sent');
+              setEmailStatusMessage(`Welcome email delivered via SMTP to ${email}`);
+              showToast(`Welcome email sent to ${email}!`, 'success');
+            } else {
+              setEmailSendingStatus('failed');
+              setEmailStatusMessage(res.error || 'SMTP delivery failed');
+            }
+          }).catch(err => {
+            setEmailSendingStatus('failed');
+            setEmailStatusMessage(err.message || 'SMTP delivery failed');
+          });
+
           showToast('Aurrum team member account created successfully!', 'success');
         } catch (authError: any) {
           console.error('Aurrum Auth creation error:', authError);
@@ -326,6 +358,39 @@ export const AurrumTeam: React.FC = () => {
     }
   };
 
+  const handleResendWelcomeEmail = async () => {
+    if (!generatedPassword || !generatedEmail) return;
+    setIsResendingEmail(true);
+    setEmailSendingStatus('sending');
+    setEmailStatusMessage('');
+    try {
+      const res = await sendWelcomeEmail({
+        to: generatedEmail,
+        displayName: formData.display_name.trim() || 'Team Member',
+        username: formData.username.trim(),
+        email: generatedEmail,
+        password: generatedPassword,
+        role: formData.role,
+        loginUrl: window.location.origin
+      });
+      if (res.success) {
+        setEmailSendingStatus('sent');
+        setEmailStatusMessage(`Welcome email delivered via SMTP to ${generatedEmail}`);
+        showToast(`Welcome email resent to ${generatedEmail}!`, 'success');
+      } else {
+        setEmailSendingStatus('failed');
+        setEmailStatusMessage(res.error || 'SMTP delivery failed');
+        showToast(res.error || 'Failed to send welcome email', 'error');
+      }
+    } catch (err: any) {
+      setEmailSendingStatus('failed');
+      setEmailStatusMessage(err.message || 'SMTP delivery failed');
+      showToast('Failed to send welcome email', 'error');
+    } finally {
+      setIsResendingEmail(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (!deletingUser) return;
     setIsLoading(true);
@@ -439,7 +504,68 @@ export const AurrumTeam: React.FC = () => {
                 </div>
               </div>
 
+              {/* Welcome Email Status Banner */}
+              <div className="text-left">
+                {emailSendingStatus === 'sending' && (
+                  <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-center gap-3">
+                    <Loader2 className="w-5 h-5 text-amber-500 animate-spin shrink-0" />
+                    <div>
+                      <p className="text-xs font-bold text-amber-500">Sending Welcome Email via SMTP...</p>
+                      <p className="text-[11px] text-amber-500/80">Delivering credentials to {generatedEmail}</p>
+                    </div>
+                  </div>
+                )}
+                {emailSendingStatus === 'sent' && (
+                  <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-start gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-xs font-bold text-emerald-500">Welcome Email Sent via SMTP!</p>
+                      <p className="text-[11px] text-emerald-500/80 mt-0.5">
+                        Auriic Placify onboarding credentials delivered to <strong>{generatedEmail}</strong>.
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {emailSendingStatus === 'failed' && (
+                  <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-xs font-bold text-amber-500">Welcome Email Not Delivered</p>
+                      <p className="text-[11px] text-amber-500/80 mt-0.5">
+                        {emailStatusMessage || 'Could not send email. Check SMTP settings.'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleResendWelcomeEmail}
+                      disabled={isResendingEmail}
+                      className="px-2.5 py-1 text-[11px] font-bold bg-amber-500/20 text-amber-500 rounded-lg hover:bg-amber-500/30 transition-colors shrink-0 cursor-pointer"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div className="flex flex-col gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleResendWelcomeEmail}
+                  disabled={isResendingEmail}
+                  className="w-full py-3 bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 font-bold rounded-2xl hover:bg-amber-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {isResendingEmail ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Sending Welcome Email...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Mail className="w-4 h-4" />
+                      <span>Resend Welcome Email via SMTP</span>
+                    </>
+                  )}
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -458,6 +584,8 @@ export const AurrumTeam: React.FC = () => {
                   onClick={() => {
                     setGeneratedPassword(null);
                     setGeneratedEmail(null);
+                    setEmailSendingStatus('idle');
+                    setEmailStatusMessage('');
                   }}
                   className="w-full py-3 bg-bg-tertiary text-text-primary font-bold rounded-2xl hover:bg-bg-tertiary/80 transition-all cursor-pointer"
                 >
