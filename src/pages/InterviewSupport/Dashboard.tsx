@@ -122,7 +122,6 @@ export const InterviewSupportDashboard: React.FC = () => {
   const [filterDate, setFilterDate] = useState<string>('');
   
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
-  const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [proxyAssignmentConfig, setProxyAssignmentConfig] = useState<{ request: InterviewSupportRequest, round: InterviewRound } | null>(null);
   const [directScheduleConfig, setDirectScheduleConfig] = useState<{ request: InterviewSupportRequest, round: InterviewRound } | null>(null);
   const [resultUpdateConfig, setResultUpdateConfig] = useState<{ request: InterviewSupportRequest, round: InterviewRound } | null>(null);
@@ -370,39 +369,6 @@ export const InterviewSupportDashboard: React.FC = () => {
     }
   };
 
-  const handleDeleteAllVisible = async () => {
-    const deletableRequests = filteredData.filter(req => {
-      const cand = candidates.find(c => c.id === req.candidate_id) || aurrumCandidates.find(c => c.id === req.candidate_id);
-      const reqRounds = visibleRounds.filter(r => r.request_id === req.id);
-      return canDeleteInterviewRequest(user, req, cand, team, { isTodayOrUpcoming: true, rounds: reqRounds });
-    });
-
-    if (deletableRequests.length === 0) {
-      showToast('No eligible interviews to delete in this view.', 'info');
-      return;
-    }
-
-    const tabLabel = activeTab === 'today' ? "Today's" : "Upcoming";
-    const confirmed = window.confirm(
-      `ARE YOU SURE? This will permanently delete ${deletableRequests.length} ${tabLabel} interview request(s) and all their associated rounds, links, and calendar events.\n\nThis action CANNOT be undone.`
-    );
-    if (!confirmed) return;
-
-    setIsDeletingAll(true);
-    try {
-      for (const req of deletableRequests) {
-        const cand = candidates.find(c => c.id === req.candidate_id) || aurrumCandidates.find(c => c.id === req.candidate_id);
-        await deleteInterviewSupportRequest(req.id, user, cand, team);
-      }
-      showToast(`Successfully deleted ${deletableRequests.length} ${tabLabel.toLowerCase()} interview(s)`, 'success');
-    } catch (error: any) {
-      console.error(error);
-      showToast(error?.message || 'Failed to delete some interviews', 'error');
-    } finally {
-      setIsDeletingAll(false);
-    }
-  };
-
   const handleDeleteRequest = async (requestId: string, cand?: Candidate | null) => {
     if (!window.confirm("ARE YOU SURE? This will permanently delete this interview request and all associated rounds, links, and feedback. This action CANNOT be undone.")) return;
     
@@ -589,27 +555,6 @@ export const InterviewSupportDashboard: React.FC = () => {
             </div>
           )}
 
-          {(activeTab === 'today' || activeTab === 'upcoming') && filteredData.length > 0 && (
-            isRecruiterTeamLeader(user) || 
-            user?.role === 'administrator' || 
-            user?.role === 'jpc_sysadmin' || 
-            user?.role === 'jpc_manager' || 
-            user?.role === 'jpc_cs'
-          ) && (
-            <button
-              onClick={handleDeleteAllVisible}
-              disabled={isDeletingAll}
-              className="px-4 py-3 bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white border border-rose-500/20 text-xs font-black uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 shrink-0 disabled:opacity-50 cursor-pointer shadow-sm"
-              title={`Delete all eligible ${activeTab === 'today' ? "today's" : "upcoming"} interviews`}
-            >
-              <Trash2 className="w-4 h-4" />
-              {isDeletingAll ? 'Deleting...' : `Delete All (${filteredData.filter(req => {
-                const cand = candidates.find(c => c.id === req.candidate_id) || aurrumCandidates.find(c => c.id === req.candidate_id);
-                const reqRounds = visibleRounds.filter(r => r.request_id === req.id);
-                return canDeleteInterviewRequest(user, req, cand, team, { isTodayOrUpcoming: true, rounds: reqRounds });
-              }).length})`}
-            </button>
-          )}
         </div>
       </div>
 
