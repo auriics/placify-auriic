@@ -16,6 +16,7 @@ import {
   runTransaction
 } from 'firebase/firestore';
 import { clearPreviousCalendarEvents } from './calendarService';
+import { canDeleteInterviewRequest } from '../lib/permissions';
 import { isSalesWorkingHours } from '../lib/utils';
 import { db, auth } from '../firebase';
 import { 
@@ -1064,8 +1065,40 @@ export const updateInterviewSupportRequest = async (id: string, updates: Partial
   }
 };
 
-export const deleteInterviewSupportRequest = async (id: string) => {
+export const deleteInterviewSupportRequest = async (
+  id: string,
+  requestingUser?: User | null,
+  candidate?: Candidate | null,
+  teamUsers?: User[]
+) => {
   try {
+    // Security / Authorization Enforcement
+    if (requestingUser) {
+      const reqSnap = await getDoc(doc(db, 'jpc_interview_requests', id));
+      if (!reqSnap.exists()) {
+        throw new Error('Interview request not found');
+      }
+      const reqData = reqSnap.data() as InterviewSupportRequest;
+
+      let cand = candidate;
+      if (!cand && reqData.candidate_id) {
+        const candSnap = await getDoc(doc(db, 'jpc_candidates', reqData.candidate_id));
+        if (candSnap.exists()) {
+          cand = { ...candSnap.data(), id: candSnap.id } as Candidate;
+        }
+      }
+
+      let users = teamUsers;
+      if (!users || users.length === 0) {
+        const usersSnap = await getDocs(collection(db, 'jpc_users'));
+        users = usersSnap.docs.map(d => ({ ...d.data(), id: d.id } as User));
+      }
+
+      if (!canDeleteInterviewRequest(requestingUser, reqData, cand, users)) {
+        throw new Error('Unauthorized: You do not have permission to delete this interview request.');
+      }
+    }
+
     // 1. Find all rounds for this request to clear calendar events first
     const roundsQ = query(collection(db, 'jpc_interview_rounds'), where('request_id', '==', id));
     const roundsSnap = await getDocs(roundsQ);
@@ -1108,6 +1141,9 @@ export const deleteInterviewSupportRequest = async (id: string) => {
 
     await batch.commit();
   } catch (error) {
+    if ((error as any)?.message?.startsWith('Unauthorized')) {
+      throw error;
+    }
     handleFirestoreError(error, OperationType.DELETE, `jpc_interview_requests/${id} and its rounds`);
   }
 };

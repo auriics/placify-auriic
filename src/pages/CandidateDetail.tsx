@@ -21,7 +21,7 @@ import {
 import { uploadFile, handleViewFile } from '../services/fileService';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { canUserAccessCandidate } from '../lib/permissions';
+import { canUserAccessCandidate, canDeleteInterviewRequest } from '../lib/permissions';
 import { STAGES, TRANSITIONS, LEAD_SOURCES, ROLE_PERMISSIONS, PREVIOUS_STAGES } from '../constants';
 import { 
   ArrowLeft, 
@@ -1300,13 +1300,13 @@ export const CandidateDetail: React.FC = () => {
     showToast('Follow-up scheduled', 'success');
   };
 
-  const handleDeleteInterview = async (id: string) => {
+  const handleDeleteInterview = async (id: string, int?: InterviewSupportRequest) => {
     if (!window.confirm('Are you sure you want to delete this interview record?')) return;
     try {
-      await deleteInterviewSupportRequest(id);
+      await deleteInterviewSupportRequest(id, user, candidate, allUsers);
       showToast('Interview record deleted', 'success');
     } catch (error) {
-      showToast('Failed to delete interview record', 'error');
+      showToast(error?.message || 'Failed to delete interview record', 'error');
     }
   };
 
@@ -3911,17 +3911,9 @@ export const CandidateDetail: React.FC = () => {
                         )}>
                           {int.overall_status.replace('_', ' ')}
                         </span>
-                        {(
-                          user?.role === 'administrator' || 
-                          user?.role === 'jpc_sysadmin' || 
-                          user?.role === 'jpc_manager' || 
-                          user?.role === 'jpc_cs' || 
-                          user?.role === 'jpc_compliance_person' ||
-                          String(int.recruiter_id) === String(user?.id) || 
-                          String(int.created_by) === String(user?.id)
-                        ) && (
+                        {canDeleteInterviewRequest(user, int, candidate, allUsers) && (
                           <button 
-                            onClick={() => handleDeleteInterview(int.id)}
+                            onClick={() => handleDeleteInterview(int.id, int)}
                             className="p-1 text-rose-500 hover:bg-rose-500/10 rounded-md transition-all"
                             title="Delete Interview Request"
                           >

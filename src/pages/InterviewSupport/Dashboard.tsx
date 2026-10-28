@@ -17,6 +17,7 @@ import {
   generateId
 } from '../../services/storage';
 import { syncInterviewRoundToGoogleCalendar, clearPreviousCalendarEvents } from '../../services/calendarService';
+import { canDeleteInterviewRequest } from '../../lib/permissions';
 import { handleViewFile, uploadFile } from '../../services/fileService';
 import { 
   InterviewSupportRequest, 
@@ -330,7 +331,7 @@ export const InterviewSupportDashboard: React.FC = () => {
       });
 
       showToast('Booking link generated successfully!', 'success');
-    } catch (error) {
+    } catch (error: any) {
       showToast('Failed to generate link', 'error');
     }
   };
@@ -362,21 +363,21 @@ export const InterviewSupportDashboard: React.FC = () => {
       await logInterviewActivity(round.id, 'RESCHEDULE_ADMIN_TRIGGERED', { by: user.role }, String(user.id));
 
       showToast('Interview marked for reschedule', 'success');
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
       showToast('Failed to trigger reschedule', 'error');
     }
   };
 
-  const handleDeleteRequest = async (requestId: string) => {
+  const handleDeleteRequest = async (requestId: string, cand?: Candidate | null) => {
     if (!window.confirm("ARE YOU SURE? This will permanently delete this interview request and all associated rounds, links, and feedback. This action CANNOT be undone.")) return;
     
     try {
-      await deleteInterviewSupportRequest(requestId);
+      await deleteInterviewSupportRequest(requestId, user, cand, team);
       showToast('Interview request deleted successfully', 'success');
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      showToast('Failed to delete interview request', 'error');
+      showToast(error?.message || 'Failed to delete interview request', 'error');
     }
   };
 
@@ -1017,15 +1018,9 @@ export const InterviewSupportDashboard: React.FC = () => {
                     )}
 
                     <div className="pt-4 border-t border-border-primary space-y-3">
-                      {(
-                        user?.role === 'administrator' || 
-                        user?.role === 'jpc_manager' || 
-                        user?.role === 'jpc_cs' || 
-                        user?.role === 'jpc_proxy' || 
-                        ((user?.role === 'jpc_recruiter' || user?.role === 'jpc_marketing') && (String(req.created_by) === String(user.id) || String(req.recruiter_id) === String(user.id)))
-                      ) && (
+                      {canDeleteInterviewRequest(user, req, candidate, team) && (
                         <button 
-                          onClick={() => handleDeleteRequest(req.id)}
+                          onClick={() => handleDeleteRequest(req.id, candidate)}
                           className="w-full py-3 bg-rose-500/10 text-rose-500 text-[10px] font-black uppercase tracking-widest rounded-xl border border-rose-500/20 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center gap-2 mb-2"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -1515,7 +1510,7 @@ const ResultUpdateModal: React.FC<{
       }
 
       onSuccess();
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
     } finally {
       setIsSubmitting(false);
@@ -1707,7 +1702,7 @@ const DirectScheduleModal: React.FC<{
       }
 
       onSuccess();
-    } catch (error) {
+    } catch (error: any) {
        console.error(error);
     } finally {
       setIsSubmitting(false);
@@ -2145,7 +2140,7 @@ const RequestModal: React.FC<{
       }
 
       onSuccess();
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
       showToast('An error occurred while creating booking request.', 'error');
     } finally {

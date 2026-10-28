@@ -225,5 +225,130 @@ export function isComplianceHead(user: User | null): boolean {
   return isCSHead(user) || isManagementUser(user);
 }
 
+/**
+ * Checks if a user is a Recruiter Team Leader / Marketing Leader.
+ */
+export function isRecruiterTeamLeader(user: User | null): boolean {
+  if (!user) return false;
+  return user.role === 'jpc_marketing' || user.role === 'jpc_marketing_support';
+}
+
+/**
+ * Checks if a target user (e.g. recruiter) reports to the given Team Leader.
+ */
+export function isTeamMemberOfLeader(
+  targetUserId: string | number | null | undefined,
+  leader: User | null,
+  teamUsers: User[] = []
+): boolean {
+  if (!leader || !targetUserId || teamUsers.length === 0) return false;
+
+  const targetStr = String(targetUserId).toLowerCase().trim();
+  const leaderMatches = (val: any): boolean => {
+    if (val === null || val === undefined || val === '') return false;
+    const s = String(val).toLowerCase().trim();
+    return (
+      (leader.id !== undefined && leader.id !== null && s === String(leader.id).toLowerCase().trim()) ||
+      (leader.username !== undefined && leader.username !== null && s === String(leader.username).toLowerCase().trim()) ||
+      (leader.email !== undefined && leader.email !== null && s === String(leader.email).toLowerCase().trim()) ||
+      (leader.display_name !== undefined && leader.display_name !== null && s === String(leader.display_name).toLowerCase().trim())
+    );
+  };
+
+  const targetMember = teamUsers.find(u =>
+    (u.id !== undefined && u.id !== null && String(u.id).toLowerCase().trim() === targetStr) ||
+    (u.username && u.username.toLowerCase().trim() === targetStr) ||
+    (u.email && u.email.toLowerCase().trim() === targetStr) ||
+    (u.display_name && u.display_name.toLowerCase().trim() === targetStr)
+  );
+
+  if (!targetMember) return false;
+  return leaderMatches(targetMember.leader_id);
+}
+
+/**
+ * Checks if a user has authority to delete an Interview Support Request.
+ * - Administrators, System Admins, Managers: Full delete access.
+ * - Customer Service / Compliance Leaders (jpc_cs, jpc_compliance_person): Full delete access.
+ * - Proxies (jpc_proxy): Allowed per existing Interview Support workflow.
+ * - Direct Creator or Recruiter: Can delete their own interview requests.
+ * - Recruiter Team Leader (jpc_marketing / jpc_marketing_support):
+ *   Can delete interview requests belonging to their team:
+ *   1. Recruiter or creator of the interview reports to this Team Leader.
+ *   2. Candidate has this Team Leader assigned (assigned_marketing_leader / assigned_marketing).
+ *   3. Candidate's assigned recruiter reports to this Team Leader.
+ *   4. Direct ownership (request created by or assigned to the Team Leader).
+ *   Strictly disallows deleting interviews outside their authorized team scope.
+ */
+export function canDeleteInterviewRequest(
+  user: User | null,
+  request: {
+    recruiter_id?: string | number | null;
+    created_by?: string | number | null;
+    candidate_id?: string | number | null;
+  } | null | undefined,
+  candidate?: Candidate | null,
+  teamUsers: User[] = []
+): boolean {
+  if (!user) return false;
+
+  // 1. Management Roles & Proxy (Full delete access per existing system permissions)
+  if (
+    user.role === 'administrator' ||
+    user.role === 'jpc_sysadmin' ||
+    user.role === 'jpc_manager' ||
+    user.role === 'jpc_cs' ||
+    user.role === 'jpc_compliance_person' ||
+    user.role === 'jpc_proxy'
+  ) {
+    return true;
+  }
+
+  if (!request) return false;
+
+  const userMatches = (targetVal: any): boolean => {
+    if (targetVal === null || targetVal === undefined || targetVal === '') return false;
+    const targetStr = String(targetVal).toLowerCase().trim();
+    if (user.id !== undefined && user.id !== null && targetStr === String(user.id).toLowerCase().trim()) return true;
+    if (user.username && targetStr === String(user.username).toLowerCase().trim()) return true;
+    if (user.email && targetStr === String(user.email).toLowerCase().trim()) return true;
+    if (user.display_name && targetStr === String(user.display_name).toLowerCase().trim()) return true;
+    return false;
+  };
+
+  // 2. Direct Ownership (Creator or assigned recruiter)
+  const isDirectOwner = userMatches(request.created_by) || userMatches(request.recruiter_id);
+  if (isDirectOwner) return true;
+
+  // 3. Recruiter Team Leader / Marketing Leader
+  if (isRecruiterTeamLeader(user)) {
+    // Check if the recruiter or creator of the interview belongs to this leader's team
+    if (request.recruiter_id && isTeamMemberOfLeader(request.recruiter_id, user, teamUsers)) {
+      return true;
+    }
+    if (request.created_by && isTeamMemberOfLeader(request.created_by, user, teamUsers)) {
+      return true;
+    }
+
+    // Check candidate assignment if candidate object is provided
+    if (candidate) {
+      if (userMatches(candidate.assigned_marketing_leader) || userMatches(candidate.assigned_marketing)) {
+        return true;
+      }
+      if (candidate.assigned_recruiter) {
+        if (userMatches(candidate.assigned_recruiter)) return true;
+        if (isTeamMemberOfLeader(candidate.assigned_recruiter, user, teamUsers)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  // Regular recruiter without ownership or other unauthorized roles cannot delete
+  return false;
+}
+
 
 
