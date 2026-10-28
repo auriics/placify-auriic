@@ -57,7 +57,7 @@ The CRM uses a Role-Based Access Control (RBAC) system. Each user is assigned a 
 | **Interview Support (Manage / Assign)** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | **Move to Stage (Full access)** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **View Technical Feedback** | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅* |
-| **Delete Interview** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Delete Interview** | ✅ | ✅ | ❌* | ❌ | ❌ | ✅ (TL)* | ❌ | ✅* |
 | **Target Reduction (Approve)** | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
 | **Feature Alerts (Create)** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Team Management & Clusters** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -65,6 +65,7 @@ The CRM uses a Role-Based Access Control (RBAC) system. Each user is assigned a 
 *\*Notes:*
 - *Lead Generation users are strictly forbidden from assigning or altering `assigned_sales`; attempts are blocked at both UI and server API layers.*
 - *Proxies can only view technical feedback for interview rounds to which they were explicitly assigned.*
+- *Delete Interview: Management roles (Admin, Sysadmin, Manager, CS Head, Compliance Person) have full delete authority. Recruiter Team Leaders (`jpc_marketing` / `jpc_marketing_support`) can delete all Auriic interviews in Today & Upcoming tabs as well as their team's interviews (strictly excluding Aurrum Careers candidates). Individual delete action is placed inside interview cards. Recruiters and Proxies can delete requests they created or are assigned to.*
 
 ---
 
@@ -142,6 +143,16 @@ The Interview Support System manages the entire interview lifecycle from initial
 4.  **Interview Preparation (Proxy)**: Assigned proxy reviews JD, candidate resume, and notes on the Proxy Dashboard.
 5.  **Live Round Execution**: Visual red pulse indicator displays during the live slot; proxy joins meeting bridge.
 6.  **Structured Post-Interview Feedback Loop**: Proxy submits structured technical evaluation (Coding, Architecture, Execution, Problem Solving, Communication, Questions Asked, and Verdict). The system updates candidate progress and triggers notifications.
+
+#### 3.7.4 Delete Interview Governance & Multi-Tier Access Control
+To maintain clean interview queues while upholding strict data segregation and audit integrity:
+*   **Card-Level Action**: The "Delete Interview" option is rendered exclusively inside each individual interview support card (with a full irreversible confirmation dialog). Bulk deletion from global toolbars is strictly disallowed to prevent accidental data loss.
+*   **Recruiter Team Leader Access (`jpc_marketing`, `jpc_marketing_support`)**:
+    *   **Today & Upcoming Scope**: Team Leaders are granted authority to delete any scheduled Auriic interview appearing inside the **Today** or **Upcoming** tabs directly from the card.
+    *   **Team Scope for Other Tabs**: In all other tabs and views, Team Leaders may only delete interviews belonging to their team (recruiter reports to them, or candidate is assigned to their marketing leadership cluster).
+    *   **Strict Aurrum Careers Isolation**: Team Leaders of Auriic are strictly blocked from deleting any Aurrum Careers (`crm_brand: 'aurrum'`) candidate or interview records.
+*   **Management & Proxies**: Administrators, System Admins, Managers, and CS/Compliance Heads retain full deletion privileges across all brands and tabs. Assigned proxies can delete their assigned rounds.
+*   **Cascading Atomic Batch Deletion**: Deleting an interview request cascades across all associated collections (`jpc_interview_requests`, `jpc_interview_rounds`, `jpc_interview_booking_links`, `jpc_interview_feedback`, `jpc_interview_notifications`, `jpc_interview_activity_logs`) and clears synchronized Google Calendar events.
 
 ### 3.8 Feature Blast Alert System
 Enables Administrators to broadcast updates across the entire platform.
@@ -305,6 +316,23 @@ To guarantee that no duplicate candidate leads are ever created—even under hig
     *   Candidate creation, round-robin distribution, activity log creation, QC checklist seeding, and notification dispatches are coupled to the primary transaction.
     *   Downstream side effects are bypassed if `duplicatePrevented` is true, ensuring no candidate receives multiple Welcome logs, duplicated checklist items, or redundant push notifications.
 
+### 3.17 Candidate Shift Preference Engine
+To align recruiters and interview coordinators with candidate working hour constraints:
+*   **Three Standard Preferences**:
+    *   **Day Shift** (Blue badge with Sun icon): Candidate available for US Day hours (EST/CST).
+    *   **Night Shift** (Purple badge with Moon icon): Candidate available for US Night hours.
+    *   **Not Set** (Gray badge): Default state when preference has not been determined.
+*   **Platform-Wide Integration**:
+    *   **Candidate Profile & Editing**: Configurable and editable directly in Candidate Details.
+    *   **Candidate Directory Filtering**: Dedicated multi-select filter allowing recruiters and team leads to filter by Shift Preference.
+    *   **Kanban Cards**: Visual shift badge on candidate cards in the Pipeline Kanban.
+
+### 3.18 Branded Candidate Welcome Email System
+Placify includes an automated, professional email notification system for onboarding candidates:
+*   **Automatic Trigger**: When a new candidate profile is registered, a branded HTML welcome email is automatically generated and dispatched via SMTP.
+*   **Credential Delivery**: Contains the candidate's auto-generated portal credentials, secure login link, and introductory placement instructions.
+*   **Auriic Placify Design**: Features an executive dark-themed layout with responsive branding, status highlights, and support contact details.
+
 ---
 
 ## 4. Automated Schedules & Cron Infrastructure
@@ -360,4 +388,4 @@ Placify is built on a modern, high-performance full-stack architecture designed 
 
 ---
 
-*Last Updated: September 12, 2026*
+*Last Updated: October 28, 2026*
