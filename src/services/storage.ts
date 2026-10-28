@@ -1072,6 +1072,10 @@ export const deleteInterviewSupportRequest = async (
   teamUsers?: User[]
 ) => {
   try {
+    // 1. Find all rounds for this request
+    const roundsQ = query(collection(db, 'jpc_interview_rounds'), where('request_id', '==', id));
+    const roundsSnap = await getDocs(roundsQ);
+
     // Security / Authorization Enforcement
     if (requestingUser) {
       const reqSnap = await getDoc(doc(db, 'jpc_interview_requests', id));
@@ -1094,14 +1098,19 @@ export const deleteInterviewSupportRequest = async (
         users = usersSnap.docs.map(d => ({ ...d.data(), id: d.id } as User));
       }
 
-      if (!canDeleteInterviewRequest(requestingUser, reqData, cand, users)) {
+      const roundsData = roundsSnap.docs.map(d => d.data() as InterviewRound);
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0];
+      const isTodayOrUpcoming = roundsData.some(r => {
+        const d = r.booked_slot_time || r.interview_date;
+        if (!d) return false;
+        return d.startsWith(todayStr) || new Date(d) > now;
+      });
+
+      if (!canDeleteInterviewRequest(requestingUser, reqData, cand, users, { isTodayOrUpcoming, rounds: roundsData })) {
         throw new Error('Unauthorized: You do not have permission to delete this interview request.');
       }
     }
-
-    // 1. Find all rounds for this request to clear calendar events first
-    const roundsQ = query(collection(db, 'jpc_interview_rounds'), where('request_id', '==', id));
-    const roundsSnap = await getDocs(roundsQ);
     
     for (const roundDoc of roundsSnap.docs) {
       await clearPreviousCalendarEvents(roundDoc.id);

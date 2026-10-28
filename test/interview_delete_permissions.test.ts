@@ -177,3 +177,64 @@ test('7. Team Leader Support role works with team interviews', () => {
   };
   assert.equal(canDeleteInterviewRequest(tlSupport, interviewTLSupport, null, allUsers), true);
 });
+
+test('8. Team Leader CAN delete interviews inside Today and Upcoming regardless of team', () => {
+  // interviewBeta belongs to Team Beta, but if it is today or upcoming, TL Alpha CAN delete it
+  assert.equal(
+    canDeleteInterviewRequest(tlAlpha, interviewBeta, candidateBetaTeam, allUsers, { isTodayOrUpcoming: true }),
+    true
+  );
+
+  // If rounds data shows today's date
+  const todayStr = new Date().toISOString().split('T')[0];
+  const roundsToday = [{ booked_slot_time: `${todayStr}T14:00:00Z` }];
+  assert.equal(
+    canDeleteInterviewRequest(tlAlpha, interviewBeta, candidateBetaTeam, allUsers, { rounds: roundsToday }),
+    true
+  );
+
+  // If rounds data is in the past, normal team scoping applies (so TL Alpha cannot delete Team Beta's past interview)
+  const roundsPast = [{ booked_slot_time: '2020-01-01T10:00:00Z' }];
+  assert.equal(
+    canDeleteInterviewRequest(tlAlpha, interviewBeta, candidateBetaTeam, allUsers, { rounds: roundsPast }),
+    false
+  );
+});
+
+test('9. Auriic Team Leader CANNOT delete Aurrum Careers interviews, even if Today or Upcoming', () => {
+  const aurrumCandidate: Candidate = {
+    ...candidateBetaTeam,
+    crm_brand: 'aurrum'
+  };
+
+  const aurrumInterview: Partial<InterviewSupportRequest> = {
+    id: 'req-aurrum-1',
+    candidate_id: aurrumCandidate.id,
+    recruiter_id: 'rec-a1',
+    created_by: 'rec-a1'
+  };
+
+  // TL Alpha cannot delete Aurrum Careers interview even with isTodayOrUpcoming: true
+  assert.equal(
+    canDeleteInterviewRequest(tlAlpha, aurrumInterview, aurrumCandidate, allUsers, { isTodayOrUpcoming: true }),
+    false
+  );
+
+  // TL Alpha cannot delete even if their own recruiter created it
+  assert.equal(
+    canDeleteInterviewRequest(tlAlpha, aurrumInterview, aurrumCandidate, allUsers),
+    false
+  );
+
+  // Administrator CAN delete Aurrum Careers interview
+  assert.equal(
+    canDeleteInterviewRequest(adminUser, aurrumInterview, aurrumCandidate, allUsers),
+    true
+  );
+
+  // Manager CAN delete Aurrum Careers interview
+  assert.equal(
+    canDeleteInterviewRequest(managerUser, aurrumInterview, aurrumCandidate, allUsers),
+    true
+  );
+});

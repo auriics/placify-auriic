@@ -288,7 +288,11 @@ export function canDeleteInterviewRequest(
     candidate_id?: string | number | null;
   } | null | undefined,
   candidate?: Candidate | null,
-  teamUsers: User[] = []
+  teamUsers: User[] = [],
+  options?: {
+    isTodayOrUpcoming?: boolean;
+    rounds?: Array<{ booked_slot_time?: string | null; interview_date?: string | null }>;
+  }
 ): boolean {
   if (!user) return false;
 
@@ -320,8 +324,28 @@ export function canDeleteInterviewRequest(
   const isDirectOwner = userMatches(request.created_by) || userMatches(request.recruiter_id);
   if (isDirectOwner) return true;
 
-  // 3. Recruiter Team Leader / Marketing Leader
+  // 3. Recruiter Team Leader / Marketing Leader (Auriic Team Leader)
   if (isRecruiterTeamLeader(user)) {
+    // Strictly forbid Auriic Team Leaders from deleting Aurrum Careers interviews
+    if (candidate?.crm_brand === 'aurrum') {
+      return false;
+    }
+
+    // Team Leaders can delete all Auriic interviews inside Today and Upcoming
+    if (options?.isTodayOrUpcoming) {
+      return true;
+    }
+    if (options?.rounds && options.rounds.length > 0) {
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0];
+      const hasTodayOrUpcoming = options.rounds.some(r => {
+        const d = r.booked_slot_time || r.interview_date;
+        if (!d) return false;
+        return d.startsWith(todayStr) || new Date(d) > now;
+      });
+      if (hasTodayOrUpcoming) return true;
+    }
+
     // Check if the recruiter or creator of the interview belongs to this leader's team
     if (request.recruiter_id && isTeamMemberOfLeader(request.recruiter_id, user, teamUsers)) {
       return true;
