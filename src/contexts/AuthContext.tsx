@@ -9,7 +9,7 @@ import {
   sendPasswordResetEmail
 } from 'firebase/auth';
 import { auth, db } from '../firebase';
-import { doc, getDoc, setDoc, getDocs, query, collection, where, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, setDoc, getDocs, query, collection, where, deleteDoc } from 'firebase/firestore';
 import { User, Candidate } from '../types';
 import { handleFirestoreError, OperationType } from '../services/storage';
 
@@ -33,6 +33,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAuthReady, setIsAuthReady] = useState(false);
 
   useEffect(() => {
+    let unsubDocListener: (() => void) | null = null;
     const unsubscribe = onAuthStateChanged(auth, async (fUser) => {
       setFirebaseUser(fUser);
       
@@ -164,9 +165,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setIsLoading(false);
       setIsAuthReady(true);
+      if (fUser) {
+        if (unsubDocListener) unsubDocListener();
+        unsubDocListener = onSnapshot(doc(db, 'jpc_users', fUser.uid), (docSnap) => {
+          if (docSnap.exists()) {
+            let liveData = docSnap.data() as User;
+            if (liveData.username === 'mohit.panchal' || liveData.email === 'mohit.panchal@auriic.co') {
+              liveData.role = 'jpc_recruiter';
+            }
+            setUser(liveData);
+            try {
+              localStorage.setItem(`jpc_user_cache_${fUser.uid}`, JSON.stringify(liveData));
+            } catch {}
+          }
+        });
+      } else {
+        if (unsubDocListener) {
+          unsubDocListener();
+          unsubDocListener = null;
+        }
+      }
     });
 
-    return () => unsubscribe();
+    return () => {
+      if (unsubDocListener) unsubDocListener();
+      unsubscribe();
+    };
   }, []);
 
   const logout = async () => {

@@ -2922,6 +2922,20 @@ function isSalesWorkingHours(date = /* @__PURE__ */ new Date()) {
     return false;
   }
 }
+function matchesProfileHandlingAccess(candidateShift, profileAccess) {
+  const normalizedAccess = (profileAccess || "Day Shift").trim().toLowerCase();
+  if (normalizedAccess === "all" || normalizedAccess === "all profiles") {
+    return true;
+  }
+  const normalizedShift = (candidateShift || "").trim().toLowerCase();
+  if (normalizedAccess === "day shift" || normalizedAccess === "day_shift") {
+    return normalizedShift === "day shift";
+  }
+  if (normalizedAccess === "night shift" || normalizedAccess === "night_shift") {
+    return normalizedShift === "night shift";
+  }
+  return normalizedShift === "day shift";
+}
 async function verifyAuth(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -3369,6 +3383,28 @@ app.post(["/api/leads/round-robin/assign", "/leads/round-robin/assign"], verifyA
     res.status(500).json({ error: error.message || "Failed to execute assignment" });
   }
 });
+app.get("/api/candidates/:id", verifyAuth, async (req, res) => {
+  try {
+    const candidateId = req.params.id;
+    const user = req.user;
+    const existingDoc = await db.collection("jpc_candidates").doc(candidateId).get();
+    if (!existingDoc.exists) {
+      return res.status(404).json({ error: "Candidate not found" });
+    }
+    const candidateData = existingDoc.data();
+    if (user.role === "jpc_cs") {
+      const profileAccess = user.profile_handling_access || "Day Shift";
+      if (!matchesProfileHandlingAccess(candidateData?.shift_preference, profileAccess)) {
+        return res.status(403).json({
+          error: "Forbidden: Access denied to candidate profile outside your Profile Handling Access settings"
+        });
+      }
+    }
+    res.json({ candidate: { id: existingDoc.id, ...candidateData } });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Failed to retrieve candidate" });
+  }
+});
 app.patch("/api/candidates/:id", verifyAuth, async (req, res) => {
   try {
     const candidateId = req.params.id;
@@ -3376,6 +3412,18 @@ app.patch("/api/candidates/:id", verifyAuth, async (req, res) => {
     const updates = { ...req.body };
     const salesKeys = ["assigned_sales", "sales_person_id", "assigned_sales_person", "salesPersonId"];
     const hasSalesChangeAttempt = salesKeys.some((k) => updates[k] !== void 0);
+    if (user.role === "jpc_cs") {
+      const existingDoc = await db.collection("jpc_candidates").doc(candidateId).get();
+      if (existingDoc.exists) {
+        const existingData = existingDoc.data();
+        const profileAccess = user.profile_handling_access || "Day Shift";
+        if (!matchesProfileHandlingAccess(existingData?.shift_preference, profileAccess)) {
+          return res.status(403).json({
+            error: "Forbidden: You do not have permission to modify this candidate profile under your Profile Handling Access settings"
+          });
+        }
+      }
+    }
     if (user.role === "jpc_lead_gen" && hasSalesChangeAttempt) {
       const existingDoc = await db.collection("jpc_candidates").doc(candidateId).get();
       if (existingDoc.exists) {

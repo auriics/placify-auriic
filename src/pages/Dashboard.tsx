@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, getEasternDate, isEasternDayOngoing } from '../lib/utils';
-import { isComplianceHead } from '../lib/permissions';
+import { isComplianceHead, canUserAccessCandidate } from '../lib/permissions';
 import { Candidate, FollowUp, Notification, ResumeChangeRequest, InterviewSupportRequest, Application, TargetReductionRequest, FeatureAnnouncement, User, InterviewOfferRequest } from '../types';
 import { CandidateSheet } from '../components/CandidateSheet';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
@@ -351,6 +351,9 @@ export const Dashboard: React.FC = () => {
 
   const activeCandidates = useMemo(() => {
     let filtered = candidates.filter(c => c.current_stage !== 'not_interested' && c.current_stage !== 'completed');
+    if (user?.role === 'jpc_cs') {
+      filtered = filtered.filter(c => canUserAccessCandidate(c, user));
+    }
     if (user?.role === 'jpc_recruiter') {
       filtered = filtered.filter(c => String(c.assigned_recruiter) === String(user.id));
     } else if (user?.role === 'jpc_lead_gen') {
@@ -363,6 +366,9 @@ export const Dashboard: React.FC = () => {
 
   const completedCount = useMemo(() => {
     let filtered = candidates.filter(c => c.current_stage === 'completed');
+    if (user?.role === 'jpc_cs') {
+      filtered = filtered.filter(c => canUserAccessCandidate(c, user));
+    }
     if (user?.role === 'jpc_recruiter') {
       filtered = filtered.filter(c => String(c.assigned_recruiter) === String(user.id));
     } else if (user?.role === 'jpc_lead_gen') {
@@ -375,6 +381,9 @@ export const Dashboard: React.FC = () => {
 
   const notInterestedCount = useMemo(() => {
     let filtered = candidates.filter(c => c.current_stage === 'not_interested');
+    if (user?.role === 'jpc_cs') {
+      filtered = filtered.filter(c => canUserAccessCandidate(c, user));
+    }
     if (user?.role === 'jpc_recruiter') {
       filtered = filtered.filter(c => String(c.assigned_recruiter) === String(user.id));
     } else if (user?.role === 'jpc_lead_gen') {
@@ -409,10 +418,15 @@ export const Dashboard: React.FC = () => {
   const pendingOfferApprovals = useMemo(() => {
     if (!isComplianceHead(user)) return [];
 
-    const reqs: InterviewOfferRequest[] = [...offerRequests.filter(r => r.status === 'pending_compliance_approval')];
+    const reqs: InterviewOfferRequest[] = [...offerRequests.filter(r => {
+      if (r.status !== 'pending_compliance_approval') return false;
+      const c = candidates.find(cand => cand.id === r.candidate_id);
+      return !c || canUserAccessCandidate(c, user);
+    })];
     const seenCandidateIds = new Set(reqs.map(r => r.candidate_id));
 
     candidates.forEach(c => {
+      if (!canUserAccessCandidate(c, user)) return;
       if (c.interview_offer_status === 'pending_approval' && !seenCandidateIds.has(c.id)) {
         if (c.latest_interview_offer_request) {
           reqs.push(c.latest_interview_offer_request);
@@ -560,7 +574,7 @@ export const Dashboard: React.FC = () => {
     const marketingCandidates = candidates.filter(c => {
       const isMarketingStage = ['marketing_active', 'interviewing'].includes(c.current_stage);
       if (user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person') {
-        return isMarketingStage && String(c.assigned_cs) === String(user.id);
+        return isMarketingStage && canUserAccessCandidate(c, user);
       }
       return isMarketingStage;
     });
@@ -581,6 +595,9 @@ export const Dashboard: React.FC = () => {
 
   const recentCandidates = useMemo(() => {
     let filtered = [...candidates];
+    if (user?.role === 'jpc_cs') {
+      filtered = filtered.filter(c => canUserAccessCandidate(c, user));
+    }
     if (user?.role === 'jpc_recruiter') {
       filtered = filtered.filter(c => String(c.assigned_recruiter) === String(user.id));
     } else if (user?.role === 'jpc_lead_gen') {

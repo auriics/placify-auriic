@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { subscribeToCollection, saveUser, generateId } from '../services/storage';
-import { Users, UserPlus, Shield, Mail, Phone, MoreVertical, Edit2, Trash2, X, Save, AlertCircle, ShieldCheck, UserCheck, Lock, Copy, TrendingUp, Sparkles, CheckCircle2, Loader2 } from 'lucide-react';
+import { Users, UserPlus, Shield, Mail, Phone, MoreVertical, Edit2, Trash2, X, Save, AlertCircle, ShieldCheck, UserCheck, Lock, Copy, TrendingUp, Sparkles, CheckCircle2, Loader2, Sun, Moon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { User, UserRole, Candidate, isAurrumRole } from '../types';
+import { User, UserRole, Candidate, isAurrumRole, ProfileHandlingAccess } from '../types';
 import { Modal } from '../components/Modal';
 import { SMTPConfigModal } from '../components/SMTPConfigModal';
 import { sendWelcomeEmail } from '../services/welcomeEmail';
@@ -188,6 +188,7 @@ export const Team: React.FC = () => {
     is_on_leave: boolean;
     proxy_priority?: number;
     notification_email?: string;
+    profile_handling_access?: ProfileHandlingAccess;
   }>({
     username: '',
     display_name: '',
@@ -198,6 +199,7 @@ export const Team: React.FC = () => {
     portal_link: '',
     is_on_leave: false, 
     proxy_priority: 0,
+    profile_handling_access: 'Day Shift' as ProfileHandlingAccess,
     notification_email: '',
   });
 
@@ -324,6 +326,7 @@ export const Team: React.FC = () => {
             candidate_id: formData.role === 'jpc_candidate' ? (formData.candidate_id || null) : null,
             is_on_leave: formData.is_on_leave || false,
             proxy_priority: formData.role === 'jpc_proxy' ? formData.proxy_priority : undefined,
+            ...(formData.role === 'jpc_cs' ? { profile_handling_access: formData.profile_handling_access || 'Day Shift' } : {}),
             ...(formData.role === 'jpc_sales' ? { sales_availability_status: 'Active' as const } : {}),
             created_at: new Date().toISOString(),
           });
@@ -504,6 +507,11 @@ export const Team: React.FC = () => {
           baseEditUser.sales_availability_status = editingUser?.sales_availability_status || 'Active';
         } else {
           delete baseEditUser.sales_availability_status;
+        }
+        if (formData.role === 'jpc_cs') {
+          baseEditUser.profile_handling_access = formData.profile_handling_access || 'Day Shift';
+        } else {
+          delete baseEditUser.profile_handling_access;
         }
         const updatedUser = cleanUserForFirestore(baseEditUser);
 
@@ -1244,7 +1252,9 @@ export const Team: React.FC = () => {
                                   leader_id: member.leader_id || null,
                                   candidate_id: member.candidate_id || '',
                                   portal_link: '', 
-                                  is_on_leave: member.is_on_leave || false, proxy_priority: member.proxy_priority || 0,
+                                  is_on_leave: member.is_on_leave || false,
+                                  proxy_priority: member.proxy_priority || 0,
+                                  profile_handling_access: (member.profile_handling_access as ProfileHandlingAccess) || 'Day Shift',
                                 });
                                 setIsModalOpen(true);
                               }}
@@ -1306,9 +1316,35 @@ export const Team: React.FC = () => {
                           </p>
                         )}
                         {member.role === 'jpc_cs' && (
-                          <p className="text-[10px] font-bold text-accent-teal uppercase mt-2">
-                            Compliance Team: {team.filter(u => String(u.leader_id) === String(member.id)).length} Compliance Person{team.filter(u => String(u.leader_id) === String(member.id)).length === 1 ? '' : 's'}
-                          </p>
+                          <>
+                            <p className="text-[10px] font-bold text-accent-teal uppercase mt-2">
+                              Compliance Team: {team.filter(u => String(u.leader_id) === String(member.id)).length} Compliance Person{team.filter(u => String(u.leader_id) === String(member.id)).length === 1 ? '' : 's'}
+                            </p>
+                            <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                              {(() => {
+                                const access = member.profile_handling_access || 'Day Shift';
+                                if (access === 'Night Shift') {
+                                  return (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-accent-purple bg-accent-purple/10 border border-accent-purple/20 px-2 py-0.5 rounded-md" title="Handles Night Shift Profiles only">
+                                      <Moon className="w-3 h-3" /> Night Shift Profiles
+                                    </span>
+                                  );
+                                }
+                                if (access === 'All') {
+                                  return (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-accent-teal bg-accent-teal/10 border border-accent-teal/20 px-2 py-0.5 rounded-md" title="Handles Day Shift & Night Shift Profiles">
+                                      <Sparkles className="w-3 h-3" /> All Profiles
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-accent-blue bg-accent-blue/10 border border-accent-blue/20 px-2 py-0.5 rounded-md" title="Handles Day Shift Profiles only">
+                                    <Sun className="w-3 h-3" /> Day Shift Profiles
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                          </>
                         )}
                         {member.role === 'jpc_marketing' && (
                           <p className="text-[10px] font-bold text-accent-green uppercase mt-2">
@@ -1642,6 +1678,90 @@ export const Team: React.FC = () => {
                     <option key={u.id} value={u.id}>{u.display_name}</option>
                   ))}
                 </select>
+              </div>
+            )}
+            {formData.role === 'jpc_cs' && (
+              <div className="space-y-3 p-4 bg-bg-secondary/70 border border-border-primary rounded-2xl">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-text-muted uppercase tracking-widest flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-accent-teal" />
+                    Profile Handling Access
+                  </label>
+                  <span className="text-[10px] font-bold text-accent-teal uppercase tracking-wider bg-accent-teal/10 px-2 py-0.5 rounded-md border border-accent-teal/20">
+                    Compliance Head
+                  </span>
+                </div>
+                <p className="text-[11px] text-text-muted leading-relaxed">
+                  Control which candidate profiles this Compliance Head can view, manage, and process across the CRM.
+                </p>
+
+                <div className="space-y-2 pt-1">
+                  {[
+                    {
+                      value: 'Day Shift' as ProfileHandlingAccess,
+                      label: 'Day Shift Profiles',
+                      desc: 'Access to view and manage only Day Shift candidate profiles.',
+                      icon: Sun,
+                      badgeColor: 'text-accent-blue',
+                      activeClass: 'border-accent-blue bg-accent-blue/10 text-accent-blue',
+                    },
+                    {
+                      value: 'Night Shift' as ProfileHandlingAccess,
+                      label: 'Night Shift Profiles',
+                      desc: 'Access to view and manage only Night Shift candidate profiles.',
+                      icon: Moon,
+                      badgeColor: 'text-accent-purple',
+                      activeClass: 'border-accent-purple bg-accent-purple/10 text-accent-purple',
+                    },
+                    {
+                      value: 'All' as ProfileHandlingAccess,
+                      label: 'All Profiles',
+                      desc: 'Access to view and manage both Day Shift and Night Shift candidate profiles.',
+                      icon: Sparkles,
+                      badgeColor: 'text-accent-teal',
+                      activeClass: 'border-accent-teal bg-accent-teal/10 text-accent-teal',
+                    },
+                  ].map((option) => {
+                    const OptionIcon = option.icon;
+                    const isSelected = (formData.profile_handling_access || 'Day Shift') === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, profile_handling_access: option.value })}
+                        className={cn(
+                          "w-full flex items-start gap-3 p-3 rounded-xl border text-left transition-all",
+                          isSelected
+                            ? cn("border-2", option.activeClass, "shadow-sm")
+                            : "border-border-primary bg-bg-tertiary/50 hover:bg-bg-tertiary hover:border-border-secondary"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 transition-colors",
+                          isSelected ? "bg-bg-primary" : "bg-bg-tertiary"
+                        )}>
+                          <OptionIcon className={cn("w-4 h-4", option.badgeColor)} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className={cn("text-xs font-bold", isSelected ? "text-text-primary" : "text-text-secondary")}>
+                              {option.label}
+                            </span>
+                            <div className={cn(
+                              "w-4 h-4 rounded-full border flex items-center justify-center transition-all",
+                              isSelected ? "border-accent-blue bg-accent-blue text-white" : "border-border-primary"
+                            )}>
+                              {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                            </div>
+                          </div>
+                          <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
+                            {option.desc}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>

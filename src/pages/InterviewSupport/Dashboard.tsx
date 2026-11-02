@@ -17,7 +17,7 @@ import {
   generateId
 } from '../../services/storage';
 import { syncInterviewRoundToGoogleCalendar, clearPreviousCalendarEvents } from '../../services/calendarService';
-import { canDeleteInterviewRequest, isRecruiterTeamLeader } from '../../lib/permissions';
+import { canDeleteInterviewRequest, isRecruiterTeamLeader, canUserAccessCandidate } from '../../lib/permissions';
 import { handleViewFile, uploadFile } from '../../services/fileService';
 import { 
   InterviewSupportRequest, 
@@ -159,14 +159,20 @@ export const InterviewSupportDashboard: React.FC = () => {
   
   const visibleRequests = useMemo(() => {
     if (!user) return [];
-    if (user.role === 'administrator' || user.role === 'jpc_sysadmin' || user.role === 'jpc_cs' || user.role === 'jpc_manager' || user.role === 'jpc_marketing' || user.role === 'jpc_proxy') {
+    if (user.role === 'administrator' || user.role === 'jpc_sysadmin' || user.role === 'jpc_manager' || user.role === 'jpc_marketing' || user.role === 'jpc_proxy') {
       return requests;
+    }
+    if (user.role === 'jpc_cs') {
+      return requests.filter(req => {
+        const c = candidates.find(cand => cand.id === req.candidate_id) || aurrumCandidates.find(cand => cand.id === req.candidate_id);
+        return !c || canUserAccessCandidate(c, user, team);
+      });
     }
     if (user.role === 'jpc_recruiter') {
       return requests.filter(req => String(req.recruiter_id) === String(user.id) || String(req.created_by) === String(user.id));
     }
     return [];
-  }, [requests, rounds, user]);
+  }, [requests, rounds, user, candidates, aurrumCandidates, team]);
 
   const visibleRounds = useMemo(() => {
     const visibleRequestIds = new Set(visibleRequests.map(r => r.id));

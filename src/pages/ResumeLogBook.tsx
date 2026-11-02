@@ -29,7 +29,7 @@ import { useToast } from '../contexts/ToastContext';
 import { uploadFile, handleViewFile } from '../services/fileService';
 import { SearchableCandidateSelect } from '../components/SearchableCandidateSelect';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
-import { isCSHead, canActAsTLForRequest, isManagementUser } from '../lib/permissions';
+import { canUserAccessCandidate, isCSHead, canActAsTLForRequest, isManagementUser } from '../lib/permissions';
 import * as XLSX from 'xlsx';
 import { resolveRecruiterUser } from '../utils/recruiterResolver';
 
@@ -93,6 +93,9 @@ export const ResumeLogBook: React.FC = () => {
     ) {
       return candidates;
     }
+    if (user?.role === 'jpc_cs') {
+      return candidates.filter(c => canUserAccessCandidate(c, user, team));
+    }
     if (user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person') {
       const assigned = candidates.filter(c => 
         String(c.assigned_cs) === String(user.id) || 
@@ -122,6 +125,9 @@ export const ResumeLogBook: React.FC = () => {
       const matchesFilter = filterStatus === 'all' || req.status === filterStatus;
 
       // Role-based visibility
+      if (user?.role === 'jpc_cs') {
+        if (candidate && !canUserAccessCandidate(candidate, user, team)) return false;
+      }
       if (user?.role === 'jpc_recruiter') {
         if (String(req.recruiter_id) !== String(user.id)) return false;
       }

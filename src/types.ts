@@ -20,6 +20,7 @@ export type Role =
 export type UserRole = Role;
 
 export type ShiftPreference = 'Day Shift' | 'Night Shift' | 'Not Set';
+export type ProfileHandlingAccess = 'Day Shift' | 'Night Shift' | 'All';
 
 export const isAurrumRole = (role?: string | null): boolean =>
   role === 'aurrum_admin' || role === 'aurrum_sales' || role === 'aurrum_team';
@@ -49,6 +50,7 @@ export interface User {
   sales_activated_at?: string | null;
   sales_deactivated_at?: string | null;
   proxy_priority?: number;
+  profile_handling_access?: ProfileHandlingAccess | string | null;
 }
 
 export type Stage = 

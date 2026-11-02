@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { subscribeToCollection, generateId, addNotification } from '../services/storage';
 import { ResumePrepRequest, Candidate, User } from '../types';
+import { canUserAccessCandidate } from '../lib/permissions';
 import { 
   Plus, 
   Search, 
@@ -101,6 +102,9 @@ export const ResumePrepLog: React.FC = () => {
 
   const availableCandidates = useMemo(() => {
     return candidates.filter(c => {
+      if (user?.role === 'jpc_cs') {
+        return canUserAccessCandidate(c, user, team);
+      }
       if (user?.role === 'jpc_recruiter') {
         return String(c.assigned_recruiter) === String(user?.id);
       }
@@ -122,6 +126,9 @@ export const ResumePrepLog: React.FC = () => {
       const matchesFilter = filterStatus === 'all' || req.status === filterStatus;
 
       // Role-based visibility: recruiter and marketing leader can only see their own requests
+      if (user?.role === 'jpc_cs') {
+        if (candidate && !canUserAccessCandidate(candidate, user, team)) return false;
+      }
       if (user?.role === 'jpc_recruiter' || user?.role === 'jpc_marketing') {
         if (String(req.recruiter_id) !== String(user.id)) return false;
       }

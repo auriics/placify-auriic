@@ -175,8 +175,7 @@ export const Candidates: React.FC = () => {
       cQuery = query(cQuery, where('assigned_marketing_leader', '==', String(user.id)));
     } else if (user.role === 'jpc_sales') {
       cQuery = query(cQuery, where('assigned_sales', '==', String(user.id)));
-    } else if (user.role === 'jpc_cs') {
-      cQuery = query(cQuery, where('assigned_cs', '==', String(user.id)));
+
     } else if (user.role === 'jpc_lead_gen') {
       cQuery = query(cQuery, where('lead_generated_by', '==', String(user.id)));
     }

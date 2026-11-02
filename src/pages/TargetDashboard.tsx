@@ -8,6 +8,7 @@ import {
   logActivity 
 } from '../services/storage';
 import { Candidate, Application, TargetReductionRequest, User, InterviewSupportRequest } from '../types';
+import { canUserAccessCandidate } from '../lib/permissions';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
 import { 
   TrendingUp, 
@@ -365,7 +366,7 @@ export const TargetDashboard: React.FC = () => {
         const isPrev = stat.previousRecruitersList.some(pr => String(pr.id) === String(user.id));
         if (!isCurrent && !isPrev) return false;
       } else if (user?.role === 'jpc_cs') {
-        if (String(stat.candidate.assigned_cs) !== String(user.id)) return false;
+        if (!canUserAccessCandidate(stat.candidate, user, team)) return false;
       }
 
       const prevNames = stat.previousRecruitersList.map(p => p.name).join(' ').toLowerCase();

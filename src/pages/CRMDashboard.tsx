@@ -12,6 +12,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Candidate, FollowUp, Application, User } from '../types';
+import { canUserAccessCandidate } from '../lib/permissions';
 import * as XLSX from 'xlsx';
 import { 
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, 
@@ -116,6 +117,7 @@ export const CRMDashboard: React.FC = () => {
 
   const filteredCRMLeads = useMemo(() => {
     return candidates.filter(c => {
+      if (user?.role === 'jpc_cs' && !canUserAccessCandidate(c, user, allUsers)) return false;
       // 1. Source filter
       if (selectedSourceFilter !== 'all' && c.lead_source !== selectedSourceFilter) return false;
       

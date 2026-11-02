@@ -23,6 +23,7 @@ import Select from 'react-select';
 import { sharedSelectStyles } from '../lib/selectStyles';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, getEasternDate, formatDisplayDate } from '../lib/utils';
+import { canUserAccessCandidate } from '../lib/permissions';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
 import { useDebounce } from '../lib/hooks';
 import { db } from '../firebase';
@@ -396,8 +397,11 @@ export const AppTracker: React.FC = () => {
   // My candidates filter (includes active assigned candidates and any candidate currently inspected via URL)
   const myCandidates = useMemo(() => {
     return candidates.filter(c => {
-      if (filterCandidateId && c.id === filterCandidateId) return true;
+      if (filterCandidateId && c.id === filterCandidateId) return canUserAccessCandidate(c, user, team);
       if (c.current_stage !== 'marketing_active' && c.current_stage !== 'interviewing') return false;
+      if (user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person') {
+        if (!canUserAccessCandidate(c, user, team)) return false;
+      }
       if (user?.role === 'jpc_recruiter') {
         const wasPreviousRecruiter = Array.isArray(c.previous_recruiters) && c.previous_recruiters.some(p => String(p.recruiter_id) === String(user.id));
         return String(c.assigned_recruiter) === String(user.id) || wasPreviousRecruiter;

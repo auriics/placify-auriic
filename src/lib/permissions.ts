@@ -1,4 +1,42 @@
-import { Candidate, User } from '../types';
+import { Candidate, User, ShiftPreference, ProfileHandlingAccess } from '../types';
+
+/**
+ * Evaluates whether a candidate's shift_preference satisfies a Compliance Head's
+ * Profile Handling Access permission.
+ *
+ * Standards:
+ * - 'Day Shift' | 'day_shift': Access strictly limited to Day Shift candidate profiles.
+ * - 'Night Shift' | 'night_shift': Access strictly limited to Night Shift candidate profiles.
+ * - 'All' | 'all': Access granted to both Day Shift and Night Shift candidate profiles (and all profiles).
+ *
+ * Backward-Compatible Safe Default:
+ * If profileAccess is not set on a Compliance Head record, defaults to 'Day Shift'.
+ * This prevents unintentionally granting access to all profiles.
+ */
+export function matchesProfileHandlingAccess(
+  candidateShift: ShiftPreference | string | null | undefined,
+  profileAccess: ProfileHandlingAccess | string | null | undefined
+): boolean {
+  const normalizedAccess = (profileAccess || 'Day Shift').trim().toLowerCase();
+
+  // All Profiles grants access to both Day Shift and Night Shift candidate profiles
+  if (normalizedAccess === 'all' || normalizedAccess === 'all profiles') {
+    return true;
+  }
+
+  const normalizedShift = (candidateShift || '').trim().toLowerCase();
+
+  if (normalizedAccess === 'day shift' || normalizedAccess === 'day_shift') {
+    return normalizedShift === 'day shift';
+  }
+
+  if (normalizedAccess === 'night shift' || normalizedAccess === 'night_shift') {
+    return normalizedShift === 'night shift';
+  }
+
+  // Safest backward-compatible fallback: Day shift only
+  return normalizedShift === 'day shift';
+}
 
 export function canUserAccessCandidate(candidate: Candidate, user: User | null, teamUsers: User[] = []): boolean {
   if (!user) return true;
@@ -23,9 +61,13 @@ export function canUserAccessCandidate(candidate: Candidate, user: User | null, 
     return false;
   }
 
-  // CS Leader (Faiz / Care) has full access
-  const isFaiz = user.role === 'jpc_cs' && (user.username === 'care' || String(user.display_name).toLowerCase().includes('faiz'));
-  if (isFaiz) return true;
+  // Compliance Head (jpc_cs): Profile Handling Access strictly gates candidate accessibility
+  if (user.role === 'jpc_cs') {
+    const profileAccess = user.profile_handling_access || 'Day Shift';
+    return matchesProfileHandlingAccess(candidate.shift_preference, profileAccess);
+  }
+
+
 
   // Helper function to check if a field matches any user identifier (id, username, email, display_name)
   const userMatches = (targetVal: any): boolean => {
@@ -61,17 +103,10 @@ export function canUserAccessCandidate(candidate: Candidate, user: User | null, 
     return userMatches(candidate.assigned_sales) || userMatches(candidate.lead_generated_by);
   }
 
-  // 3. Compliance Head & Compliance Person: assigned CS or assigned sales
-  if (user.role === 'jpc_cs' || user.role === 'jpc_compliance_person') {
+  // 3. Compliance Person: assigned CS or assigned sales
+  if (user.role === 'jpc_compliance_person') {
     if (userMatches(candidate.assigned_cs) || userMatches(candidate.assigned_sales)) return true;
-    if (user.role === 'jpc_cs' && candidate.assigned_cs && teamUsers.length > 0) {
-      const isMyPerson = teamUsers.some(u => 
-        (String(u.leader_id) === String(user.id) || userMatches(u.leader_id)) &&
-        (String(u.id) === String(candidate.assigned_cs) || String(u.username) === String(candidate.assigned_cs))
-      );
-      if (isMyPerson) return true;
-    }
-    if (user.role === 'jpc_compliance_person' && user.leader_id) {
+    if (user.leader_id) {
       if (String(candidate.assigned_cs) === String(user.leader_id) || userMatches(candidate.assigned_cs)) return true;
     }
     return false;
