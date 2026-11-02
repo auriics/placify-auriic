@@ -49,7 +49,8 @@ To ensure strict multi-brand data segregation between **Auriic** and **Aurrum Ca
 | **All-Company Dashboard & Metrics** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Personal Workload Dashboard** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (Aurrum) |
 | **Add New Candidate / Lead** | ✅ | ✅ | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ (Aurrum) |
-| **Candidate Directory (All Records)** | ✅ | ✅ | ❌* | ❌* | ❌* | ❌* | ❌* | ❌* | ✅ (Aurrum Only) |
+| **Candidate Directory (All Records)** | ✅ | ✅ (Shift Scoped)* | ❌* | ❌* | ❌* | ❌* | ❌* | ❌* | ✅ (Aurrum Only) |
+| **Profile Handling Access (Day / Night / All)** | ❌ (Full Admin) | ✅ (Shift Scoped)* | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Candidate Directory (Assigned / Team)**| ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ (Aurrum) |
 | **Candidate Shift Preference (Edit)** | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
 | **15-Day Free Trial (Activate/Manage)** | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
@@ -76,6 +77,11 @@ To ensure strict multi-brand data segregation between **Auriic** and **Aurrum Ca
    - **Aurrum Careers Isolation**: Team Leaders are strictly blocked from deleting any Aurrum Careers records (`crm_brand: 'aurrum'`).
    - The delete action is rendered **exclusively inside individual interview cards**. Global toolbar bulk deletion is disabled.
 3. **Proxy Feedback Visibility**: Proxies can only view structured evaluations for rounds to which they were personally assigned.
+4. **Compliance Head Profile Handling Scoping**:
+   - Candidate access for `jpc_cs` is strictly bounded by their configured `profile_handling_access` setting (`Day Shift`, `Night Shift`, or `All`).
+   - Day Shift Compliance Heads cannot view, search, or edit Night Shift candidates; Night Shift Compliance Heads cannot view, search, or edit Day Shift candidates.
+   - Access is enforced at both frontend views/routes and backend API endpoints (`/api/candidates/:id`).
+   - Unset legacy accounts default safely to **Day Shift**.
 
 ---
 
@@ -93,13 +99,29 @@ To streamline communication and interview coordination across international time
     *   Filterable multi-select in the Candidate Directory (`Candidates.tsx`).
     *   Visual status badges on candidate cards in the Pipeline Kanban (`Pipeline.tsx`).
 
-### 3.2 Automated Welcome Email via SMTP
+### 3.2 Compliance Head Profile Handling Access Engine
+To maintain strict operational segregation between diurnal and nocturnal candidate management:
+*   **Three Shift Access Tiers**:
+    *   **Day Shift Profiles** (Sun icon): Access to view, search, audit, and manage candidate profiles marked as `Day Shift` (and unset profiles). Night Shift candidate profiles are completely inaccessible.
+    *   **Night Shift Profiles** (Moon icon): Access to view, search, audit, and manage candidate profiles marked as `Night Shift`. Day Shift candidate profiles are completely inaccessible.
+    *   **All Profiles** (Sparkles icon): Unrestricted dual-shift authority across both Day Shift and Night Shift candidate profiles.
+*   **Administrative Configuration**:
+    *   Configured in **Team Management → Edit / Add Team Member** whenever the role is selected as **Compliance Head (`jpc_cs`)**.
+    *   Displays an intuitive 3-card selector with visual icons and descriptions, pre-populating with the member's currently saved setting.
+    *   Member cards in the Team directory display an active access badge (`Day Shift Profiles`, `Night Shift Profiles`, or `All Profiles`).
+*   **Multi-Layer Security & Dual Enforcement**:
+    *   **Frontend Views & Direct URL Gating**: Candidate lists (`Candidates.tsx`), pipeline Kanban (`Pipeline.tsx`), direct detail URLs (`CandidateDetail.tsx`), executive and operational dashboards (`Dashboard.tsx`, `CRMDashboard.tsx`, `TargetDashboard.tsx`), application tracker (`AppTracker.tsx`), interview support (`InterviewSupport/Dashboard.tsx`), and logbooks (`RTRLogBook.tsx`, `ResumeLogBook.tsx`, `ResumePrepLog.tsx`) evaluate permissions via `canUserAccessCandidate()`. Direct URL navigation to an unauthorized candidate triggers an immediate access-denied redirect.
+    *   **Backend API Enforcement**: `GET /api/candidates/:id` and `PATCH /api/candidates/:id` in `server.ts` verify candidate shift alignment against the requester's `profile_handling_access`, returning HTTP `403 Forbidden` on unauthorized access attempts.
+    *   **Real-Time Propagation**: Active sessions subscribe to real-time `onSnapshot` updates on `jpc_users`, causing permission updates to take effect immediately without requiring a page refresh or re-login.
+    *   **Safe Backward Compatibility**: Any existing Compliance Head account lacking an explicit `profile_handling_access` value defaults safely to `Day Shift`, guaranteeing that Night Shift profiles are never unintentionally exposed.
+
+### 3.3 Automated Welcome Email via SMTP
 When a new candidate is registered in Placify:
 *   **Automated Dispatch**: A branded HTML welcome email is immediately compiled and transmitted via the system's dynamic SMTP service (`services/welcomeEmail.ts`).
 *   **Credential Delivery**: Provides the candidate with their portal credentials, a direct login link to the Candidate Portal, and initial placement instructions.
 *   **Branded Presentation**: Built with an executive dark-themed layout, high-contrast typography, and dedicated support contact details.
 
-### 3.3 Interview Support System & Proxy Lifecycle
+### 3.4 Interview Support System & Proxy Lifecycle
 The Interview Support System handles high-stakes multi-round technical interview logistics.
 
 ```
@@ -127,13 +149,13 @@ The Interview Support System handles high-stakes multi-round technical interview
 [ Interview-to-Offer Clearance Approval Workflow ]
 ```
 
-#### 3.3.1 Proxy Conflict Prevention & Availability Guard
+#### 3.4.1 Proxy Conflict Prevention & Availability Guard
 *   **Mandatory Proxy Assignment**: Before generating a booking link for a proxy-facilitated round, the recruiter must assign an available proxy.
 *   **Conflict Prevention Algorithm (`findBestProxyForWindow`)**: When scheduling or reassigning a proxy, the engine checks existing interviews, manual blocks, and enforces mandatory **15-minute buffers** before and after the interview window.
 *   **Central Proxy Calendar**: Proxies manage availability within the permissible **9:30 AM to 6:30 PM EST** window. They can create manual breaks, leave blocks, or recurring daily/weekly weekday series with Firestore collision merging.
 *   **Public Booking & CV Uploads**: Candidates use a public booking page (`BookingPage.tsx`) where large resume files are securely stored via chunked uploads in the public `jpc_cv_files` collection.
 
-#### 3.3.2 Card-Level Interview Deletion Governance
+#### 3.4.2 Card-Level Interview Deletion Governance
 *   **No Global "Delete All" Toolbar**: To protect production schedules from accidental mass deletions, bulk deletion controls on the Today/Upcoming toolbars are eliminated.
 *   **In-Card Deletion Action**: The "Delete Interview" button is rendered exclusively within the individual interview card drawer.
 *   **Team Leader Authority**:
@@ -142,7 +164,7 @@ The Interview Support System handles high-stakes multi-round technical interview
     *   **Aurrum Isolation**: Strictly blocks Team Leaders from deleting any interview belonging to an Aurrum Careers candidate (`candidate.crm_brand === 'aurrum'`).
 *   **Cascading Atomic Cleanup**: Deleting an interview request cascades across `jpc_interview_requests`, `jpc_interview_rounds`, `jpc_interview_booking_links`, `jpc_interview_feedback`, `jpc_interview_notifications`, and `jpc_interview_activity_logs`, while automatically clearing associated Google Calendar events.
 
-### 3.4 Interview-to-Offer Clearance & Compliance Workflow
+### 3.5 Interview-to-Offer Clearance & Compliance Workflow
 Candidates in the `interviewing` stage cannot be arbitrarily advanced to `offer`.
 
 ```
@@ -166,7 +188,7 @@ Candidates in the `interviewing` stage cannot be arbitrarily advanced to `offer`
 *   **Role-Based Authority (`isComplianceHead`)**: Only Customer Service Head (`jpc_cs`, Faiz / Care), Compliance Persons (`jpc_compliance_person`), and Management (`administrator`, `jpc_sysadmin`, `jpc_manager`) can approve or reject clearance requests.
 *   **Direct Transition Interception**: If a user attempts to change candidate stage to `offer` without an approved request, the transition is blocked by the system.
 
-### 3.5 Sales Availability & Automated Lead Round-Robin Engine
+### 3.6 Sales Availability & Automated Lead Round-Robin Engine
 To eliminate manual routing delays and distribute leads equitably:
 
 ```
@@ -196,41 +218,41 @@ To eliminate manual routing delays and distribute leads equitably:
 *   **Unassigned Backlog Engine**: Processes unassigned leads accumulated overnight in chronological FIFO order, distributing them sequentially across reps who toggle their status to `'Active'`.
 *   **Round-Robin Roster Dashboard**: Allows Management to pause automation, reorder reps using Move Up/Down, exclude reps temporarily, and audit historical assignments.
 
-### 3.6 Three-Tier Duplicate Lead Prevention Architecture
+### 3.7 Three-Tier Duplicate Lead Prevention Architecture
 Guarantees zero duplicate leads under rapid clicking, Enter keypresses, or network retries:
 1.  **Tier 1: Frontend Synchronous Lock (`AddCandidateModal.tsx`)**: Synchronous `isSubmittingRef.current = true` lock closes the React state batching gap; pairs with a stable `idempotencyKeyRef` and disabled form submit buttons.
 2.  **Tier 2: Backend Idempotency Store (`jpc_idempotency_keys`)**: Express server and Firestore services verify idempotency keys. Repeated submissions safely resolve to the existing candidate without re-running side effects or advancing the round-robin pointer.
 3.  **Tier 3: Database Concurrency Control (`jpc_lead_locks`)**: Deterministic canonical phone locks (`jpc_lead_locks/phone_${cleanPhone}`) execute inside Firestore transactions. Colliding creations are atomically halted.
 
-### 3.7 Multi-Level Resume Lifecycle & RTR Log Books
+### 3.8 Multi-Level Resume Lifecycle & RTR Log Books
 1.  **Request Initiation**: Recruiters submit Resume Change or Right-to-Represent (RTR) requests in the log books (status: `pending_tl`).
 2.  **Level-1 TL Approval**: Marketing Team Leaders (`jpc_marketing`) review requests for profile positioning. Customer Service Head and Management possess override authority (`canActAsTLForRequest`) to advance requests to `pending_cs` if a TL is absent.
 3.  **CS Verification**: CS Head confirms payment standing and package tier before routing to `pending_resume_team`.
 4.  **Fulfillment**: The Resume Team uploads the finalized document, atomically updating the candidate's master record.
 5.  **Role-Specific Custom Resumes ("Other Resume")**: Recruiters can attach a specialized custom resume for an interview request while preserving the master candidate resume.
 
-### 3.8 15-Day Free Trial Management & Platform-Wide Badging
+### 3.9 15-Day Free Trial Management & Platform-Wide Badging
 Allows prospective candidates to evaluate interview support services.
 *   **Authorized Roles**: Admin, Sysadmin, Manager, Sales, and CS Head can activate, adjust dates, or end free trials.
 *   **Omnipresent Badging**: Countdown badges (e.g., `14 Days Left`) display across Candidates Directory, Pipeline Kanban, Candidate Portal, Candidate Sheet, Interview Support dossiers, App Tracker, and Target Dashboard.
 
-### 3.9 Compliance Central, Direct Support & Backout Exclusions
+### 3.10 Compliance Central, Direct Support & Backout Exclusions
 To maintain pristine reporting accuracy:
 *   **Direct Interview Support Exclusion**: Candidates marked as `is_direct_interview_support: true` bypass standard onboarding queues and are automatically excluded from Compliance Central audits and monthly executive reports.
 *   **Backout Candidate Exclusion**: Candidates with a recorded `backed_out_at` date are excluded from active performance statistics and reports from their backout date onward.
 
-### 3.10 Aurrum Careers Multi-Brand Architecture
+### 3.11 Aurrum Careers Multi-Brand Architecture
 Placify houses two isolated commercial brands within a single infrastructure:
 *   **Brand Key**: Identified via `candidate.crm_brand === 'aurrum'`.
 *   **Dedicated Interfaces**: Separate navigation routes for Aurrum Dashboard, Aurrum Candidates, Aurrum Sales, and Aurrum Interviews.
 *   **Partition Security**: Auriic staff cannot view, edit, or delete Aurrum records, protecting corporate boundary compliance.
 
-### 3.11 Recruiter Daily Targets, Reductions & Crystalline Alerts
+### 3.12 Recruiter Daily Targets, Reductions & Crystalline Alerts
 *   **Daily Target**: Recruiters maintain a baseline quota of 40 applications per day.
 *   **Target Reduction Workflow**: Recruiters facing low job availability can submit a reduction request specifying a reason and target volume, reviewable by Team Leaders, CS Head, or Management.
 *   **Crystalline Twinkle Alert**: Every weekday at 6:15 PM EST, an automated audit evaluates recruiter targets. Sub-par performance without an approved reduction triggers a Crystalline Twinkle alert to leadership.
 
-### 3.12 Multi-Model AI Fallback & Resume Parsing Architecture
+### 3.13 Multi-Model AI Fallback & Resume Parsing Architecture
 *   **Document Extractors**: Client workers extract raw text from PDF (`pdfjs-dist`), DOCX (`mammoth`), and TXT files.
 *   **Tiered Model Chain**: Utilizes a tiered fallback chain to prevent API throttling:
     1.  `gemini-3.6-flash` (Primary extraction)
@@ -276,4 +298,4 @@ All automated crons are strictly anchored to **Eastern Time (America/New_York)**
 
 ---
 
-*Last Updated: October 28, 2026*
+*Last Updated: November 2, 2026*
