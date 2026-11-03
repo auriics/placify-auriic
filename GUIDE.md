@@ -260,6 +260,16 @@ Placify houses two isolated commercial brands within a single infrastructure:
     3.  `gemini-flash-latest` (Tertiary fallback)
     4.  Deterministic regex heuristics for basic contact fields.
 
+### 3.14 Candidate Stage SLA Monitoring & Real-Time Alerts
+To prevent pipeline stagnation and guarantee timely turnaround across all recruitment stages:
+*   **Timeout Threshold**: Standardized to **24 hours (1 day)** without stage progression or action (`TIMEOUT_MS = 24 * 60 * 60 * 1000`).
+*   **Monitored Stages**: Active pipeline stages (`sales`, `cs_qc`, `marketing_leader`, `cs_strategy_check`, `resume_team`, `cs_assign_recruiter`, `recruiter`, `sys_admin`).
+*   **Targeted Notification Hierarchy**:
+    *   **Assigned Representative**: Receives urgent action alert (`"Action Required: Your assigned candidate [Name] has been stuck in the [Stage] stage for over 24 hours (1 day)!"`).
+    *   **Lead Generator**: Receives candidate status tracking alert (`"Lead Update: A candidate you generated ([Name]) is stuck in the [Stage] stage for over 24 hours (1 day)."`).
+    *   **Customer Service, Managers & Administrators**: Dispatched escalation alerts (`"SLA Warning: Candidate [Name] has been stuck in the [Stage] stage for over 24 hours (1 day) without action."`).
+*   **Automatic Reset**: Moving a candidate to any subsequent stage automatically resets the `sla_timeout_notified` flag to `false`, restarting the 24-hour SLA window for the newly entered stage.
+
 ---
 
 ## 4. Automated Schedules & Cron Infrastructure

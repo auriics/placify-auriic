@@ -28,8 +28,8 @@ export const SLAMonitor: React.FC = () => {
     if (candidates.length === 0 || users.length === 0 || !user) return;
 
     const monitorInterval = setInterval(() => {
-      // 2.5 hours in milliseconds
-      const TIMEOUT_MS = 2.5 * 60 * 60 * 1000;
+      // 24 hours (1 day) in milliseconds
+      const TIMEOUT_MS = 24 * 60 * 60 * 1000;
       const now = Date.now();
 
       const ACTIVE_STAGES: Stage[] = [
@@ -99,12 +99,12 @@ export const SLAMonitor: React.FC = () => {
 
               // Send notifications
               const notifyTasks = Array.from(recipients).map(recipientId => {
-                let message = `SLA Warning: Candidate ${candidate.full_name} has been stuck in the "${stageLabel}" stage for over 2.5 hours without action.`;
+                let message = `SLA Warning: Candidate ${candidate.full_name} has been stuck in the "${stageLabel}" stage for over 24 hours (1 day) without action.`;
                 
                 if (assignee && recipientId === String(assignee)) {
-                  message = `Action Required: Your assigned candidate ${candidate.full_name} has been stuck in the "${stageLabel}" stage for over 2.5 hours!`;
+                  message = `Action Required: Your assigned candidate ${candidate.full_name} has been stuck in the "${stageLabel}" stage for over 24 hours (1 day)!`;
                 } else if (recipientId === String(candidate.lead_generated_by)) {
-                  message = `Lead Update: A candidate you generated (${candidate.full_name}) is stuck in the "${stageLabel}" stage for over 2.5 hours.`;
+                  message = `Lead Update: A candidate you generated (${candidate.full_name}) is stuck in the "${stageLabel}" stage for over 24 hours (1 day).`;
                 }
 
                 return addNotification({
