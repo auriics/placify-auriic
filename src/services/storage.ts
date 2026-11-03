@@ -19,6 +19,7 @@ import { clearPreviousCalendarEvents } from './calendarService';
 import { canDeleteInterviewRequest } from '../lib/permissions';
 import { isSalesWorkingHours } from '../lib/utils';
 import { db, auth } from '../firebase';
+import { isOfferStageDisabled, isCompletedStageDisabled, isPaymentsRevenueDisabled } from '../lib/featureFlags';
 import { 
   Candidate, 
   Payment, 
@@ -599,6 +600,12 @@ export const autoAssignFaizToCandidates = async () => {
 
 export const saveCandidate = async (candidate: Candidate, userId: string | null) => {
   try {
+    if (candidate.current_stage === 'offer' && isOfferStageDisabled()) {
+      throw new Error('Offer stage is disabled in system configuration');
+    }
+    if (candidate.current_stage === 'completed' && isCompletedStageDisabled()) {
+      throw new Error('Completed stage is disabled in system configuration');
+    }
     let finalCandidate = { ...candidate };
 
     // Prevent Lead Generation from overriding or modifying assigned_sales
@@ -636,6 +643,12 @@ export const saveCandidate = async (candidate: Candidate, userId: string | null)
 
 export const updateCandidate = async (id: string, updates: Partial<Candidate>) => {
   try {
+    if (updates.current_stage === 'offer' && isOfferStageDisabled()) {
+      throw new Error('Offer stage is disabled in system configuration');
+    }
+    if (updates.current_stage === 'completed' && isCompletedStageDisabled()) {
+      throw new Error('Completed stage is disabled in system configuration');
+    }
     let finalUpdates = { ...updates };
 
     // Prevent Lead Generation from altering assigned_sales
@@ -814,6 +827,10 @@ export const deleteCandidate = async (id: string) => {
 
 // Payments
 export const addPayment = async (payment: Omit<Payment, 'id' | 'created_at'>) => {
+  if (isPaymentsRevenueDisabled()) {
+    console.warn('Payment operations are disabled in system configuration');
+    return;
+  }
   const id = generateId();
   const data = { ...payment, id, created_at: new Date().toISOString() };
   try {
@@ -824,6 +841,10 @@ export const addPayment = async (payment: Omit<Payment, 'id' | 'created_at'>) =>
 };
 
 export const updatePayment = async (payment: Payment) => {
+  if (isPaymentsRevenueDisabled()) {
+    console.warn('Payment operations are disabled in system configuration');
+    return;
+  }
   try {
     await updateDoc(doc(db, 'jpc_payments', payment.id), { ...payment });
   } catch (error) {
@@ -1690,6 +1711,10 @@ export const sanitizeForFirestore = <T>(obj: T): T => {
 
 // Interview Offer Request Helpers
 export const createInterviewOfferRequest = async (request: InterviewOfferRequest): Promise<void> => {
+  if (isOfferStageDisabled()) {
+    console.warn('Offer requests are disabled in system configuration');
+    return;
+  }
   const sanitized = sanitizeForFirestore({
     ...request,
     created_at: request.created_at || new Date().toISOString(),

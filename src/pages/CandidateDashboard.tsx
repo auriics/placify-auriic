@@ -5,6 +5,7 @@ import { doc, onSnapshot, collection, query, where, orderBy, limit, setDoc } fro
 import { Candidate, Payment, Application, InterviewSupportRequest, ActivityLog, InterviewRound, User } from '../types';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
 import { STAGES } from '../constants';
+import { isStageDisabled, isPaymentsRevenueDisabled } from '../lib/featureFlags';
 import { 
   TrendingUp, 
   CheckCircle2, 
@@ -167,7 +168,7 @@ export const CandidateDashboard: React.FC = () => {
 
   if (!candidate) return null;
 
-  const overduePayments = payments.filter(p => p.status === 'pending' && p.due_date && new Date(p.due_date) < new Date());
+  const overduePayments = !isPaymentsRevenueDisabled() ? payments.filter(p => p.status === 'pending' && p.due_date && new Date(p.due_date) < new Date()) : [];
 
   const currentStageInfo = STAGES[candidate.current_stage];
   const stageIndex = Object.keys(STAGES).indexOf(candidate.current_stage);
@@ -401,7 +402,7 @@ export const CandidateDashboard: React.FC = () => {
                     <motion.div initial={{ width: 0 }} animate={{ width: `${(stageIndex / totalStages) * 100}%` }} className="h-full bg-accent-blue" />
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {Object.entries(STAGES).slice(0, 10).map(([key, info], idx) => (
+                    {Object.entries(STAGES).slice(0, 10).filter(([key]) => !isStageDisabled(key)).map(([key, info], idx) => (
                       <div key={key} className={cn(
                         "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border",
                         idx <= stageIndex ? "bg-accent-blue/10 text-accent-blue border-accent-blue/20" : "bg-bg-tertiary text-text-muted border-border-primary"

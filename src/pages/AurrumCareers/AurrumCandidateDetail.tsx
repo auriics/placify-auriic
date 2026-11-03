@@ -1,3 +1,4 @@
+import { isPaymentsRevenueDisabled } from '../../lib/featureFlags';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ArrowLeft,
@@ -900,9 +901,11 @@ export const AurrumCandidateDetail: React.FC = () => {
           <p className="text-2xl font-black text-text-primary mt-2">
             ${pkgAmount.toLocaleString()}
           </p>
-          <p className="text-[11px] text-text-secondary mt-0.5">
-            Paid: <span className="text-emerald-500 font-bold">${totalPaid.toLocaleString()}</span> • Due: ${balanceRemaining.toLocaleString()}
-          </p>
+          {!isPaymentsRevenueDisabled() && (
+      <p className="text-[11px] text-text-secondary mt-0.5">
+        Paid: <span className="text-emerald-500 font-bold">${totalPaid.toLocaleString()}</span> • Due: ${balanceRemaining.toLocaleString()}
+      </p>
+    )}
         </div>
 
         <div

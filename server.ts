@@ -7,6 +7,7 @@ import multer from 'multer';
 import axios from 'axios';
 import FormData from 'form-data';
 import dotenv from 'dotenv';
+import { isOfferStageDisabled, isCompletedStageDisabled, isPaymentsRevenueDisabled } from './src/lib/featureFlags';
 import cron from 'node-cron';
 import admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -715,6 +716,14 @@ const KNOWN_DELETED_USERS: Record<string, { display_name: string; email?: string
 };
 
 const app = express();
+
+app.get('/api/feature-flags', (req, res) => {
+  res.json({
+    DISABLE_OFFER_STAGE: isOfferStageDisabled(),
+    DISABLE_COMPLETED_STAGE: isCompletedStageDisabled(),
+    DISABLE_PAYMENTS_REVENUE: isPaymentsRevenueDisabled()
+  });
+});
 app.set('trust proxy', true);
 
 const PORT = 3000;
@@ -1569,6 +1578,9 @@ https://auriic-crm.web.app/#dashboard
 // ==========================================
 
 app.post('/api/interview-offer-requests', async (req, res) => {
+  if (isOfferStageDisabled()) {
+    return res.status(400).json({ error: 'Offer stage workflows are disabled in system configuration' });
+  }
   try {
     const requestData = req.body;
     if (!requestData || !requestData.id) {
@@ -1636,6 +1648,9 @@ app.get('/api/interview-offer-requests/:id', async (req, res) => {
 });
 
 app.patch('/api/interview-offer-requests/:id', async (req, res) => {
+  if (isOfferStageDisabled()) {
+    return res.status(400).json({ error: 'Offer stage workflows are disabled in system configuration' });
+  }
   try {
     const { id } = req.params;
     const { updates, candidateId } = req.body;
@@ -2633,6 +2648,18 @@ app.patch('/api/candidates/:id', verifyAuth, async (req, res) => {
     const candidateId = req.params.id;
     const user = (req as any).user;
     const updates = { ...req.body };
+
+    if (updates.current_stage === 'offer' && isOfferStageDisabled()) {
+      return res.status(400).json({ error: 'Offer stage is disabled in system configuration' });
+    }
+    if (updates.current_stage === 'completed' && isCompletedStageDisabled()) {
+      return res.status(400).json({ error: 'Completed stage is disabled in system configuration' });
+    }
+    if (isPaymentsRevenueDisabled()) {
+      delete updates.package_amount;
+      delete updates.total_paid;
+      delete updates.balance_remaining;
+    }
 
     const salesKeys = ['assigned_sales', 'sales_person_id', 'assigned_sales_person', 'salesPersonId'];
     const hasSalesChangeAttempt = salesKeys.some(k => updates[k] !== undefined);

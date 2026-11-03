@@ -6,6 +6,43 @@ import fs from "fs";
 import multer from "multer";
 import axios from "axios";
 import dotenv from "dotenv";
+
+// src/lib/featureFlags.ts
+var parseBool = (val) => {
+  if (typeof val === "boolean") return val;
+  if (typeof val === "string") {
+    const trimmed = val.trim().toLowerCase();
+    return trimmed === "true" || trimmed === "1" || trimmed === "yes";
+  }
+  return false;
+};
+var getEnvVar = (name) => {
+  try {
+    const metaEnv = import.meta?.env;
+    if (metaEnv && (metaEnv[name] !== void 0 || metaEnv[`VITE_${name}`] !== void 0)) {
+      return metaEnv[name] ?? metaEnv[`VITE_${name}`];
+    }
+  } catch {
+  }
+  try {
+    if (typeof process !== "undefined" && process.env) {
+      return process.env[name] ?? process.env[`VITE_${name}`];
+    }
+  } catch {
+  }
+  return void 0;
+};
+var isOfferStageDisabled = () => {
+  return parseBool(getEnvVar("DISABLE_OFFER_STAGE"));
+};
+var isCompletedStageDisabled = () => {
+  return parseBool(getEnvVar("DISABLE_COMPLETED_STAGE"));
+};
+var isPaymentsRevenueDisabled = () => {
+  return parseBool(getEnvVar("DISABLE_PAYMENTS_REVENUE"));
+};
+
+// server.ts
 import cron from "node-cron";
 import admin from "firebase-admin";
 import { getFirestore } from "firebase-admin/firestore";
@@ -1837,6 +1874,13 @@ var KNOWN_DELETED_USERS = {
   m5q7iWgp6ZZ5hhxaFStXarkOUS42: { display_name: "Mohit Panchal", email: "mohit.panchal@auriic.co", role: "jpc_recruiter" }
 };
 var app = express();
+app.get("/api/feature-flags", (req, res) => {
+  res.json({
+    DISABLE_OFFER_STAGE: isOfferStageDisabled(),
+    DISABLE_COMPLETED_STAGE: isCompletedStageDisabled(),
+    DISABLE_PAYMENTS_REVENUE: isPaymentsRevenueDisabled()
+  });
+});
 app.set("trust proxy", true);
 var PORT = 3e3;
 var upload = multer({ storage: multer.memoryStorage() });
@@ -2585,6 +2629,9 @@ https://auriic-crm.web.app/#dashboard
   }
 });
 app.post("/api/interview-offer-requests", async (req, res) => {
+  if (isOfferStageDisabled()) {
+    return res.status(400).json({ error: "Offer stage workflows are disabled in system configuration" });
+  }
   try {
     const requestData = req.body;
     if (!requestData || !requestData.id) {
@@ -2646,6 +2693,9 @@ app.get("/api/interview-offer-requests/:id", async (req, res) => {
   }
 });
 app.patch("/api/interview-offer-requests/:id", async (req, res) => {
+  if (isOfferStageDisabled()) {
+    return res.status(400).json({ error: "Offer stage workflows are disabled in system configuration" });
+  }
   try {
     const { id } = req.params;
     const { updates, candidateId } = req.body;
@@ -3410,6 +3460,17 @@ app.patch("/api/candidates/:id", verifyAuth, async (req, res) => {
     const candidateId = req.params.id;
     const user = req.user;
     const updates = { ...req.body };
+    if (updates.current_stage === "offer" && isOfferStageDisabled()) {
+      return res.status(400).json({ error: "Offer stage is disabled in system configuration" });
+    }
+    if (updates.current_stage === "completed" && isCompletedStageDisabled()) {
+      return res.status(400).json({ error: "Completed stage is disabled in system configuration" });
+    }
+    if (isPaymentsRevenueDisabled()) {
+      delete updates.package_amount;
+      delete updates.total_paid;
+      delete updates.balance_remaining;
+    }
     const salesKeys = ["assigned_sales", "sales_person_id", "assigned_sales_person", "salesPersonId"];
     const hasSalesChangeAttempt = salesKeys.some((k) => updates[k] !== void 0);
     if (user.role === "jpc_cs") {

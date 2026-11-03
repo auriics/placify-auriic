@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { subscribeToCollection, handleFirestoreError, OperationType } from '../services/storage';
 import { STAGES } from '../constants';
+import { isStageDisabled, isPaymentsRevenueDisabled } from '../lib/featureFlags';
 import { Search, Filter, X, Package, Phone, Mail, MapPin, Calendar, Users, ChevronRight, MoreVertical, ShieldCheck, Plus, Send, Table, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -110,7 +111,7 @@ const CandidateRow = React.memo(({
           <Package className="w-4 h-4 text-text-muted" />
           <div className="truncate">
             <p className="text-xs font-bold text-text-primary truncate">{candidate.package_name || '—'}</p>
-            <p className="text-[10px] text-text-muted">${(candidate.package_amount || 0).toLocaleString()}</p>
+            {!isPaymentsRevenueDisabled() && <p className="text-[10px] text-text-muted">${(candidate.package_amount || 0).toLocaleString()}</p>}
           </div>
         </div>
       </div>
@@ -316,7 +317,7 @@ export const Candidates: React.FC = () => {
           'Assigned Recruiter': recruiterUser?.display_name || 'Unassigned',
           'Marketing Team Leader': marketingUser?.display_name || 'Unassigned',
           'Selected Plan / Package': cleanExcelValue(c.package_name),
-          'Total Fee / Amount ($)': c.package_amount || 0,
+          ...(!isPaymentsRevenueDisabled() ? { 'Total Fee / Amount ($)': c.package_amount || 0 } : {}),
           'Agreement Sent': c.flags?.agreement_sent ? 'Yes' : 'No',
           'Agreement Signed': c.flags?.agreement_signed ? 'Yes' : 'No',
           'QC Validation Passed': c.flags?.qc_checklist_done ? 'Yes' : 'No',
@@ -420,7 +421,7 @@ export const Candidates: React.FC = () => {
                 className="w-full bg-bg-secondary border border-border-primary rounded-xl sm:rounded-2xl pl-10 pr-4 py-2.5 sm:py-3 text-xs sm:text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors shadow-sm appearance-none cursor-pointer"
               >
                 <option value="">All Stages</option>
-                {Object.entries(STAGES).filter(([key]) => key !== 'not_interested').map(([key, stage]) => (
+                {Object.entries(STAGES).filter(([key]) => key !== 'not_interested' && !isStageDisabled(key)).map(([key, stage]) => (
                   <option key={key} value={key}>{stage.label}</option>
                 ))}
               </select>
@@ -495,7 +496,7 @@ export const Candidates: React.FC = () => {
                 <div className="truncate">
                   <span className="text-[10px] font-bold uppercase tracking-wider block text-text-muted">Package</span>
                   <span className="text-text-primary font-medium truncate block">
-                    {candidate.package_name || '—'} {candidate.package_amount ? `($${candidate.package_amount.toLocaleString()})` : ''}
+                    {candidate.package_name || '—'} {(!isPaymentsRevenueDisabled() && candidate.package_amount) ? `(${candidate.package_amount.toLocaleString()})` : ''}
                   </span>
                 </div>
               </div>

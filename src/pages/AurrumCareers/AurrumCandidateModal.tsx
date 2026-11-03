@@ -1,3 +1,4 @@
+import { isPaymentsRevenueDisabled } from '../../lib/featureFlags';
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Upload, FileText, Sparkles, User as UserIcon, Phone, Mail, MapPin, DollarSign, Briefcase } from 'lucide-react';
 import { Candidate, User } from '../../types';
@@ -506,6 +507,7 @@ export const AurrumCandidateModal: React.FC<AurrumCandidateModalProps> = ({
               />
             </div>
 
+            {!isPaymentsRevenueDisabled() && (
             <div>
               <label className="block text-[10px] font-black uppercase tracking-wider text-text-muted mb-1.5">
                 Package Amount ($)
@@ -521,6 +523,7 @@ export const AurrumCandidateModal: React.FC<AurrumCandidateModalProps> = ({
                 />
               </div>
             </div>
+          )}
           </div>
 
           {/* 15-Day Free Trial Enrollment */}

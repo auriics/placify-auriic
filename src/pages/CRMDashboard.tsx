@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { subscribeToCollection } from '../services/storage';
 import { STAGES } from '../constants';
+import { isPaymentsRevenueDisabled } from '../lib/featureFlags';
 import { TimeZoneClocks } from '../components/TimeZoneClocks';
 import { 
   Users, CheckCircle2, Clock, Calendar, ArrowUpRight, 
@@ -311,7 +312,7 @@ export const CRMDashboard: React.FC = () => {
           'Assigned Recruiter': recruiterUser?.display_name || 'Unassigned',
           'Marketing Team Leader': marketingUser?.display_name || 'Unassigned',
           'Selected Plan / Package': cleanExcelValue(c.package_name),
-          'Total Fee / Amount ($)': c.package_amount || 0,
+          ...(!isPaymentsRevenueDisabled() ? { 'Total Fee / Amount ($)': c.package_amount || 0 } : {}),
           'Agreement Sent': c.flags?.agreement_sent ? 'Yes' : 'No',
           'Agreement Signed': c.flags?.agreement_signed ? 'Yes' : 'No',
           'Candidate Portal Acc': c.email ? 'Yes' : 'No',
@@ -820,7 +821,7 @@ export const CRMDashboard: React.FC = () => {
                 <th className="p-4">Package Plan</th>
                 <th className="p-4">Stage</th>
                 <th className="p-4">Agreement Status</th>
-                <th className="p-4 text-right">Fee ($)</th>
+                {!isPaymentsRevenueDisabled() && <th className="p-4 text-right">Fee ($)</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-border-primary font-medium text-text-primary">
@@ -866,7 +867,7 @@ export const CRMDashboard: React.FC = () => {
               })}
               {filteredCRMLeads.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center text-text-muted italic">
+                  <td colSpan={isPaymentsRevenueDisabled() ? 5 : 6} className="p-8 text-center text-text-muted italic">
                     No active leads matching current parameters
                   </td>
                 </tr>

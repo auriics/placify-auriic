@@ -1,3 +1,4 @@
+import { isPaymentsRevenueDisabled } from './lib/featureFlags';
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -134,7 +135,9 @@ const AppContent: React.FC = () => {
       switch (hash) {
         case '#dashboard': return <CandidateDashboard />;
         case '#candidate': return <CandidateDetail />;
-        case '#receipt': return <Receipt />;
+        case '#receipt':
+        if (isPaymentsRevenueDisabled()) return <Dashboard />;
+        return <Receipt />;
         default: return <CandidateDashboard />;
       }
     }
@@ -264,7 +267,7 @@ const AppContent: React.FC = () => {
     }
   };
 
-  const isReceiptPage = currentHash.startsWith('#receipt');
+  const isReceiptPage = !isPaymentsRevenueDisabled() && currentHash.startsWith('#receipt');
   // isBookingPage is already declared above
 
   return (

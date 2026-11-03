@@ -1,3 +1,4 @@
+import { isOfferStageDisabled, isCompletedStageDisabled } from '../lib/featureFlags';
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles, Trophy, Award, PartyPopper, ChevronLeft, ChevronRight, Volume2, VolumeX, Flame, X } from 'lucide-react';
@@ -43,7 +44,11 @@ export const CelebrationBanner: React.FC<CelebrationBannerProps> = ({
 
   // Filter ONLY candidates who are Placed (completed) or have Offer Received (offer)
   const celebratedCandidates = useMemo(() => {
-    return candidates.filter(c => c.current_stage === 'completed' || c.current_stage === 'offer');
+    return candidates.filter(c => {
+      if (c.current_stage === 'completed' && !isCompletedStageDisabled()) return true;
+      if (c.current_stage === 'offer' && !isOfferStageDisabled()) return true;
+      return false;
+    });
   }, [candidates]);
 
   // Track counts to reset dismissed state when a new placement/offer arrives

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { isPaymentsRevenueDisabled } from '../../lib/featureFlags';
 import {
   Users,
   TrendingUp,
@@ -267,6 +268,7 @@ export const AurrumDashboard: React.FC = () => {
           </p>
         </a>
 
+        {!isPaymentsRevenueDisabled() && (
         <div className="bg-bg-secondary border border-border-primary rounded-2xl p-5">
           <div className="flex items-center justify-between mb-3">
             <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center">
@@ -283,6 +285,7 @@ export const AurrumDashboard: React.FC = () => {
             Aurrum Pipeline Value
           </p>
         </div>
+      )}
 
         <a
           href="#aurrum-interviews"

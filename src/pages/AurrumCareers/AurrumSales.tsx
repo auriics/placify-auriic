@@ -1,3 +1,4 @@
+import { isPaymentsRevenueDisabled } from '../../lib/featureFlags';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Search,
@@ -279,6 +280,7 @@ export const AurrumSales: React.FC = () => {
           </p>
           <p className="text-2xl font-black text-text-primary mt-1">{salesSummary.converted}</p>
         </div>
+        {!isPaymentsRevenueDisabled() && (
         <div className="bg-bg-secondary border border-border-primary rounded-2xl p-4">
           <p className="text-[10px] font-black uppercase tracking-wider text-purple-400">
             Converted Value
@@ -287,6 +289,7 @@ export const AurrumSales: React.FC = () => {
             ${salesSummary.closedValue.toLocaleString()}
           </p>
         </div>
+      )}
       </div>
 
       {/* Filters */}
@@ -423,9 +426,11 @@ export const AurrumSales: React.FC = () => {
                         <span className="text-text-secondary truncate">
                           {cand.package_name || 'Aurrum Package'}
                         </span>
-                        <span className="font-bold text-emerald-500 shrink-0">
-                          ${(Number(cand.package_amount) || 0).toLocaleString()}
-                        </span>
+                        {!isPaymentsRevenueDisabled() && (
+      <span className="font-bold text-emerald-500 shrink-0">
+        ${(Number(cand.package_amount) || 0).toLocaleString()}
+      </span>
+    )}
                       </div>
 
                       {cand.notes && (

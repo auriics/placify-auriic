@@ -23,6 +23,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { canUserAccessCandidate, canDeleteInterviewRequest } from '../lib/permissions';
 import { STAGES, TRANSITIONS, LEAD_SOURCES, ROLE_PERMISSIONS, PREVIOUS_STAGES } from '../constants';
+import { isStageDisabled, isOfferStageDisabled, isCompletedStageDisabled, isPaymentsRevenueDisabled } from '../lib/featureFlags';
 import { 
   ArrowLeft, 
   Edit2, 
@@ -1135,6 +1136,10 @@ export const CandidateDetail: React.FC = () => {
   };
 
   const handleMoveToOffer = async () => {
+    if (isOfferStageDisabled()) {
+      showToast('Offer stage is disabled in system configuration', 'error');
+      return;
+    }
     if (candidate?.current_stage === 'interviewing') {
       setIsOfferModalOpen(false);
       if (candidate.interview_offer_status === 'pending_approval') {
@@ -1162,6 +1167,14 @@ export const CandidateDetail: React.FC = () => {
   };
 
   const handleStageMove = async (newStage: Stage, isUndo = false) => {
+    if (newStage === 'offer' && isOfferStageDisabled()) {
+      showToast('Offer stage is disabled in system configuration', 'error');
+      return;
+    }
+    if (newStage === 'completed' && isCompletedStageDisabled()) {
+      showToast('Completed stage is disabled in system configuration', 'error');
+      return;
+    }
     // Intercept move to Offer when in Interviewing stage
     if (newStage === 'offer' && candidate.current_stage === 'interviewing') {
       if (candidate.interview_offer_status === 'pending_approval') {

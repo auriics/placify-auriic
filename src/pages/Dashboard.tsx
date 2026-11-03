@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { subscribeToCollection, subscribeToQuery, markNotificationAsRead, markAllNotificationsAsRead } from '../services/storage';
 import { STAGES } from '../constants';
+import { isCompletedStageDisabled, isOfferStageDisabled, isPaymentsRevenueDisabled, isStageDisabled } from '../lib/featureFlags';
 import { TimeZoneClocks } from '../components/TimeZoneClocks';
 import { 
   Users, CheckCircle2, Clock, UserX, ArrowRight, LayoutGrid, Phone, Calendar, 
@@ -559,7 +560,7 @@ export const Dashboard: React.FC = () => {
 
   const stats = [
     { label: 'Active Candidates', value: activeCandidates.length, icon: Users, color: 'text-accent-blue', bg: 'bg-accent-blue/10' },
-    { label: 'Completed', value: completedCount, icon: CheckCircle2, color: 'text-accent-green', bg: 'bg-accent-green/10' },
+    ...(!isCompletedStageDisabled() ? [{ label: 'Completed', value: completedCount, icon: CheckCircle2, color: 'text-accent-green', bg: 'bg-accent-green/10' }] : []),
     { label: 'Follow-Ups Due', value: dueTodayCount, icon: Clock, color: 'text-accent-amber', bg: 'bg-accent-amber/10' },
     { label: 'Not Interested', value: notInterestedCount, icon: UserX, color: 'text-accent-red', bg: 'bg-accent-red/10' },
   ];
@@ -680,7 +681,7 @@ export const Dashboard: React.FC = () => {
           'Assigned Recruiter': recruiterUser?.display_name || 'Unassigned',
           'Marketing Team Leader': marketingUser?.display_name || 'Unassigned',
           'Selected Plan / Package': cleanExcelValue(c.package_name),
-          'Total Fee / Amount ($)': c.package_amount || 0,
+          ...(!isPaymentsRevenueDisabled() ? { 'Total Fee / Amount ($)': c.package_amount || 0 } : {}),
           'Agreement Sent': c.flags?.agreement_sent ? 'Yes' : 'No',
           'Agreement Signed': c.flags?.agreement_signed ? 'Yes' : 'No',
           'QC Validation Passed': c.flags?.qc_checklist_done ? 'Yes' : 'No',

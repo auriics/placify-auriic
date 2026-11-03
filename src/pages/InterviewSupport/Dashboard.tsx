@@ -1,3 +1,4 @@
+import { isOfferStageDisabled, isCompletedStageDisabled } from '../../lib/featureFlags';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
@@ -1479,6 +1480,7 @@ const ResultUpdateModal: React.FC<{
     if (result === 'pending' || !user) return;
 
     if (result === 'offer') {
+      if (isOfferStageDisabled()) return;
       if (matchedCandidate) {
         setIsCompletionModalOpen(true);
         return;
@@ -1566,7 +1568,7 @@ const ResultUpdateModal: React.FC<{
                   {[
                     { id: 'pending', label: 'Pending Result', color: 'text-text-muted', bg: 'bg-bg-tertiary', border: 'border-border-primary' },
                     { id: 'next_round', label: 'Next Round', color: 'text-accent-blue', bg: 'bg-accent-blue/10', border: 'border-accent-blue/30' },
-                    { id: 'offer', label: 'Offer Received', color: 'text-accent-green', bg: 'bg-accent-green/10', border: 'border-accent-green/30' },
+                    ...(!isOfferStageDisabled() ? [{ id: 'offer', label: 'Offer Received', color: 'text-accent-green', bg: 'bg-accent-green/10', border: 'border-accent-green/30' }] : []),
                     { id: 'rejected', label: 'Candidate Rejected', color: 'text-accent-red', bg: 'bg-accent-red/10', border: 'border-accent-red/30' }
                   ].map(item => (
                     <button

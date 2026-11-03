@@ -1,4 +1,5 @@
 import { Stage, Role } from './types';
+import { isStageDisabled } from './lib/featureFlags';
 
 export const STAGES: Record<Stage, { label: string; color: string; icon: string }> = {
   lead_generation:     { label: '1. Lead Generation',      color: '#3B82F6', icon: '◎' },
@@ -21,7 +22,17 @@ export const STAGES: Record<Stage, { label: string; color: string; icon: string 
   not_interested:      { label: 'Not Interested',          color: '#6B7280', icon: '✕' },
 };
 
-export const TRANSITIONS: Record<Stage, Stage[]> = {
+export const getActiveStages = (): Record<Stage, { label: string; color: string; icon: string }> => {
+  const result: any = {};
+  for (const [key, val] of Object.entries(STAGES)) {
+    if (!isStageDisabled(key)) {
+      result[key as Stage] = val;
+    }
+  }
+  return result;
+};
+
+export const BASE_TRANSITIONS: Record<Stage, Stage[]> = {
   lead_generation:     ['sales', 'not_eligible'],
   sales:               ['cs_qc', 'not_interested', 'not_eligible'],
   cs_qc:               ['marketing_leader'],
@@ -42,8 +53,22 @@ export const TRANSITIONS: Record<Stage, Stage[]> = {
   not_interested:      [],
 };
 
+/**
+ * Dynamic transitions proxy that automatically strips disabled stages (e.g. offer, completed).
+ */
+export const TRANSITIONS: Record<Stage, Stage[]> = new Proxy(BASE_TRANSITIONS, {
+  get(target, prop: string) {
+    const list = target[prop as Stage] || [];
+    return list.filter((s: string) => !isStageDisabled(s));
+  }
+});
+
+export const getActiveTransitions = (stage: Stage): Stage[] => {
+  return (BASE_TRANSITIONS[stage] || []).filter(s => !isStageDisabled(s));
+};
+
 // Maps a stage to its logical previous stage, allowing users to move a candidate back if moved by mistake
-export const PREVIOUS_STAGES: Record<Stage, Stage | null> = {
+export const BASE_PREVIOUS_STAGES: Record<Stage, Stage | null> = {
   lead_generation:     null,
   sales:               'lead_generation',
   cs_qc:               'sales',
@@ -63,6 +88,19 @@ export const PREVIOUS_STAGES: Record<Stage, Stage | null> = {
   not_eligible:        null,
   not_interested:      null, // Usually moved to from Sales, but could be anywhere, so let's keep it null for back tracking (or handle specifically)
 };
+
+export const PREVIOUS_STAGES: Record<Stage, Stage | null> = new Proxy(BASE_PREVIOUS_STAGES, {
+  get(target, prop: string) {
+    if (isStageDisabled(prop)) {
+      return null;
+    }
+    const prev = target[prop as Stage];
+    if (prev && isStageDisabled(prev)) {
+      return null;
+    }
+    return prev ?? null;
+  }
+});
 
 export const ROLE_PERMISSIONS: Record<Role, { allowedStages: Stage[] | 'ALL'; adminFeatures?: boolean; teamManagement?: boolean }> = {
   administrator: { allowedStages: 'ALL', adminFeatures: true, teamManagement: true },

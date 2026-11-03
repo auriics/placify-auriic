@@ -1,3 +1,4 @@
+import { isPaymentsRevenueDisabled } from '../../lib/featureFlags';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Search,
@@ -407,7 +408,7 @@ export const AurrumCandidates: React.FC = () => {
         'Aurrum Stage': resolveAurrumStage(c),
         'Sales Status': c.aurrum_sales_status || 'New Lead',
         Package: c.package_name || '—',
-        'Package Amount ($)': Number(c.package_amount) || 0,
+        ...(!isPaymentsRevenueDisabled() ? { 'Package Amount ($)': Number(c.package_amount) || 0 } : {}),
         'Lead Source': c.lead_source || '—',
         Notes: c.notes || '—',
         'Created At': c.created_at ? new Date(c.created_at).toLocaleDateString() : '—',

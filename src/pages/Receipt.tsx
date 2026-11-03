@@ -4,10 +4,19 @@ import { Payment, Candidate, User } from '../types';
 import { Printer, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
 import { useAuth } from '../contexts/AuthContext';
+import { isPaymentsRevenueDisabled } from '../lib/featureFlags';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 
 export const Receipt: React.FC = () => {
+  if (isPaymentsRevenueDisabled()) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-bg-primary text-text-primary p-4">
+        <p className="text-lg font-bold mb-4">Receipt and payment viewing is disabled in system configuration.</p>
+        <a href="#candidates" className="px-4 py-2 bg-accent-blue text-white rounded-xl font-bold text-sm">Return to Candidates</a>
+      </div>
+    );
+  }
   const { isAuthReady } = useAuth();
   const params = new URLSearchParams(window.location.hash.split('?')[1]);
   const payId = params.get('pay_id');

@@ -95,7 +95,7 @@ export const RTRLogBook: React.FC = () => {
     if (user?.role === 'jpc_cs') {
       return candidates.filter(c => canUserAccessCandidate(c, user, team));
     }
-    if (user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person') {
+    if (user?.role === 'jpc_compliance_person') {
       const assigned = candidates.filter(c => 
         String(c.assigned_cs) === String(user.id) || 
         (user.role === 'jpc_compliance_person' && user.leader_id && String(c.assigned_cs) === String(user.leader_id))

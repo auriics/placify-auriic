@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { subscribeToCollection } from '../services/storage';
 import { STAGES } from '../constants';
+import { isStageDisabled } from '../lib/featureFlags';
 import { Search, Filter, X, Package, Phone, Mail, MapPin, Calendar, Users, ArrowRight, MoreVertical, Edit2, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -13,9 +14,10 @@ import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
 import { ShiftPreferenceBadge } from '../components/ShiftPreferenceBadge';
 
-const STAGE_ENTRIES = Object.entries(STAGES).filter(
-  ([key]) => key !== 'not_interested' && key !== 'not_eligible' && key !== 'application_tracking'
+export const getStageEntries = () => Object.entries(STAGES).filter(
+  ([key]) => key !== 'not_interested' && key !== 'not_eligible' && key !== 'application_tracking' && !isStageDisabled(key)
 );
+const STAGE_ENTRIES = getStageEntries();
 
 export const Pipeline: React.FC = () => {
   const { user, isAuthReady } = useAuth();
@@ -136,7 +138,7 @@ export const Pipeline: React.FC = () => {
 
       {/* Mobile Stage Quick-Jump Bar (md:hidden) */}
       <div className="flex md:hidden overflow-x-auto touch-scroll gap-2 py-1 scrollbar-hide -mx-1 px-1">
-        {STAGE_ENTRIES.map(([key, stage]) => {
+        {getStageEntries().map(([key, stage]) => {
           const count = groupedCandidates[key]?.length || 0;
           return (
             <button
@@ -157,7 +159,7 @@ export const Pipeline: React.FC = () => {
       {/* Board */}
       <div className="flex-1 overflow-x-auto pb-6 snap-x snap-mandatory touch-scroll scrollbar-hide">
         <div className="flex gap-4 sm:gap-6 h-full min-w-max pb-4">
-          {STAGE_ENTRIES.map(([key, stage]) => {
+          {getStageEntries().map(([key, stage]) => {
             const stageCandidates = groupedCandidates[key] || [];
             return (
               <div 
