@@ -39,6 +39,19 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export const CRMDashboard: React.FC = () => {
+  if (isPaymentsRevenueDisabled()) {
+    return (
+      <div className="py-12 sm:py-24 text-center bg-bg-secondary border border-dashed border-border-primary rounded-2xl sm:rounded-[32px] p-6 max-w-lg mx-auto mt-10">
+        <h4 className="text-lg sm:text-xl font-bold text-text-primary">CRM Leads & Sales Disabled</h4>
+        <p className="text-xs sm:text-sm text-text-muted mt-2">
+          This dashboard and revenue reporting module is currently disabled in system configuration.
+        </p>
+        <a href="#dashboard" className="inline-block mt-4 px-4 py-2 bg-accent-blue text-white rounded-xl text-xs font-bold">
+          Go to Main Dashboard
+        </a>
+      </div>
+    );
+  }
   const { user, isAuthReady } = useAuth();
   const { showToast } = useToast();
   

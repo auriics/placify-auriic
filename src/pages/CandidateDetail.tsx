@@ -2055,7 +2055,7 @@ export const CandidateDetail: React.FC = () => {
       </div>
 
       {/* Next Payment Alert */}
-      {nextPayment && (
+      {!isPaymentsRevenueDisabled() && nextPayment && (
         <div className="bg-accent-amber/10 border border-accent-amber/20 rounded-2xl p-4 flex items-center gap-4">
           <div className="w-10 h-10 bg-accent-amber/20 rounded-full flex items-center justify-center text-accent-amber shrink-0">
             <CreditCard className="w-5 h-5" />
@@ -3196,10 +3196,12 @@ export const CandidateDetail: React.FC = () => {
                         <label className="text-[10px] font-bold text-text-muted uppercase">Package Name</label>
                         <input type="text" value={packageForm.package_name || ''} onChange={e => setPackageForm({...packageForm, package_name: e.target.value})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm" />
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-text-muted uppercase">Package Amount ($)</label>
-                        <input type="number" value={packageForm.package_amount || 0} onChange={e => setPackageForm({...packageForm, package_amount: Number(e.target.value)})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm" />
-                      </div>
+                      {!isPaymentsRevenueDisabled() && (
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-text-muted uppercase">Package Amount ($)</label>
+                          <input type="number" value={packageForm.package_amount || 0} onChange={e => setPackageForm({...packageForm, package_amount: Number(e.target.value)})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm" />
+                        </div>
+                      )}
                     </>
                   )}
                   <div className="space-y-1">
@@ -3320,10 +3322,12 @@ export const CandidateDetail: React.FC = () => {
                         <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Package Name</p>
                         <p className="text-text-primary font-bold">{candidate.package_name || '—'}</p>
                       </div>
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Total Amount</p>
-                        <p className="text-text-primary font-bold text-lg">${candidate.package_amount.toLocaleString()}</p>
-                      </div>
+                      {!isPaymentsRevenueDisabled() && (
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Total Amount</p>
+                          <p className="text-text-primary font-bold text-lg">${candidate.package_amount.toLocaleString()}</p>
+                        </div>
+                      )}
                     </>
                   )}
                   <div className="space-y-1">
@@ -3415,7 +3419,7 @@ export const CandidateDetail: React.FC = () => {
           </section>
 
           {/* Payments */}
-          {(user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager' || user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person' || user?.role === 'jpc_recruiter' || isSalesperson) && (
+          {!isPaymentsRevenueDisabled() && (user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager' || user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person' || user?.role === 'jpc_recruiter' || isSalesperson) && (
             <section className="bg-bg-secondary border border-border-primary rounded-2xl overflow-hidden shadow-sm">
               <div className="px-6 py-4 border-b border-border-primary flex items-center justify-between">
                 <h3 className="font-bold text-text-primary flex items-center gap-2">

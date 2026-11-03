@@ -1,3 +1,4 @@
+import { isPaymentsRevenueDisabled } from '../lib/featureFlags';
 import React, { useState, useEffect } from 'react';
 import { 
   LayoutDashboard, 
@@ -61,9 +62,9 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     : [
         { label: 'Home', hash: '#dashboard', icon: LayoutDashboard },
         { 
-          label: (user.role === 'jpc_lead_gen' || user.role === 'jpc_sales') ? 'CRM' : 'Pipeline', 
-          hash: (user.role === 'jpc_lead_gen') ? '#crm-dashboard' : '#pipeline', 
-          icon: (user.role === 'jpc_lead_gen') ? TrendingUp : Trello 
+          label: (user.role === 'jpc_lead_gen' || user.role === 'jpc_sales') && !isPaymentsRevenueDisabled() ? 'CRM' : 'Pipeline', 
+          hash: (user.role === 'jpc_lead_gen' && !isPaymentsRevenueDisabled()) ? '#crm-dashboard' : '#pipeline', 
+          icon: (user.role === 'jpc_lead_gen' && !isPaymentsRevenueDisabled()) ? TrendingUp : Trello 
         },
         { label: 'Candidates', hash: '#candidates', icon: Users },
         { 

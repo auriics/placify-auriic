@@ -165,6 +165,7 @@ const AppContent: React.FC = () => {
       case '#dashboard': 
         return <Dashboard />;
       case '#crm-dashboard':
+        if (isPaymentsRevenueDisabled()) return <Dashboard />;
         if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_cs') return <Dashboard />;
         return <CRMDashboard />;
       case '#pipeline': 
