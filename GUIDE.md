@@ -275,7 +275,38 @@ All automated crons are strictly anchored to **Eastern Time (America/New_York)**
 
 ---
 
-## 5. Technical Stack & Architecture
+## 5. Centralized Feature Flags & Environment Control System
+
+Placify provides a centralized, non-destructive feature flag architecture driven entirely via the environment configuration (`.env`). This system allows administrators and platform deployers to toggle major CRM modules, lifecycle stages, and commercial financial views without touching code or executing database migrations.
+
+### 5.1 Environment Configuration Variables
+
+```env
+# Centralized Feature Flags (Set true to disable, false to enable)
+DISABLE_OFFER_STAGE=false
+DISABLE_COMPLETED_STAGE=false
+DISABLE_PAYMENTS_REVENUE=false
+```
+
+### 5.2 Flag Definitions & Platform Impact
+
+| Environment Flag | Default | Behavior When `true` | Restored When `false` |
+| :--- | :---: | :--- | :--- |
+| `DISABLE_OFFER_STAGE` | `false` | • **Pipeline Kanban**: Hides the "Offer" column and quick-jump pills.<br>• **Stage Progression**: Dynamic proxy removes "Offer" from all valid transitions (`TRANSITIONS[stage]`).<br>• **Candidate Detail**: `handleMoveToOffer` is blocked and guarded with alert notifications.<br>• **Interview Support**: Hides the "Offer Received" verdict from the Decision Console and disables Interview Completion Gate modals.<br>• **Compliance Central**: Blocks and rejects Interview-to-Offer clearance workflows.<br>• **Backend Guard**: `PATCH /api/candidates/:id`, `/api/candidate/notify-offer-*`, and `/api/interview-offer-requests` return `400 Bad Request`. | Restores Offer stage columns, transition buttons, decision verdicts, compliance approval workflows, and notification dispatches platform-wide. |
+| `DISABLE_COMPLETED_STAGE` | `false` | • **Pipeline Kanban**: Hides the "10. Completed" column and mobile navigation pills.<br>• **Stage Progression**: Removes "Completed" from stage transitions and blocks stage closures.<br>• **Dashboard**: Dynamically removes the "Completed" KPI card and placement metrics.<br>• **Celebration Banner**: Suppresses placement celebration confetti and banners for completed candidates.<br>• **Backend Guard**: `PATCH /api/candidates/:id` blocks moving candidates to `completed`. | Restores Completed column, candidate closure transitions, dashboard KPI cards, placement counters, and celebration announcements. |
+| `DISABLE_PAYMENTS_REVENUE` | `false` | • **CRM Leads & Sales (`#crm-dashboard`)**: Completely hides the menu item from Sidebar and Mobile Bottom Nav; intercepts direct route access and redirects to `#dashboard`.<br>• **Candidate Detail Profile**: Hides the entire Payments section (progress bars, payment list, upload proof, add plan form), Next Payment Due alerts, Package Amount edit input, and Total Amount view.<br>• **Candidate Directory**: Hides package fees from desktop rows and mobile cards; strips `'Total Fee / Amount ($)'` from XLSX exports.<br>• **Dashboards**: Hides "Gross Value" KPI cards and "Realized Revenue vs Potential Pipeline ($)" financial trajectory charts.<br>• **Aurrum Careers**: Hides Converted Revenue, Aurrum Pipeline Value cards, and deal terms.<br>• **Receipt Page (`#receipt`)**: Blocks rendering, hides receipt links, and redirects to `#dashboard`.<br>• **Storage & API Guard**: `addPayment` and `updatePayment` writes are rejected; backend strips `package_amount`, `total_paid`, and `balance_remaining` on update. | Restores all payment histories, receipt generators, gross value totals, revenue trajectory charts, plan forms, fee columns, and XLSX export columns. |
+
+### 5.3 Technical Architecture & Data Safety Guarantees
+
+*   **Non-Destructive Guarantee**: Disabling stages or financial modules **never** alters, truncates, or deletes historical Firestore records (`jpc_candidates`, `jpc_payments`, etc.). Existing records remain safely persisted and become fully visible again the moment flags are switched to `false`.
+*   **Dual-Environment Accessibility**:
+    *   **Client-Side (Vite)**: `vite.config.ts` exposes flags via `envPrefix: ['VITE_', 'DISABLE_']`, consumed via `import.meta.env` in `src/lib/featureFlags.ts`.
+    *   **Server-Side (Node.js/Express)**: Loaded via `dotenv.config()` and evaluated from `process.env`.
+*   **ES6 Proxy Routing**: `src/constants.ts` wraps `TRANSITIONS` and `PREVIOUS_STAGES` in reactive proxies that automatically evaluate active feature flags on property access, guaranteeing that UI components never receive disabled stage actions.
+
+---
+
+## 6. Technical Stack & Architecture
 
 *   **Frontend**: React 19, React Router 7, Tailwind CSS 4, Motion (animations), `react-window` (60fps virtualization).
 *   **Backend Server**: Node.js with Express 5, bundled via esbuild for serverless deployment on Vercel.
@@ -288,7 +319,7 @@ All automated crons are strictly anchored to **Eastern Time (America/New_York)**
 
 ---
 
-## 6. Operational Guidelines
+## 7. Operational Guidelines
 
 1.  **Sales Availability**: Sales representatives must verify their status is set to **Active** upon starting their shift at 9:30 AM EST. Reps must toggle to **Deactive** when stepping away or taking leave.
 2.  **Interview Deletion**: Always prefer **Trigger Reschedule** over deleting an interview. Deleting an interview permanently removes evaluator feedback and audit history. Only use delete when an interview was created erroneously.
@@ -298,4 +329,4 @@ All automated crons are strictly anchored to **Eastern Time (America/New_York)**
 
 ---
 
-*Last Updated: November 2, 2026*
+*Last Updated: November 3, 2026*
