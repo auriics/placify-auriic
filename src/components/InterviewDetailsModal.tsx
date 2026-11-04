@@ -17,6 +17,7 @@ import { ResumeSubstitutionModal } from './ResumeSubstitutionModal';
 import { ProxyAssignmentModal } from './ProxyAssignmentModal';
 import { FreeTrialBadge } from './FreeTrialBadge';
 import { ShiftPreferenceBadge } from './ShiftPreferenceBadge';
+import { InterviewTimeDisplay } from './InterviewTimeDisplay';
 import { resolveRecruiterUser } from '../utils/recruiterResolver';
 
 interface InterviewDetailsModalProps {
@@ -317,13 +318,14 @@ export const InterviewDetailsModal: React.FC<InterviewDetailsModalProps> = ({
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-text-secondary border-t border-border-primary pt-4">
                           <div className="space-y-2">
-                            <p className="flex items-center gap-2 font-medium">
-                              <Calendar className="w-4 h-4 text-accent-blue shrink-0" />
+                            <div className="flex flex-wrap items-center gap-2 font-medium">
                               <span className="font-bold text-text-primary">Date & Time:</span>
-                              {round.booked_slot_time || round.interview_date 
-                                ? parseLocalTimeToDate(round.booked_slot_time || round.interview_date, 'America/New_York').toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/New_York' }) + ' EST' 
-                                : 'Not scheduled yet'}
-                            </p>
+                              <InterviewTimeDisplay
+                                startTime={round.booked_slot_time || round.interview_date}
+                                endTime={round.booked_slot_end}
+                                durationMinutes={round.duration_minutes}
+                              />
+                            </div>
                             <p className="flex items-center gap-2 font-medium">
                               <UserIcon className="w-4 h-4 text-accent-blue shrink-0" />
                               <span className="font-bold text-text-primary">Assigned Proxy:</span>

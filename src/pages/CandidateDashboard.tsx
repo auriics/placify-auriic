@@ -5,6 +5,8 @@ import { doc, onSnapshot, collection, query, where, orderBy, limit, setDoc } fro
 import { Candidate, Payment, Application, InterviewSupportRequest, ActivityLog, InterviewRound, User } from '../types';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
 import { STAGES } from '../constants';
+import { InterviewTimeDisplay } from '../components/InterviewTimeDisplay';
+import { formatInterviewSlotRange } from '../lib/utils';
 import { isStageDisabled, isPaymentsRevenueDisabled } from '../lib/featureFlags';
 import { 
   TrendingUp, 
@@ -431,7 +433,18 @@ export const CandidateDashboard: React.FC = () => {
                           {(() => {
                             const rounds = interviewRounds.filter(r => r.request_id === upcomingInterviews[0].id);
                             const next = rounds.find(r => r.booked_slot_time && new Date(r.booked_slot_time) > new Date());
-                            return next ? new Date(next.booked_slot_time).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Pending';
+                            if (!next) return 'Pending';
+                            const slot = formatInterviewSlotRange(next.booked_slot_time, next.booked_slot_end, next.duration_minutes);
+                            return (
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span>{slot.dateStr}</span>
+                                {slot.hasTime && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-accent-blue/10 border border-accent-blue/20 text-accent-blue text-xs font-black">
+                                    {slot.timeRangeStr}
+                                  </span>
+                                )}
+                              </div>
+                            );
                           })()}
                         </div>
                       </div>
@@ -585,7 +598,13 @@ export const CandidateDashboard: React.FC = () => {
                                   </div>
                                   <div>
                                     <p className="text-sm font-bold text-text-primary">{round.round_label}</p>
-                                    <p className="text-xs text-text-secondary">{round.booked_slot_time ? new Date(round.booked_slot_time).toLocaleString() : 'TBD'}</p>
+                                    <div className="mt-1">
+                                      <InterviewTimeDisplay
+                                        startTime={round.booked_slot_time || round.interview_date}
+                                        endTime={round.booked_slot_end}
+                                        durationMinutes={round.duration_minutes}
+                                      />
+                                    </div>
                                   </div>
                                 </div>
                                 <span className="text-[10px] font-bold text-accent-purple">{round.status}</span>

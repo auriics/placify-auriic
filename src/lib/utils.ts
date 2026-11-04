@@ -474,3 +474,141 @@ export function formatLeavePeriod(
 
   return `${fromFormatted} - ${toFormatted} (EST)`;
 }
+
+export interface FormattedInterviewSlot {
+  dateStr: string;
+  fromTime: string;
+  toTime: string;
+  timeRangeStr: string;
+  durationMinutes: number;
+  fullStr: string;
+  hasTime: boolean;
+}
+
+/**
+ * Formats an interview round's scheduled start and end times into a complete From–To time range in America/New_York (EST/EDT).
+ *
+ * Example:
+ * - dateStr: "Nov 4, 2026"
+ * - fromTime: "10:30 AM"
+ * - toTime: "11:00 AM"
+ * - timeRangeStr: "10:30 AM – 11:00 AM EST"
+ * - durationMinutes: 30
+ * - fullStr: "Nov 4, 2026, 10:30 AM – 11:00 AM EST"
+ */
+export function formatInterviewSlotRange(
+  startTime?: string | null,
+  endTime?: string | null,
+  durationMinutes?: number | null
+): FormattedInterviewSlot {
+  const defaultDuration = durationMinutes && durationMinutes > 0 ? durationMinutes : 30;
+
+  if (!startTime) {
+    return {
+      dateStr: 'Not Scheduled',
+      fromTime: '',
+      toTime: '',
+      timeRangeStr: 'Time TBD',
+      durationMinutes: defaultDuration,
+      fullStr: 'Not Scheduled',
+      hasTime: false,
+    };
+  }
+
+  try {
+    const rawStart = String(startTime).trim();
+    const hasExplicitTime =
+      rawStart.includes('T') ||
+      (rawStart.includes(' ') && rawStart.split(' ')[1]?.includes(':'));
+
+    const startD = hasExplicitTime
+      ? parseLocalTimeToDate(rawStart, 'America/New_York')
+      : parseLocalTimeToDate(`${rawStart}T00:00:00`, 'America/New_York');
+
+    if (isNaN(startD.getTime())) {
+      return {
+        dateStr: startTime,
+        fromTime: '',
+        toTime: '',
+        timeRangeStr: 'Time TBD',
+        durationMinutes: defaultDuration,
+        fullStr: startTime,
+        hasTime: false,
+      };
+    }
+
+    let endD: Date;
+    if (endTime && String(endTime).trim()) {
+      const rawEnd = String(endTime).trim();
+      const endParsed =
+        rawEnd.includes('T') || rawEnd.includes(' ')
+          ? parseLocalTimeToDate(rawEnd, 'America/New_York')
+          : parseLocalTimeToDate(`${rawEnd}T23:59:59`, 'America/New_York');
+
+      if (!isNaN(endParsed.getTime()) && endParsed.getTime() > startD.getTime()) {
+        endD = endParsed;
+      } else {
+        endD = new Date(startD.getTime() + defaultDuration * 60 * 1000);
+      }
+    } else {
+      endD = new Date(startD.getTime() + defaultDuration * 60 * 1000);
+    }
+
+    const calculatedDuration =
+      endD.getTime() > startD.getTime()
+        ? Math.round((endD.getTime() - startD.getTime()) / (60 * 1000))
+        : defaultDuration;
+
+    const dateFormatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+    const dateStr = dateFormatter.format(startD);
+
+    if (!hasExplicitTime) {
+      return {
+        dateStr,
+        fromTime: '',
+        toTime: '',
+        timeRangeStr: 'Time TBD',
+        durationMinutes: calculatedDuration,
+        fullStr: `${dateStr} (Time TBD)`,
+        hasTime: false,
+      };
+    }
+
+    const timeFormatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+
+    const fromTime = timeFormatter.format(startD);
+    const toTime = timeFormatter.format(endD);
+    const timeRangeStr = `${fromTime} – ${toTime} EST`;
+    const fullStr = `${dateStr}, ${timeRangeStr}`;
+
+    return {
+      dateStr,
+      fromTime,
+      toTime,
+      timeRangeStr,
+      durationMinutes: calculatedDuration,
+      fullStr,
+      hasTime: true,
+    };
+  } catch (err) {
+    return {
+      dateStr: startTime,
+      fromTime: '',
+      toTime: '',
+      timeRangeStr: 'Time TBD',
+      durationMinutes: defaultDuration,
+      fullStr: startTime,
+      hasTime: false,
+    };
+  }
+}

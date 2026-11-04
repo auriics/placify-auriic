@@ -1225,12 +1225,14 @@ export const AurrumCandidateDetail: React.FC = () => {
                               <p className="text-xs font-black text-text-primary">
                                 {round.round_label} ({round.round_type})
                               </p>
-                              <p className="text-[11px] text-text-secondary mt-0.5">
-                                {round.booked_slot_time
-                                  ? new Date(round.booked_slot_time).toLocaleString()
-                                  : round.interview_date || 'Slot TBD'}{' '}
-                                • {round.duration_minutes} mins
-                              </p>
+                              <div className="mt-1">
+                                <InterviewTimeDisplay
+                                  startTime={round.booked_slot_time || round.interview_date}
+                                  endTime={round.booked_slot_end}
+                                  durationMinutes={round.duration_minutes}
+                                  inline
+                                />
+                              </div>
                             </div>
                             <div className="text-right">
                               <span className="px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-400 text-[10px] font-bold uppercase block">

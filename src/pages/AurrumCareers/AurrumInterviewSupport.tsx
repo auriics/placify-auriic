@@ -73,6 +73,7 @@ import {
 import { collection, doc, getDoc, addDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { ProxyAssignmentModal } from '../../components/ProxyAssignmentModal';
+import { InterviewTimeDisplay } from '../../components/InterviewTimeDisplay';
 import { AddSlotModal } from '../../components/AddSlotModal';
 import { SlotVisualizer } from '../../components/SlotVisualizer';
 import {
@@ -1157,16 +1158,12 @@ export const AurrumInterviewSupport: React.FC = () => {
                           </span>
                         </td>
                         <td className="py-3.5 px-4 font-bold text-text-primary">
-                          {round?.booked_slot_time
-                            ? parseLocalTimeToDate(
-                                round.booked_slot_time,
-                                'America/New_York'
-                              ).toLocaleString('en-US', {
-                                dateStyle: 'medium',
-                                timeStyle: 'short',
-                                timeZone: 'America/New_York',
-                              }) + ' EST'
-                            : 'Not yet booked'}
+                          <InterviewTimeDisplay
+                            startTime={round?.booked_slot_time}
+                            endTime={round?.booked_slot_end}
+                            durationMinutes={round?.duration_minutes}
+                            inline
+                          />
                         </td>
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-2">

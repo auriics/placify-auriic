@@ -37,6 +37,7 @@ import {
 import { cn, getCalendarDateInfo, parseLocalTimeToDate, getCurrentEasternISOString, isUserOnLeaveDuring } from '../../lib/utils';
 import { useToast } from '../../contexts/ToastContext';
 import { uploadFile } from '../../services/fileService';
+import { InterviewTimeDisplay } from '../../components/InterviewTimeDisplay';
 import { syncInterviewRoundToGoogleCalendar } from '../../services/calendarService';
 import { findBestProxyForWindow, isProxyUser, resolveBestSlotForBooking } from '../../services/interviewService';
 
@@ -1169,10 +1170,15 @@ export const BookingPage: React.FC = () => {
                   </div>
                   <div>
                     <h3 className="text-sm font-black text-text-primary uppercase tracking-wider">{round?.round_label}</h3>
-                    <p className="text-lg font-black text-text-primary mt-1">
-                      {round?.booked_slot_time ? parseLocalTimeToDate(round.booked_slot_time, 'America/New_York').toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/New_York' }) + ' EST' : 'Date TBD'}
-                    </p>
-                    <p className="text-[10px] text-text-muted font-bold mt-1 uppercase tracking-widest leading-none">Duration: {round?.duration_minutes} Minutes</p>
+                    <div className="mt-2">
+                      <InterviewTimeDisplay
+                        startTime={round?.booked_slot_time}
+                        endTime={round?.booked_slot_end}
+                        durationMinutes={round?.duration_minutes}
+                        dateClassName="text-base font-black text-text-primary"
+                        badgeClassName="text-xs py-1 px-3"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

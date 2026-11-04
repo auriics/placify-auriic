@@ -60,7 +60,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn, getLocalYYYYMMDD, formatDisplayDateWithWeekday, parseLocalTimeToDate } from '../../lib/utils';
+import { cn, getLocalYYYYMMDD, formatDisplayDateWithWeekday, parseLocalTimeToDate, formatInterviewSlotRange } from '../../lib/utils';
 import { AddSlotModal } from '../../components/AddSlotModal';
 import { ProxyAssignmentModal } from '../../components/ProxyAssignmentModal';
 
@@ -833,17 +833,22 @@ export const ProxyDashboard: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-3 text-text-secondary">
                       <Clock className="w-4 h-4 text-accent-blue/50" />
-                      <span className="text-xs font-bold">
-                        {round.booked_slot_time || round.interview_date 
-                          ? new Intl.DateTimeFormat('en-US', {
-                              timeZone: 'America/New_York',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              hour12: true
-                            }).format(parseLocalTimeToDate(round.booked_slot_time || round.interview_date, 'America/New_York')) + ' EST'
-                          : 'Time TBD'
+                      {(() => {
+                        const slot = formatInterviewSlotRange(
+                          round.booked_slot_time || round.interview_date,
+                          round.booked_slot_end,
+                          round.duration_minutes
+                        );
+                        if (!slot.hasTime) {
+                          return <span className="text-xs font-bold text-text-muted">{slot.timeRangeStr}</span>;
                         }
-                      </span>
+                        return (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-accent-blue/10 border border-accent-blue/20 text-accent-blue text-xs font-black tracking-wide">
+                            <span>{slot.timeRangeStr}</span>
+                            <span className="text-[10px] font-bold text-accent-blue/80 opacity-90">({slot.durationMinutes}m)</span>
+                          </span>
+                        );
+                      })()}
                     </div>
                     {(!round.booked_slot_time && !round.interview_date) && (
                       <div className="text-[9px] font-black text-accent-amber uppercase tracking-wider flex items-center gap-1.5 bg-accent-amber/10 px-2.5 py-1 rounded-lg border border-accent-amber/20 w-max font-sans">

@@ -72,6 +72,7 @@ import { InterviewDetailsModal } from '../../components/InterviewDetailsModal';
 import { ProxyAssignmentModal } from '../../components/ProxyAssignmentModal';
 import { ResumeSubstitutionModal } from '../../components/ResumeSubstitutionModal';
 import { SlotVisualizer } from '../../components/SlotVisualizer';
+import { InterviewTimeDisplay } from '../../components/InterviewTimeDisplay';
 import { findBestProxyForWindow, assignProxiesForRounds, isProxyUser, getLatestCandidateResume, getInterviewResumeInfo, syncUserLeaveAvailability, getProxyConflictingRounds } from '../../services/interviewService';
 import { sharedSelectStyles } from '../../lib/selectStyles';
 import { FreeTrialBadge } from '../../components/FreeTrialBadge';
@@ -794,13 +795,12 @@ export const InterviewSupportDashboard: React.FC = () => {
                                   {round.status}
                                 </div>
                               </div>
-                              <div className="flex items-center gap-2 mb-3">
-                                <Calendar className="w-3.5 h-3.5 text-text-muted" />
-                                <span className="text-xs font-bold text-text-primary">
-                                  {round.booked_slot_time || round.interview_date 
-                                    ? parseLocalTimeToDate(round.booked_slot_time || round.interview_date, 'America/New_York').toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/New_York' }) + ' EST' 
-                                    : 'Not Scheduled'}
-                                </span>
+                              <div className="mb-3">
+                                <InterviewTimeDisplay
+                                  startTime={round.booked_slot_time || round.interview_date}
+                                  endTime={round.booked_slot_end}
+                                  durationMinutes={round.duration_minutes}
+                                />
                               </div>
                               
                               <div className="flex items-center justify-between">
