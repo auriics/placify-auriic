@@ -434,18 +434,36 @@ export function formatLeavePeriod(
 
   if (!fromStr && !toStr) return 'Indefinite Leave';
 
-  const range = parseLeaveRange(fromStr, toStr, returnDate);
-  if (!range) {
-    if (toStr) return `Until ${toStr} (EST)`;
-    return 'Indefinite Leave';
-  }
-
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York',
     month: 'short',
     day: '2-digit',
     year: 'numeric'
   });
+
+  if (!fromStr && toStr) {
+    const cleanTo = toStr.includes('T') ? toStr : `${toStr}T00:00:00`;
+    const toD = parseLocalTimeToDate(cleanTo, 'America/New_York');
+    if (!isNaN(toD.getTime())) {
+      return `Until ${formatter.format(toD)} (EST)`;
+    }
+    return `Until ${toStr} (EST)`;
+  }
+
+  if (fromStr && !toStr) {
+    const cleanFrom = fromStr.includes('T') ? fromStr : `${fromStr}T00:00:00`;
+    const fromD = parseLocalTimeToDate(cleanFrom, 'America/New_York');
+    if (!isNaN(fromD.getTime())) {
+      return `From ${formatter.format(fromD)} (EST)`;
+    }
+    return `From ${fromStr} (EST)`;
+  }
+
+  const range = parseLeaveRange(fromStr, toStr, returnDate);
+  if (!range) {
+    if (toStr) return `Until ${toStr} (EST)`;
+    return 'Indefinite Leave';
+  }
 
   const fromFormatted = formatter.format(range.start);
   const toFormatted = formatter.format(range.end);

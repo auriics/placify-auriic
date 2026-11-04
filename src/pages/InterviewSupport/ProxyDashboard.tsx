@@ -4,6 +4,7 @@ import { auth, db } from '../../firebase';
 import { doc, updateDoc, getDoc, getDocs, addDoc, query, where, collection, deleteDoc } from 'firebase/firestore';
 import { 
   syncInterviewRoundToGoogleCalendar, 
+  syncProxyLeaveToGoogleCalendar,
   clearPreviousCalendarEvents, 
   clearAllProxyCalendarEvents 
 } from '../../services/calendarService';
@@ -422,6 +423,14 @@ export const ProxyDashboard: React.FC = () => {
           try {
             const userRef = doc(db, 'jpc_users', String(activeProxyId));
             await updateDoc(userRef, event.data.tokens);
+            if (activeProxyUser && (activeProxyUser.is_on_leave || activeProxyUser.leave_start_date || activeProxyUser.leave_end_date)) {
+              await syncProxyLeaveToGoogleCalendar(
+                String(activeProxyId),
+                activeProxyUser.leave_start_date,
+                activeProxyUser.leave_end_date,
+                activeProxyUser.is_on_leave
+              );
+            }
           } catch (updateErr) {
             console.warn('[ProxyDashboard] Client updateDoc fallback error:', updateErr);
           }
@@ -447,6 +456,15 @@ export const ProxyDashboard: React.FC = () => {
             successCount++;
           }
         }
+      }
+
+      if (activeProxyUser && (activeProxyUser.is_on_leave || activeProxyUser.leave_start_date || activeProxyUser.leave_end_date)) {
+        await syncProxyLeaveToGoogleCalendar(
+          String(activeProxyId),
+          activeProxyUser.leave_start_date,
+          activeProxyUser.leave_end_date,
+          activeProxyUser.is_on_leave
+        );
       }
       showToast(`Calendar sync check completed! Found & updated/created ${successCount} events in your calendar.`, 'success');
     } catch (error) {

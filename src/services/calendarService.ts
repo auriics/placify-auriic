@@ -1,13 +1,77 @@
 import { db } from '../firebase';
 import { doc, getDoc, updateDoc, collection, addDoc, query, where, getDocs, deleteDoc } from 'firebase/firestore';
-import { parseLocalTimeToDate, isUserOnLeaveDuring } from '../lib/utils';
+import { parseLocalTimeToDate, isUserOnLeaveDuring, getEasternDate, formatLeavePeriod } from '../lib/utils';
 
 export interface CalendarEventPayload {
   summary: string;
   description: string;
-  startTime: string; // ISO format string
-  endTime: string; // ISO format string
-  attendees: { email: string; displayName?: string; responseStatus?: string }[];
+  startTime: string; // ISO format string or YYYY-MM-DD
+  endTime: string; // ISO format string or YYYY-MM-DD
+  attendees?: { email: string; displayName?: string; responseStatus?: string }[];
+  colorId?: string; // e.g. "11" for Google Calendar Tomato / Red
+  transparency?: 'opaque' | 'transparent'; // 'opaque' = Busy, 'transparent' = Free
+  isAllDay?: boolean;
+}
+
+/**
+ * Calculates the next calendar day in YYYY-MM-DD format using UTC date arithmetic.
+ * Essential for Google Calendar all-day event end dates which are exclusive.
+ */
+export function getNextDayDateString(dateStr: string): string {
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    const d = new Date(Date.UTC(year, month, day));
+    d.setUTCDate(d.getUTCDate() + 1);
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dayOfMonth = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${dayOfMonth}`;
+  }
+  return dateStr;
+}
+
+/**
+ * Builds the standard Google Calendar event payload for a proxy's leave period.
+ * Formats:
+ * - Summary: 🔴 ON LEAVE: <ProxyName> (<Duration>)
+ * - Description: Detailed proxy leave notice with EST time window
+ * - Color ID: "11" (Tomato / Red)
+ * - Transparency: 'opaque' (Marks calendar Busy)
+ * - Start/End: All-day date range in YYYY-MM-DD with exclusive end date
+ */
+export function buildProxyLeaveCalendarPayload(
+  proxyName: string,
+  leaveStartDate: string,
+  leaveEndDate: string,
+  proxyEmail?: string | null
+): CalendarEventPayload {
+  const effectiveStart = leaveStartDate;
+  const effectiveEnd = leaveEndDate >= leaveStartDate ? leaveEndDate : leaveStartDate;
+  const googleCalendarEndDate = getNextDayDateString(effectiveEnd);
+  const durationText = formatLeavePeriod(effectiveStart, effectiveEnd);
+
+  const summary = `🔴 ON LEAVE: ${proxyName} (${durationText})`;
+  const description = `🔴 PROXY ON LEAVE NOTICE
+Team Member: ${proxyName}
+Leave Duration: ${durationText} (EST)
+Leave Period: ${effectiveStart} to ${effectiveEnd}
+Status: Unavailable for interview assignments and proxy bookings.
+
+Synchronized automatically from Placify CRM Interview Support System.`;
+
+  return {
+    summary,
+    description,
+    startTime: effectiveStart,
+    endTime: googleCalendarEndDate,
+    isAllDay: true,
+    colorId: '11', // Tomato (Red)
+    transparency: 'opaque', // Busy
+    attendees: proxyEmail ? [{ email: proxyEmail, displayName: proxyName, responseStatus: 'accepted' }] : [],
+  };
 }
 
 /**
@@ -107,18 +171,23 @@ export async function updateGoogleCalendarEvent(
     // Google Calendar API Event Update Endpoint
     const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`;
     
-    const body = {
+    const isAllDay = payload.isAllDay || (payload.startTime.length === 10 && payload.endTime.length === 10);
+    const body: any = {
       summary: payload.summary,
       description: payload.description,
-      start: {
-        dateTime: payload.startTime,
-        timeZone: 'America/New_York',
-      },
-      end: {
-        dateTime: payload.endTime,
-        timeZone: 'America/New_York',
-      },
-      attendees: payload.attendees,
+      start: isAllDay
+        ? { date: payload.startTime }
+        : {
+            dateTime: payload.startTime,
+            timeZone: 'America/New_York',
+          },
+      end: isAllDay
+        ? { date: payload.endTime }
+        : {
+            dateTime: payload.endTime,
+            timeZone: 'America/New_York',
+          },
+      attendees: payload.attendees || [],
       reminders: {
         useDefault: false,
         overrides: [
@@ -127,6 +196,13 @@ export async function updateGoogleCalendarEvent(
         ],
       },
     };
+
+    if (payload.colorId) {
+      body.colorId = payload.colorId;
+    }
+    if (payload.transparency) {
+      body.transparency = payload.transparency;
+    }
 
     console.log(`[CalendarService] Updating event ${eventId} in Google Calendar for ${userData.google_calendar_email}...`);
 
@@ -212,18 +288,23 @@ export async function createGoogleCalendarEvent(
     // Google Calendar API Event Insert Endpoint
     const url = 'https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all';
     
-    const body = {
+    const isAllDay = payload.isAllDay || (payload.startTime.length === 10 && payload.endTime.length === 10);
+    const body: any = {
       summary: payload.summary,
       description: payload.description,
-      start: {
-        dateTime: payload.startTime, // Local ISO time e.g. "2026-06-08T17:00:00"
-        timeZone: 'America/New_York', // Enforce EST America/New_York
-      },
-      end: {
-        dateTime: payload.endTime, // Local ISO time
-        timeZone: 'America/New_York', // Enforce EST America/New_York
-      },
-      attendees: payload.attendees,
+      start: isAllDay
+        ? { date: payload.startTime }
+        : {
+            dateTime: payload.startTime, // Local ISO time e.g. "2026-06-08T17:00:00"
+            timeZone: 'America/New_York', // Enforce EST America/New_York
+          },
+      end: isAllDay
+        ? { date: payload.endTime }
+        : {
+            dateTime: payload.endTime, // Local ISO time
+            timeZone: 'America/New_York', // Enforce EST America/New_York
+          },
+      attendees: payload.attendees || [],
       reminders: {
         useDefault: false,
         overrides: [
@@ -232,6 +313,13 @@ export async function createGoogleCalendarEvent(
         ],
       },
     };
+
+    if (payload.colorId) {
+      body.colorId = payload.colorId;
+    }
+    if (payload.transparency) {
+      body.transparency = payload.transparency;
+    }
 
     console.log(`[CalendarService] Syncing event to Google Calendar for ${userData.google_calendar_email}...`);
 
@@ -710,3 +798,137 @@ export async function clearAllProxyCalendarEvents(proxyUserId: string): Promise<
 }
 
 
+
+/**
+ * Synchronizes a proxy team member's complete leave date range to their connected Google Calendar.
+ * 
+ * - If leave is active (has dates or isIndefinite):
+ *   - Inserts or updates an all-day event in their Google Calendar with red ON LEAVE label (colorId: '11', opaque).
+ *   - Displays: 🔴 ON LEAVE: <Name> (<Duration>)
+ *   - Stores/updates record in 'jpc_calendar_events' with event_type: 'proxy_leave'.
+ * - If leave is cancelled/cleared:
+ *   - Removes the leave event from Google Calendar and deletes the record from 'jpc_calendar_events'.
+ */
+export async function syncProxyLeaveToGoogleCalendar(
+  proxyUserId: string,
+  leaveStartDate?: string | null,
+  leaveEndDate?: string | null,
+  isIndefinite: boolean = false
+): Promise<{ success: boolean; eventId?: string | null; action: 'created' | 'updated' | 'deleted' | 'skipped' }> {
+  try {
+    if (!proxyUserId) {
+      return { success: false, action: 'skipped' };
+    }
+
+    const userRef = doc(db, 'jpc_users', String(proxyUserId));
+    const userSnap = await getDoc(userRef);
+    if (!userSnap.exists()) {
+      return { success: false, action: 'skipped' };
+    }
+
+    const userData = userSnap.data();
+    const proxyName = userData.display_name || userData.full_name || 'Proxy Support';
+    const proxyEmail = userData.email || userData.google_calendar_email || '';
+
+    // Look for existing leave sync record
+    const leaveQ = query(
+      collection(db, 'jpc_calendar_events'),
+      where('proxy_user_id', '==', String(proxyUserId)),
+      where('event_type', '==', 'proxy_leave')
+    );
+    const existingSnap = await getDocs(leaveQ);
+    const existingDoc = existingSnap.empty ? null : existingSnap.docs[0];
+    const existingData = existingDoc?.data();
+    const existingEventId = existingData?.google_event_id;
+
+    const isLeaveActive = Boolean(isIndefinite || leaveStartDate || leaveEndDate);
+
+    // CASE 1: Leave cancelled or cleared -> delete Google Calendar event and local record
+    if (!isLeaveActive) {
+      if (existingEventId && userData.google_calendar_connected) {
+        await deleteGoogleCalendarEvent(proxyUserId, existingEventId);
+      }
+      if (existingDoc) {
+        await deleteDoc(doc(db, 'jpc_calendar_events', existingDoc.id));
+      }
+      return { success: true, action: 'deleted' };
+    }
+
+    // CASE 2: Leave active -> build event payload
+    const todayEst = getEasternDate();
+    const effectiveStart = leaveStartDate || todayEst;
+    let effectiveEnd = leaveEndDate;
+    if (!effectiveEnd) {
+      if (isIndefinite) {
+        const parts = effectiveStart.split('-');
+        if (parts.length === 3) {
+          const d = new Date(Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10) + 30));
+          effectiveEnd = d.toISOString().split('T')[0];
+        } else {
+          effectiveEnd = effectiveStart;
+        }
+      } else {
+        effectiveEnd = effectiveStart;
+      }
+    }
+
+    if (effectiveStart > effectiveEnd) {
+      effectiveEnd = effectiveStart;
+    }
+
+    const payload = buildProxyLeaveCalendarPayload(
+      proxyName,
+      effectiveStart,
+      effectiveEnd,
+      proxyEmail
+    );
+
+    let googleEventId: string | null = null;
+    let action: 'created' | 'updated' = 'created';
+
+    if (userData.google_calendar_connected) {
+      if (existingEventId && !existingEventId.startsWith('leave_')) {
+        const updateRes = await updateGoogleCalendarEvent(proxyUserId, existingEventId, payload);
+        if (updateRes === 'NOT_FOUND') {
+          googleEventId = await createGoogleCalendarEvent(proxyUserId, payload);
+          action = 'created';
+        } else if (updateRes) {
+          googleEventId = existingEventId;
+          action = 'updated';
+        }
+      } else {
+        googleEventId = await createGoogleCalendarEvent(proxyUserId, payload);
+        action = 'created';
+      }
+    }
+
+    const calendarEventData = {
+      event_type: 'proxy_leave',
+      proxy_user_id: String(proxyUserId),
+      proxy_name: proxyName,
+      summary: payload.summary,
+      description: payload.description,
+      start_time: `${effectiveStart}T00:00:00`,
+      end_time: `${effectiveEnd}T23:59:59`,
+      leave_start_date: effectiveStart,
+      leave_end_date: effectiveEnd,
+      google_event_id: googleEventId || existingEventId || `leave_${proxyUserId}_${effectiveStart}`,
+      status: userData.google_calendar_connected && googleEventId ? 'synced' : 'pending_connection',
+      updated_at: new Date().toISOString(),
+    };
+
+    if (existingDoc) {
+      await updateDoc(doc(db, 'jpc_calendar_events', existingDoc.id), calendarEventData);
+    } else {
+      await addDoc(collection(db, 'jpc_calendar_events'), {
+        ...calendarEventData,
+        created_at: new Date().toISOString(),
+      });
+    }
+
+    return { success: true, eventId: googleEventId, action };
+  } catch (error) {
+    console.error('[CalendarService] Error in syncProxyLeaveToGoogleCalendar:', error);
+    return { success: false, action: 'skipped' };
+  }
+}

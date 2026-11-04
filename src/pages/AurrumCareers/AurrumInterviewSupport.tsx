@@ -82,6 +82,7 @@ import {
   getInterviewResumeInfo,
   generateDefaultProxySlots,
   getSlotStatusColor,
+  syncUserLeaveAvailability,
 } from '../../services/interviewService';
 import { sharedSelectStyles } from '../../lib/selectStyles';
 import { useDebounce } from '../../lib/hooks';
@@ -838,6 +839,14 @@ export const AurrumInterviewSupport: React.FC = () => {
               onUpdate={async (userId, updates) => {
                 try {
                   await updateDoc(doc(db, 'jpc_users', userId), updates);
+                  if (updates.is_on_leave !== undefined || updates.leave_return_date !== undefined || (updates as any).leave_start_date !== undefined) {
+                    await syncUserLeaveAvailability(
+                      userId,
+                      (updates as any).leave_start_date || null,
+                      (updates as any).leave_end_date || updates.leave_return_date || null,
+                      updates.is_on_leave || false
+                    );
+                  }
                   showToast('Proxy availability updated.', 'success');
                 } catch (err) {
                   showToast('Failed to update proxy status.', 'error');

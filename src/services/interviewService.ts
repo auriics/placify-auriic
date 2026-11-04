@@ -3,6 +3,7 @@ import { ProxyAvailability, User, Candidate, InterviewSupportRequest, InterviewR
 import { collection, query, where, getDocs, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { parseLocalTimeToDate, isUserOnLeaveDuring, isUserCurrentlyOnLeave, formatLeavePeriod, parseLeaveRange } from '../lib/utils';
+import { syncProxyLeaveToGoogleCalendar } from './calendarService';
 
 export function isProxyUser(u: User): boolean {
   if (!u) return false;
@@ -680,64 +681,76 @@ export async function syncUserLeaveAvailability(
   leaveStartDate: string | null | undefined,
   leaveEndDate: string | null | undefined,
   isIndefinite: boolean = false
-): Promise<{ updatedCount: number; restoredCount: number }> {
+): Promise<{ updatedCount: number; restoredCount: number; calendarSync?: any }> {
   try {
+    let updatedCount = 0;
+    let restoredCount = 0;
+
     const q = query(
       collection(db, 'jpc_proxy_availability'),
       where('proxy_user_id', 'in', [String(userId), userId])
     );
     const snap = await getDocs(q);
-    if (snap.empty) {
-      return { updatedCount: 0, restoredCount: 0 };
-    }
 
-    const leaveUser: Partial<User> = {
-      is_on_leave: isIndefinite || !!(leaveStartDate || leaveEndDate),
-      leave_start_date: leaveStartDate || null,
-      leave_end_date: leaveEndDate || null,
-      leave_return_date: leaveEndDate || null,
-    };
+    if (!snap.empty) {
+      const leaveUser: Partial<User> = {
+        is_on_leave: isIndefinite || !!(leaveStartDate || leaveEndDate),
+        leave_start_date: leaveStartDate || null,
+        leave_end_date: leaveEndDate || null,
+        leave_return_date: leaveEndDate || null,
+      };
 
-    let updatedCount = 0;
-    let restoredCount = 0;
+      for (const d of snap.docs) {
+        const slot = d.data() as ProxyAvailability;
+        const slotId = d.id;
 
-    for (const d of snap.docs) {
-      const slot = d.data() as ProxyAvailability;
-      const slotId = d.id;
-
-      // DO NOT touch booked or completed slots - preserve existing interview bookings!
-      if (slot.slot_status === 'booked' || slot.slot_status === 'completed') {
-        continue;
-      }
-
-      const slotStart = slot.slot_start;
-      const slotEnd = slot.slot_end;
-      const isOnLeaveForSlot = isIndefinite
-        ? true
-        : (leaveStartDate || leaveEndDate)
-        ? isUserOnLeaveDuring(leaveUser, slotStart, slotEnd)
-        : false;
-
-      if (isOnLeaveForSlot) {
-        if (slot.slot_status === 'available') {
-          await updateDoc(doc(db, 'jpc_proxy_availability', slotId), {
-            slot_status: 'leave',
-            leave_reason: 'On Leave'
-          });
-          updatedCount++;
+        // DO NOT touch booked or completed slots - preserve existing interview bookings!
+        if (slot.slot_status === 'booked' || slot.slot_status === 'completed') {
+          continue;
         }
-      } else {
-        if (slot.slot_status === 'leave') {
-          await updateDoc(doc(db, 'jpc_proxy_availability', slotId), {
-            slot_status: 'available',
-            leave_reason: null
-          });
-          restoredCount++;
+
+        const slotStart = slot.slot_start;
+        const slotEnd = slot.slot_end;
+        const isOnLeaveForSlot = isIndefinite
+          ? true
+          : (leaveStartDate || leaveEndDate)
+          ? isUserOnLeaveDuring(leaveUser, slotStart, slotEnd)
+          : false;
+
+        if (isOnLeaveForSlot) {
+          if (slot.slot_status === 'available') {
+            await updateDoc(doc(db, 'jpc_proxy_availability', slotId), {
+              slot_status: 'leave',
+              leave_reason: 'On Leave'
+            });
+            updatedCount++;
+          }
+        } else {
+          if (slot.slot_status === 'leave') {
+            await updateDoc(doc(db, 'jpc_proxy_availability', slotId), {
+              slot_status: 'available',
+              leave_reason: null
+            });
+            restoredCount++;
+          }
         }
       }
     }
 
-    return { updatedCount, restoredCount };
+    // Automatically synchronize leave date-range to Google Calendar
+    let calendarSync: any = null;
+    try {
+      calendarSync = await syncProxyLeaveToGoogleCalendar(
+        String(userId),
+        leaveStartDate,
+        leaveEndDate,
+        isIndefinite
+      );
+    } catch (calErr) {
+      console.warn('[syncUserLeaveAvailability] Google Calendar sync warning:', calErr);
+    }
+
+    return { updatedCount, restoredCount, calendarSync };
   } catch (error) {
     console.error('Error syncing user leave availability:', error);
     return { updatedCount: 0, restoredCount: 0 };
