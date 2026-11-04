@@ -1,6 +1,6 @@
 import { db } from '../firebase';
 import { doc, getDoc, updateDoc, collection, addDoc, query, where, getDocs, deleteDoc } from 'firebase/firestore';
-import { parseLocalTimeToDate } from '../lib/utils';
+import { parseLocalTimeToDate, isUserOnLeaveDuring } from '../lib/utils';
 
 export interface CalendarEventPayload {
   summary: string;
@@ -555,18 +555,10 @@ export async function checkProxyAvailability(
     
     const userData = userSnap.data();
 
-    // 0. Check internal leave status
-    if (userData.is_on_leave) {
-      return { isAvailable: false };
-    }
-
-    if (userData.leave_return_date) {
-      // Comparison based on requested window
-      const windowStart = new Date(startTime);
-      const returnDate = parseLocalTimeToDate(userData.leave_return_date);
-      // If the return date is in the future relative to the requested interview start, they are on leave
-      if (!isNaN(returnDate.getTime()) && returnDate > windowStart) {
-        console.log(`[CalendarService] User on leave until ${userData.leave_return_date} EST`);
+    // 0. Check internal leave status (EST date-range & override aware)
+    if (userData.is_on_leave || userData.leave_start_date || userData.leave_end_date || userData.leave_return_date) {
+      if (isUserOnLeaveDuring(userData, startTime, endTime)) {
+        console.log(`[CalendarService] User on leave during requested window (${startTime} to ${endTime}) EST`);
         return { isAvailable: false };
       }
     }

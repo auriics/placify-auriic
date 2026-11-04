@@ -32,7 +32,8 @@ import { InterviewCompletionModal } from '../../components/InterviewCompletionMo
 import { 
   Calendar, 
   Search, 
-  Clock, 
+  Clock,
+  Edit2, 
   CheckCircle2, 
   X, 
   Plus, 
@@ -64,14 +65,14 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import Select from 'react-select';
 import { InterviewAnalytics } from './InterviewAnalytics';
-import { cn, parseLocalTimeToDate, getCalendarDateInfo, getCurrentEasternISOString } from '../../lib/utils';
+import { cn, parseLocalTimeToDate, getCalendarDateInfo, getCurrentEasternISOString, isUserOnLeaveDuring, isUserCurrentlyOnLeave, formatLeavePeriod } from '../../lib/utils';
 import { collection, query, where, orderBy, doc, getDoc, addDoc, getDocs, updateDoc, runTransaction } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { InterviewDetailsModal } from '../../components/InterviewDetailsModal';
 import { ProxyAssignmentModal } from '../../components/ProxyAssignmentModal';
 import { ResumeSubstitutionModal } from '../../components/ResumeSubstitutionModal';
 import { SlotVisualizer } from '../../components/SlotVisualizer';
-import { findBestProxyForWindow, assignProxiesForRounds, isProxyUser, getLatestCandidateResume, getInterviewResumeInfo } from '../../services/interviewService';
+import { findBestProxyForWindow, assignProxiesForRounds, isProxyUser, getLatestCandidateResume, getInterviewResumeInfo, syncUserLeaveAvailability, getProxyConflictingRounds } from '../../services/interviewService';
 import { sharedSelectStyles } from '../../lib/selectStyles';
 import { FreeTrialBadge } from '../../components/FreeTrialBadge';
 
@@ -1252,33 +1253,113 @@ const ProxyTeamStatus: React.FC<{
 
 const ProxyMemberCard: React.FC<{
   proxy: User;
+  allRounds?: InterviewRound[];
   onUpdate: (userId: string, updates: Partial<User>) => Promise<void>;
-}> = ({ proxy, onUpdate }) => {
+}> = ({ proxy, allRounds = [], onUpdate }) => {
+  const { showToast } = useToast();
   const [isUpdating, setIsUpdating] = useState(false);
-  const [leaveReturn, setLeaveReturn] = useState(proxy.leave_return_date || '');
+  const [isEditing, setIsEditing] = useState(false);
+  const [leaveFrom, setLeaveFrom] = useState(
+    proxy.leave_start_date || (proxy.leave_return_date ? proxy.leave_return_date.split('T')[0] : '')
+  );
+  const [leaveTo, setLeaveTo] = useState(
+    proxy.leave_end_date || (proxy.leave_return_date ? proxy.leave_return_date.split('T')[0] : '')
+  );
 
-  const toggleLeave = async () => {
+  useEffect(() => {
+    setLeaveFrom(proxy.leave_start_date || (proxy.leave_return_date ? proxy.leave_return_date.split('T')[0] : ''));
+    setLeaveTo(proxy.leave_end_date || (proxy.leave_return_date ? proxy.leave_return_date.split('T')[0] : ''));
+  }, [proxy.leave_start_date, proxy.leave_end_date, proxy.leave_return_date]);
+
+  const hasLeaveConfigured = !!(proxy.leave_start_date || proxy.leave_end_date || proxy.leave_return_date || proxy.is_on_leave);
+  const isOnLeaveNow = useMemo(() => isUserCurrentlyOnLeave(proxy), [proxy]);
+  const leavePeriodText = useMemo(() => {
+    return formatLeavePeriod(proxy.leave_start_date, proxy.leave_end_date, proxy.leave_return_date);
+  }, [proxy.leave_start_date, proxy.leave_end_date, proxy.leave_return_date]);
+
+  const toggleIndefiniteLeave = async () => {
     setIsUpdating(true);
-    await onUpdate(String(proxy.id), { is_on_leave: !proxy.is_on_leave });
-    setIsUpdating(false);
-  };
-
-  const updateReturnDate = async () => {
-    setIsUpdating(true);
-    await onUpdate(String(proxy.id), { leave_return_date: leaveReturn || null });
-    setIsUpdating(false);
-  };
-
-  const isOnLeave = useMemo(() => {
-    if (proxy.is_on_leave) return true;
-    if (proxy.leave_return_date) {
-      const returnDate = parseLocalTimeToDate(proxy.leave_return_date);
-      // For a visual hint, check against current EST time
-      const nowEST = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-      return !isNaN(returnDate.getTime()) && returnDate > nowEST;
+    const newStatus = !proxy.is_on_leave;
+    try {
+      await onUpdate(String(proxy.id), {
+        is_on_leave: newStatus,
+        leave_start_date: newStatus ? (proxy.leave_start_date || null) : null,
+        leave_end_date: newStatus ? (proxy.leave_end_date || null) : null,
+        leave_return_date: newStatus ? (proxy.leave_return_date || null) : null
+      });
+      await syncUserLeaveAvailability(String(proxy.id), null, null, newStatus);
+      showToast(newStatus ? `${proxy.display_name} marked on indefinite leave.` : `${proxy.display_name} marked active.`, 'success');
+    } catch (err) {
+      showToast('Failed to toggle leave status.', 'error');
+    } finally {
+      setIsUpdating(false);
     }
-    return false;
-  }, [proxy.is_on_leave, proxy.leave_return_date]);
+  };
+
+  const handleSaveLeave = async () => {
+    if (!leaveFrom || !leaveTo) {
+      showToast('Please select both Leave From and Leave To dates.', 'error');
+      return;
+    }
+
+    if (leaveFrom > leaveTo) {
+      showToast('Leave To date must be on or after Leave From date.', 'error');
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      await onUpdate(String(proxy.id), {
+        is_on_leave: true,
+        leave_start_date: leaveFrom,
+        leave_end_date: leaveTo,
+        leave_return_date: leaveTo
+      });
+
+      // Synchronize live calendar availability slots
+      await syncUserLeaveAvailability(String(proxy.id), leaveFrom, leaveTo, false);
+
+      // Check for conflicting active bookings
+      const conflicts = getProxyConflictingRounds(String(proxy.id), leaveFrom, leaveTo, allRounds);
+      if (conflicts.length > 0) {
+        showToast(`Leave saved! Warning: ${conflicts.length} existing interview booking(s) fall in this leave period. Please review and reassign if necessary.`, 'info');
+      } else {
+        showToast(`Leave period saved for ${proxy.display_name} (${formatLeavePeriod(leaveFrom, leaveTo)})`, 'success');
+      }
+      setIsEditing(false);
+    } catch (err) {
+      showToast('Failed to save leave period.', 'error');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleCancelLeave = async () => {
+    if (!window.confirm(`Cancel leave period for ${proxy.display_name}? This will restore calendar availability.`)) {
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      await onUpdate(String(proxy.id), {
+        is_on_leave: false,
+        leave_start_date: null,
+        leave_end_date: null,
+        leave_return_date: null
+      });
+
+      await syncUserLeaveAvailability(String(proxy.id), null, null, false);
+
+      setLeaveFrom('');
+      setLeaveTo('');
+      setIsEditing(false);
+      showToast(`Leave cancelled for ${proxy.display_name}. Availability restored.`, 'success');
+    } catch (err) {
+      showToast('Failed to cancel leave.', 'error');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   return (
     <motion.div 
@@ -1289,65 +1370,155 @@ const ProxyMemberCard: React.FC<{
       <div className="flex items-center gap-4 mb-6">
         <div className={cn(
           "w-16 h-16 rounded-[24px] flex items-center justify-center text-2xl font-black border transition-all",
-          isOnLeave ? "bg-accent-red/10 border-accent-red/20 text-accent-red" : "bg-accent-green/10 border-accent-green/20 text-accent-green"
+          isOnLeaveNow 
+            ? "bg-accent-red/10 border-accent-red/20 text-accent-red" 
+            : hasLeaveConfigured 
+            ? "bg-accent-amber/10 border-accent-amber/20 text-accent-amber"
+            : "bg-accent-green/10 border-accent-green/20 text-accent-green"
         )}>
           {proxy.display_name.charAt(0)}
         </div>
-        <div>
-          <h4 className="text-xl font-black text-text-primary tracking-tight">{proxy.display_name}</h4>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <h4 className="text-xl font-black text-text-primary tracking-tight truncate">{proxy.display_name}</h4>
+            <span className={cn(
+              "px-2.5 py-0.5 text-[9px] font-black rounded-lg uppercase tracking-wider shrink-0",
+              isOnLeaveNow 
+                ? "bg-accent-red/10 text-accent-red border border-accent-red/20" 
+                : hasLeaveConfigured 
+                ? "bg-accent-amber/10 text-accent-amber border border-accent-amber/20"
+                : "bg-accent-green/10 text-accent-green border border-accent-green/20"
+            )}>
+              {isOnLeaveNow ? "On Leave" : hasLeaveConfigured ? "Scheduled" : "Available"}
+            </span>
+          </div>
           <p className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em]">{proxy.username}</p>
         </div>
       </div>
 
-      <div className="space-y-6">
-        <div className="flex items-center justify-between p-4 bg-bg-tertiary rounded-2xl border border-border-primary">
+      <div className="space-y-5">
+        {/* Active Leave Period Card */}
+        {hasLeaveConfigured && !isEditing ? (
+          <div className="p-4 bg-bg-tertiary rounded-2xl border border-border-primary space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <span className="text-xl leading-none">🌴</span>
+                <div>
+                  <p className="text-[10px] font-black text-text-muted uppercase tracking-widest">Selected Leave Period (EST)</p>
+                  <p className="text-xs font-black text-text-primary mt-0.5">{leavePeriodText}</p>
+                </div>
+              </div>
+              <span className={cn(
+                "px-2 py-0.5 text-[8px] font-black rounded uppercase tracking-wider shrink-0",
+                isOnLeaveNow ? "bg-accent-red/15 text-accent-red" : "bg-accent-amber/15 text-accent-amber"
+              )}>
+                {isOnLeaveNow ? "Active Now" : "Upcoming"}
+              </span>
+            </div>
+
+            <div className="flex gap-2 pt-2 border-t border-border-primary/50">
+              <button
+                type="button"
+                onClick={() => setIsEditing(true)}
+                disabled={isUpdating}
+                className="flex-1 py-2 px-3 bg-bg-secondary hover:bg-bg-primary text-text-primary text-[10px] font-black uppercase tracking-wider rounded-xl border border-border-primary transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                <Edit2 className="w-3 h-3 text-accent-blue" />
+                Edit Leave
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelLeave}
+                disabled={isUpdating}
+                className="flex-1 py-2 px-3 bg-accent-red/10 hover:bg-accent-red/20 text-accent-red text-[10px] font-black uppercase tracking-wider rounded-xl border border-accent-red/20 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                <X className="w-3 h-3" />
+                Cancel Leave
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Leave Date Range Picker */
+          <div className="p-4 bg-bg-tertiary rounded-2xl border border-border-primary space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-black text-text-muted uppercase tracking-widest px-1">
+                {isEditing ? "Edit Leave Period (EST)" : "Set Leave Date Range (EST)"}
+              </label>
+              {isEditing && (
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(false)}
+                  className="text-[10px] font-bold text-text-muted hover:text-text-primary"
+                >
+                  Close
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <span className="text-[9px] font-bold text-text-muted uppercase tracking-wider block px-1">Leave From</span>
+                <input 
+                  type="date"
+                  value={leaveFrom}
+                  onChange={e => setLeaveFrom(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-bg-secondary border border-border-primary rounded-xl text-xs font-bold text-text-primary focus:ring-2 focus:ring-accent-blue/20 outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <span className="text-[9px] font-bold text-text-muted uppercase tracking-wider block px-1">Leave To</span>
+                <input 
+                  type="date"
+                  value={leaveTo}
+                  min={leaveFrom || undefined}
+                  onChange={e => setLeaveTo(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-bg-secondary border border-border-primary rounded-xl text-xs font-bold text-text-primary focus:ring-2 focus:ring-accent-blue/20 outline-none"
+                />
+              </div>
+            </div>
+
+            <button 
+              type="button"
+              onClick={handleSaveLeave}
+              disabled={isUpdating || !leaveFrom || !leaveTo}
+              className="w-full py-2.5 bg-accent-blue text-white rounded-xl text-xs font-bold hover:bg-accent-blue/90 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-sm"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              {isEditing ? "Update Leave Period" : "Save Leave Period"}
+            </button>
+
+            <p className="text-[9px] text-text-muted font-bold leading-relaxed px-1 italic">
+              * Dates are mapped to EST. Calendar availability and booking restrictions update automatically.
+            </p>
+          </div>
+        )}
+
+        {/* Manual Indefinite Override Option */}
+        <div className="flex items-center justify-between p-3.5 bg-bg-tertiary rounded-2xl border border-border-primary">
           <div>
-            <p className="text-xs font-black text-text-primary">Indefinite Leave</p>
-            <p className="text-[10px] text-text-muted font-bold">Manual override status</p>
+            <p className="text-xs font-black text-text-primary">Indefinite Override</p>
+            <p className="text-[9px] text-text-muted font-bold">Freeze availability without specific dates</p>
           </div>
           <button 
             disabled={isUpdating}
             type="button"
-            onClick={toggleLeave}
+            onClick={toggleIndefiniteLeave}
             className={cn(
-              "w-14 h-8 rounded-full relative transition-all duration-300 border",
+              "w-12 h-7 rounded-full relative transition-all duration-300 border",
               proxy.is_on_leave ? "bg-accent-red border-accent-red" : "bg-bg-secondary border-border-primary"
             )}
           >
             <div className={cn(
-              "w-6 h-6 rounded-full bg-white absolute top-0.5 transition-all",
+              "w-5 h-5 rounded-full bg-white absolute top-0.5 transition-all",
               proxy.is_on_leave ? "right-0.5 shadow-sm" : "left-0.5 border border-border-primary"
             )} />
           </button>
         </div>
 
-        <div className="space-y-3">
-          <label className="text-[10px] font-black text-text-muted uppercase tracking-widest px-1">On Leave Until (EST)</label>
-          <div className="flex gap-2">
-            <input 
-              type="datetime-local"
-              value={leaveReturn}
-              onChange={e => setLeaveReturn(e.target.value)}
-              className="flex-1 px-4 py-3 bg-bg-tertiary border border-border-primary rounded-xl text-xs font-bold text-text-primary focus:ring-2 focus:ring-accent-blue/20 outline-none"
-            />
-            <button 
-              type="button"
-              onClick={updateReturnDate}
-              disabled={isUpdating}
-              className="p-3 bg-accent-blue text-white rounded-xl hover:bg-accent-blue/90 transition-all disabled:opacity-50"
-            >
-              <CheckCircle2 className="w-5 h-5" />
-            </button>
-          </div>
-          <p className="text-[9px] text-text-muted font-bold leading-relaxed px-1 italic">
-            * Assignments and availability checks will automatically resume once this time passes.
-          </p>
-        </div>
-
-        {isOnLeave && (
+        {isOnLeaveNow && (
           <div className="flex items-center gap-2 p-3 bg-accent-red/5 border border-accent-red/10 rounded-xl">
-            <AlertCircle className="w-4 h-4 text-accent-red" />
-            <span className="text-[10px] font-black text-accent-red uppercase tracking-wider">Currently Unavailable</span>
+            <AlertCircle className="w-4 h-4 text-accent-red shrink-0" />
+            <span className="text-[10px] font-black text-accent-red uppercase tracking-wider">Currently Unavailable (On Leave)</span>
           </div>
         )}
       </div>
@@ -1639,8 +1810,10 @@ const DirectScheduleModal: React.FC<{
   onClose: () => void;
   round: InterviewRound;
   request: InterviewSupportRequest;
+  team?: User[];
   onSuccess: () => void;
-}> = ({ onClose, round, request, onSuccess }) => {
+}> = ({ onClose, round, request, team = [], onSuccess }) => {
+  const { showToast } = useToast();
   const [date, setDate] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [clearPrevious, setClearPrevious] = useState(true);
@@ -1651,6 +1824,14 @@ const DirectScheduleModal: React.FC<{
     try {
       const parts = date.split('T');
       const bookedStart = date.length === 16 ? `${date}:00` : date;
+      
+      const assignedProxyId = round.proxy_user_id || request.proxy_user_id;
+      const assignedProxy = team.find(u => String(u.id) === String(assignedProxyId));
+      if (assignedProxy && isUserOnLeaveDuring(assignedProxy, bookedStart)) {
+        showToast(`Cannot schedule: Proxy ${assignedProxy.display_name} is on leave during this time (${formatLeavePeriod(assignedProxy.leave_start_date, assignedProxy.leave_end_date, assignedProxy.leave_return_date)}). Please choose another time or reassign proxy.`, 'error');
+        setIsSubmitting(false);
+        return;
+      }
       
       // Calculate booked_slot_end based on round duration
       const startD = new Date(bookedStart);
@@ -1679,7 +1860,6 @@ const DirectScheduleModal: React.FC<{
       });
 
       // Calendar events sync if proxy is assigned
-      const assignedProxyId = round.proxy_user_id || request.proxy_user_id;
       if (assignedProxyId) {
         // Trigger Google Calendar integration API call
         try {

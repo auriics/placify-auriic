@@ -34,7 +34,7 @@ import {
   Upload,
   FileText
 } from 'lucide-react';
-import { cn, getCalendarDateInfo, parseLocalTimeToDate, getCurrentEasternISOString } from '../../lib/utils';
+import { cn, getCalendarDateInfo, parseLocalTimeToDate, getCurrentEasternISOString, isUserOnLeaveDuring } from '../../lib/utils';
 import { useToast } from '../../contexts/ToastContext';
 import { uploadFile } from '../../services/fileService';
 import { syncInterviewRoundToGoogleCalendar } from '../../services/calendarService';
@@ -186,21 +186,21 @@ export const BookingPage: React.FC = () => {
           const availSnap = await getDocs(availQuery);
           const nowEastern = getCurrentEasternISOString();
 
-          // Keep slots of all active eligible proxies
+          // Keep slots of all active eligible proxies (excluding those on leave during the specific slot)
           const usersSnap = await getDocs(collection(db, 'jpc_users'));
-          const activeProxyIds = new Set(
-            usersSnap.docs
-              .map(d => ({ ...d.data(), id: d.id } as User))
-              .filter(u => isProxyUser(u) && !u.deleted_at && !u.is_on_leave)
-              .map(u => String(u.id))
-          );
+          const proxyUsersMap = new Map<string, User>();
+          usersSnap.docs
+            .map(d => ({ ...d.data(), id: d.id } as User))
+            .filter(u => isProxyUser(u) && !u.deleted_at)
+            .forEach(u => proxyUsersMap.set(String(u.id), u));
 
           setAvailability(availSnap.docs
             .map(d => ({ ...d.data(), id: d.id } as ProxyAvailability))
             .filter(slot => {
-              // Compare formatted local strings directly to prevent client timezone offset bugs
-              const isProxyActive = activeProxyIds.has(String(slot.proxy_user_id));
-              return slot.slot_start >= nowEastern && isProxyActive;
+              const proxyUser = proxyUsersMap.get(String(slot.proxy_user_id));
+              if (!proxyUser) return false;
+              if (isUserOnLeaveDuring(proxyUser, slot.slot_start, slot.slot_end)) return false;
+              return slot.slot_start >= nowEastern;
             })
           );
         }

@@ -1,8 +1,8 @@
 import { addProxyAvailability, now } from './storage';
-import { ProxyAvailability, User, Candidate, InterviewSupportRequest } from '../types';
-import { collection, query, where, getDocs, doc, deleteDoc } from 'firebase/firestore';
+import { ProxyAvailability, User, Candidate, InterviewSupportRequest, InterviewRound } from '../types';
+import { collection, query, where, getDocs, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { parseLocalTimeToDate } from '../lib/utils';
+import { parseLocalTimeToDate, isUserOnLeaveDuring, isUserCurrentlyOnLeave, formatLeavePeriod, parseLeaveRange } from '../lib/utils';
 
 export function isProxyUser(u: User): boolean {
   if (!u) return false;
@@ -267,13 +267,9 @@ export const findBestProxyForWindow = (
     // this proxy's real-world conflicts, so they cannot be treated as available.
     if (!u.google_calendar_connected) return false;
 
-    // Check leave
-    if (u.is_on_leave) return false;
-    if (u.leave_return_date) {
-      const returnDate = parseLocalTimeToDate(u.leave_return_date);
-      if (!isNaN(returnDate.getTime()) && returnDate > jointStart) {
-        return false;
-      }
+    // Check leave (date range & EST timezone aware)
+    if (isUserOnLeaveDuring(u, jointStart, jointEnd)) {
+      return false;
     }
     return true;
   });
@@ -670,3 +666,106 @@ export function getInterviewResumeInfo(
 }
 
 
+
+
+/**
+ * Automatically synchronizes proxy availability slots in jpc_proxy_availability
+ * when a user's leave dates are added, updated, or cancelled.
+ *
+ * - Slots within the leave period are marked as 'leave' (unless already 'booked', which are preserved).
+ * - Previously marked 'leave' slots outside the new leave period or upon cancellation are restored to 'available'.
+ */
+export async function syncUserLeaveAvailability(
+  userId: string,
+  leaveStartDate: string | null | undefined,
+  leaveEndDate: string | null | undefined,
+  isIndefinite: boolean = false
+): Promise<{ updatedCount: number; restoredCount: number }> {
+  try {
+    const q = query(
+      collection(db, 'jpc_proxy_availability'),
+      where('proxy_user_id', 'in', [String(userId), userId])
+    );
+    const snap = await getDocs(q);
+    if (snap.empty) {
+      return { updatedCount: 0, restoredCount: 0 };
+    }
+
+    const leaveUser: Partial<User> = {
+      is_on_leave: isIndefinite || !!(leaveStartDate || leaveEndDate),
+      leave_start_date: leaveStartDate || null,
+      leave_end_date: leaveEndDate || null,
+      leave_return_date: leaveEndDate || null,
+    };
+
+    let updatedCount = 0;
+    let restoredCount = 0;
+
+    for (const d of snap.docs) {
+      const slot = d.data() as ProxyAvailability;
+      const slotId = d.id;
+
+      // DO NOT touch booked or completed slots - preserve existing interview bookings!
+      if (slot.slot_status === 'booked' || slot.slot_status === 'completed') {
+        continue;
+      }
+
+      const slotStart = slot.slot_start;
+      const slotEnd = slot.slot_end;
+      const isOnLeaveForSlot = isIndefinite
+        ? true
+        : (leaveStartDate || leaveEndDate)
+        ? isUserOnLeaveDuring(leaveUser, slotStart, slotEnd)
+        : false;
+
+      if (isOnLeaveForSlot) {
+        if (slot.slot_status === 'available') {
+          await updateDoc(doc(db, 'jpc_proxy_availability', slotId), {
+            slot_status: 'leave',
+            leave_reason: 'On Leave'
+          });
+          updatedCount++;
+        }
+      } else {
+        if (slot.slot_status === 'leave') {
+          await updateDoc(doc(db, 'jpc_proxy_availability', slotId), {
+            slot_status: 'available',
+            leave_reason: null
+          });
+          restoredCount++;
+        }
+      }
+    }
+
+    return { updatedCount, restoredCount };
+  } catch (error) {
+    console.error('Error syncing user leave availability:', error);
+    return { updatedCount: 0, restoredCount: 0 };
+  }
+}
+
+/**
+ * Finds all active scheduled interview rounds for a proxy within a given leave window.
+ * Used for conflict detection and notification upon leave creation.
+ */
+export function getProxyConflictingRounds(
+  proxyId: string,
+  leaveStartDate: string,
+  leaveEndDate: string,
+  allRounds: InterviewRound[]
+): InterviewRound[] {
+  const dummyUser: Partial<User> = {
+    is_on_leave: true,
+    leave_start_date: leaveStartDate,
+    leave_end_date: leaveEndDate,
+    leave_return_date: leaveEndDate
+  };
+
+  return allRounds.filter(r => {
+    if (String(r.proxy_user_id) !== String(proxyId)) return false;
+    if (r.status === 'cancelled') return false;
+    const time = r.booked_slot_time || r.interview_date;
+    if (!time) return false;
+    return isUserOnLeaveDuring(dummyUser, time, r.booked_slot_end || undefined);
+  });
+}

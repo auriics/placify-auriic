@@ -38,6 +38,9 @@ export interface User {
   created_at: string;
   is_on_leave?: boolean;
   leave_return_date?: string | null;
+  leave_start_date?: string | null;
+  leave_end_date?: string | null;
+  leave_reason?: string | null;
   deleted_at?: string | null;
   google_calendar_connected?: boolean;
   google_calendar_email?: string | null;

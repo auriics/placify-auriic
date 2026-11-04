@@ -3,7 +3,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { subscribeToCollection, saveUser, generateId } from '../services/storage';
 import { Users, UserPlus, Shield, Mail, Phone, MoreVertical, Edit2, Trash2, X, Save, AlertCircle, ShieldCheck, UserCheck, Lock, Copy, TrendingUp, Sparkles, CheckCircle2, Loader2, Sun, Moon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn } from '../lib/utils';
+import { cn, isUserOnLeaveDuring, isUserCurrentlyOnLeave, formatLeavePeriod, getEasternDate } from '../lib/utils';
+import { syncUserLeaveAvailability } from '../services/interviewService';
 import { User, UserRole, Candidate, isAurrumRole, ProfileHandlingAccess } from '../types';
 import { Modal } from '../components/Modal';
 import { SMTPConfigModal } from '../components/SMTPConfigModal';
@@ -159,6 +160,8 @@ export const Team: React.FC = () => {
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [isSMTPModalOpen, setIsSMTPModalOpen] = useState(false);
   const [leaveReturnDate, setLeaveReturnDate] = useState('');
+  const [leaveStartDate, setLeaveStartDate] = useState('');
+  const [leaveEndDate, setLeaveEndDate] = useState('');
   const [userTakingLeave, setUserTakingLeave] = useState<User | null>(null);
   const [userToResetPassword, setUserToResetPassword] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState('');
@@ -735,22 +738,29 @@ export const Team: React.FC = () => {
     }
 
     try {
-      const newStatus = !targetUser.is_on_leave;
+      const hasActiveLeave = !!(targetUser.is_on_leave || targetUser.leave_start_date || targetUser.leave_end_date);
       
-      if (newStatus) {
-        // Marking as on leave - ask for return date first
+      if (!hasActiveLeave) {
+        // Marking as on leave - open leave range modal
         setUserTakingLeave(targetUser);
-        setLeaveReturnDate('');
+        setLeaveStartDate(targetUser.leave_start_date || getEasternDate());
+        setLeaveEndDate(targetUser.leave_end_date || targetUser.leave_return_date || getEasternDate());
         setIsLeaveModalOpen(true);
         return;
       }
 
-      // Marking as back from leave
+      // Marking as back from leave (cancel leave)
       await updateDoc(doc(db, 'jpc_users', String(targetUser.id)), {
-        is_on_leave: false, proxy_priority: 0,
+        is_on_leave: false,
+        proxy_priority: 0,
+        leave_start_date: null,
+        leave_end_date: null,
         leave_return_date: null
       });
-      showToast(`${targetUser.display_name} is now back from leave`, 'success');
+
+      // Synchronize live calendar availability slots
+      await syncUserLeaveAvailability(String(targetUser.id), null, null, false);
+      showToast(`${targetUser.display_name} is now back from leave. Availability restored.`, 'success');
     } catch (error) {
       console.error('Toggle leave error:', error);
       showToast('Failed to update leave status', 'error');
@@ -758,18 +768,28 @@ export const Team: React.FC = () => {
   };
 
   const confirmLeaveStatus = async () => {
-    if (!userTakingLeave || !leaveReturnDate) {
-      showToast('Please select a return date', 'error');
+    if (!userTakingLeave || !leaveStartDate || !leaveEndDate) {
+      showToast('Please select both Leave From and Leave To dates', 'error');
+      return;
+    }
+
+    if (leaveStartDate > leaveEndDate) {
+      showToast('Leave To date must be on or after Leave From date', 'error');
       return;
     }
 
     try {
       await updateDoc(doc(db, 'jpc_users', String(userTakingLeave.id)), {
         is_on_leave: true,
-        leave_return_date: leaveReturnDate
+        leave_start_date: leaveStartDate,
+        leave_end_date: leaveEndDate,
+        leave_return_date: leaveEndDate
       });
+
+      // Synchronize live calendar availability slots
+      await syncUserLeaveAvailability(String(userTakingLeave.id), leaveStartDate, leaveEndDate, false);
       
-      showToast(`${userTakingLeave.display_name} is now on leave until ${new Date(leaveReturnDate).toLocaleDateString()}`, 'success');
+      showToast(`${userTakingLeave.display_name} is now on leave (${formatLeavePeriod(leaveStartDate, leaveEndDate)})`, 'success');
       setIsLeaveModalOpen(false);
       setReassigningFrom(userTakingLeave);
     } catch (error) {
@@ -1298,11 +1318,20 @@ export const Team: React.FC = () => {
                       <div>
                         <h3 className="font-bold text-text-primary">{member.display_name}</h3>
                         <p className="text-xs text-text-muted mt-1">@{member.username}</p>
-                        {member.is_on_leave && member.leave_return_date && (
-                          <div className="mt-2 px-3 py-1.5 bg-accent-red/5 border border-accent-red/10 rounded-xl">
-                            <p className="text-[10px] font-bold text-accent-red uppercase tracking-widest">
-                              On Leave Until: {new Date(member.leave_return_date).toLocaleDateString()}
-                            </p>
+                        {(member.is_on_leave || member.leave_start_date || member.leave_end_date || member.leave_return_date) && (
+                          <div className="mt-2 px-3 py-2 bg-accent-red/5 border border-accent-red/10 rounded-xl space-y-1">
+                            <div className="flex items-center justify-between gap-1">
+                              <p className="text-[10px] font-black text-accent-red uppercase tracking-wider flex items-center gap-1 truncate">
+                                <span>🌴</span>
+                                <span>Leave: {formatLeavePeriod(member.leave_start_date, member.leave_end_date, member.leave_return_date)}</span>
+                              </p>
+                              <span className={cn(
+                                "px-1.5 py-0.5 text-[8px] font-black rounded uppercase shrink-0",
+                                isUserCurrentlyOnLeave(member) ? "bg-accent-red/10 text-accent-red" : "bg-accent-amber/10 text-accent-amber"
+                              )}>
+                                {isUserCurrentlyOnLeave(member) ? "On Leave" : "Scheduled"}
+                              </span>
+                            </div>
                           </div>
                         )}
                         {member.role === 'jpc_recruiter' && member.leader_id && (
@@ -1368,18 +1397,35 @@ export const Team: React.FC = () => {
                                          (user?.role === 'jpc_cs' && String(member.leader_id) === String(user.id)) ||
                                          (isFaiz && mohitUser && (String(member.leader_id) === String(mohitUser.id) || String(member.leader_id) === String(user.id) || member.id === mohitUser.id));
                             const canToggle = user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || isTL;
+                            const hasLeave = !!(member.is_on_leave || member.leave_start_date || member.leave_end_date);
                             return canToggle && member.id !== user?.id && (
-                              <button
-                                onClick={() => toggleLeaveStatus(member)}
-                                className={cn(
-                                  "px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all",
-                                  member.is_on_leave 
-                                    ? "bg-accent-green/10 text-accent-green hover:bg-accent-green/20" 
-                                    : "bg-accent-red/10 text-accent-red hover:bg-accent-red/20"
+                              <div className="flex items-center gap-1.5">
+                                {hasLeave && (
+                                  <button
+                                    onClick={() => {
+                                      setUserTakingLeave(member);
+                                      setLeaveStartDate(member.leave_start_date || getEasternDate());
+                                      setLeaveEndDate(member.leave_end_date || member.leave_return_date || getEasternDate());
+                                      setIsLeaveModalOpen(true);
+                                    }}
+                                    className="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all bg-accent-blue/10 text-accent-blue hover:bg-accent-blue/20 flex items-center gap-1"
+                                    title="Edit leave date range"
+                                  >
+                                    <Edit2 className="w-2.5 h-2.5" /> Edit Leave
+                                  </button>
                                 )}
-                              >
-                                {member.is_on_leave ? "Mark Active" : "Mark Leave"}
-                              </button>
+                                <button
+                                  onClick={() => toggleLeaveStatus(member)}
+                                  className={cn(
+                                    "px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all",
+                                    hasLeave 
+                                      ? "bg-accent-green/10 text-accent-green hover:bg-accent-green/20" 
+                                      : "bg-accent-red/10 text-accent-red hover:bg-accent-red/20"
+                                  )}
+                                >
+                                  {hasLeave ? "Mark Active" : "Mark Leave"}
+                                </button>
+                              </div>
                             );
                           })()}
                           <p className="text-[10px] text-text-muted">
@@ -2011,28 +2057,39 @@ export const Team: React.FC = () => {
         </div>
       </Modal>
 
-      {/* Leave Return Date Modal */}
+      {/* Leave Date Range Modal */}
       <Modal
         isOpen={isLeaveModalOpen}
         onClose={() => setIsLeaveModalOpen(false)}
-        title="Mark Leave Duration"
+        title="Mark Leave Period (EST)"
       >
         <div className="space-y-6">
           <div className="p-4 bg-accent-amber/10 border border-accent-amber/20 rounded-2xl">
             <p className="text-sm text-text-primary">
-              When is <span className="font-bold">{userTakingLeave?.display_name}</span> expected to return?
+              Specify leave duration for <span className="font-bold">{userTakingLeave?.display_name}</span>. Availability and calendar schedules will update automatically in America/New_York (EST).
             </p>
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-text-muted uppercase tracking-widest">Return Date</label>
-            <input 
-              type="date"
-              value={leaveReturnDate}
-              onChange={e => setLeaveReturnDate(e.target.value)}
-              min={new Date().toISOString().split('T')[0]}
-              className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-text-muted uppercase tracking-widest">Leave From</label>
+              <input 
+                type="date"
+                value={leaveStartDate}
+                onChange={e => setLeaveStartDate(e.target.value)}
+                className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-text-muted uppercase tracking-widest">Leave To</label>
+              <input 
+                type="date"
+                value={leaveEndDate}
+                min={leaveStartDate || undefined}
+                onChange={e => setLeaveEndDate(e.target.value)}
+                className="w-full bg-bg-tertiary border border-border-primary rounded-xl px-4 py-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
+              />
+            </div>
           </div>
 
           <div className="flex gap-3">
@@ -2044,7 +2101,7 @@ export const Team: React.FC = () => {
             </button>
             <button 
               onClick={confirmLeaveStatus}
-              disabled={!leaveReturnDate}
+              disabled={!leaveStartDate || !leaveEndDate}
               className="flex-1 py-3 bg-accent-blue text-white font-bold rounded-xl hover:bg-accent-blue/90 transition-all shadow-lg shadow-accent-blue/20 disabled:opacity-50 disabled:shadow-none"
             >
               Confirm Leave

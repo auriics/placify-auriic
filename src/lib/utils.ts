@@ -301,3 +301,158 @@ export const isDirectInterviewSupportCandidate = (c: any): boolean => {
   return false;
 };
 
+
+
+export interface ParsedLeaveRange {
+  start: Date;
+  end: Date;
+}
+
+export function parseLeaveRange(
+  startDate?: string | null,
+  endDate?: string | null,
+  returnDate?: string | null
+): ParsedLeaveRange | null {
+  const fromStr = startDate || null;
+  const toStr = endDate || returnDate || null;
+
+  if (!fromStr && !toStr) {
+    return null;
+  }
+
+  try {
+    let startD: Date;
+    let endD: Date;
+
+    if (fromStr) {
+      const cleanFrom = fromStr.includes('T') ? fromStr : `${fromStr}T00:00:00`;
+      startD = parseLocalTimeToDate(cleanFrom, 'America/New_York');
+    } else {
+      startD = new Date(0);
+    }
+
+    if (toStr) {
+      const cleanTo = toStr.includes('T') ? toStr : `${toStr}T23:59:59.999`;
+      endD = parseLocalTimeToDate(cleanTo, 'America/New_York');
+    } else {
+      const cleanTo = fromStr!.includes('T') ? fromStr! : `${fromStr!}T23:59:59.999`;
+      endD = parseLocalTimeToDate(cleanTo, 'America/New_York');
+    }
+
+    if (isNaN(startD.getTime()) || isNaN(endD.getTime())) {
+      return null;
+    }
+
+    if (startD.getTime() > endD.getTime()) {
+      return { start: endD, end: startD };
+    }
+
+    return { start: startD, end: endD };
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Determines whether a user is on leave during a given target time window [targetStart, targetEnd].
+ * Time window comparison is conducted strictly in EST (America/New_York).
+ */
+export function isUserOnLeaveDuring(
+  user: {
+    is_on_leave?: boolean;
+    leave_start_date?: string | null;
+    leave_end_date?: string | null;
+    leave_return_date?: string | null;
+  } | null | undefined,
+  targetStart: Date | string,
+  targetEnd?: Date | string
+): boolean {
+  if (!user) return false;
+
+  let winStart: Date;
+  if (typeof targetStart === 'string') {
+    winStart = targetStart.includes('T')
+      ? parseLocalTimeToDate(targetStart, 'America/New_York')
+      : parseLocalTimeToDate(`${targetStart}T00:00:00`, 'America/New_York');
+  } else {
+    winStart = targetStart;
+  }
+
+  let winEnd: Date;
+  if (targetEnd) {
+    if (typeof targetEnd === 'string') {
+      winEnd = targetEnd.includes('T')
+        ? parseLocalTimeToDate(targetEnd, 'America/New_York')
+        : parseLocalTimeToDate(`${targetEnd}T23:59:59.999`, 'America/New_York');
+    } else {
+      winEnd = targetEnd;
+    }
+  } else {
+    winEnd = new Date(winStart.getTime() + 30 * 60 * 1000);
+  }
+
+  const range = parseLeaveRange(user.leave_start_date, user.leave_end_date, user.leave_return_date);
+
+  if (range) {
+    return winStart < range.end && winEnd > range.start;
+  }
+
+  if (user.is_on_leave) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Checks if the user is currently on leave at this exact moment in America/New_York (EST).
+ */
+export function isUserCurrentlyOnLeave(
+  user: {
+    is_on_leave?: boolean;
+    leave_start_date?: string | null;
+    leave_end_date?: string | null;
+    leave_return_date?: string | null;
+  } | null | undefined
+): boolean {
+  if (!user) return false;
+  const nowEst = new Date();
+  return isUserOnLeaveDuring(user, nowEst, nowEst);
+}
+
+/**
+ * Returns a human-friendly label for the user's leave period.
+ * e.g., 'Nov 05, 2026 - Nov 08, 2026 (EST)'
+ */
+export function formatLeavePeriod(
+  startDate?: string | null,
+  endDate?: string | null,
+  returnDate?: string | null
+): string {
+  const fromStr = startDate || null;
+  const toStr = endDate || returnDate || null;
+
+  if (!fromStr && !toStr) return 'Indefinite Leave';
+
+  const range = parseLeaveRange(fromStr, toStr, returnDate);
+  if (!range) {
+    if (toStr) return `Until ${toStr} (EST)`;
+    return 'Indefinite Leave';
+  }
+
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric'
+  });
+
+  const fromFormatted = formatter.format(range.start);
+  const toFormatted = formatter.format(range.end);
+
+  if (fromFormatted === toFormatted) {
+    return `${fromFormatted} (EST)`;
+  }
+
+  return `${fromFormatted} - ${toFormatted} (EST)`;
+}

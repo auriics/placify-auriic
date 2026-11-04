@@ -119,3 +119,57 @@ test('proxy_priority field has no effect on selection, even when set to extreme 
   }
   assert.ok(counts.u_nihal > 700 && counts.u_nihal < 1300, `proxy_priority appears to bias selection: ${counts.u_nihal}/2000 for Nihal (priority=1)`);
 });
+
+
+test('Proxy on date-range leave is excluded for dates inside the leave window', () => {
+  const nihalLeaveRange = {
+    ...NIHAL,
+    is_on_leave: true,
+    leave_start_date: '2026-10-05',
+    leave_end_date: '2026-10-08'
+  };
+  // Oct 5 (start of leave)
+  const resultOct5 = findBestProxyForWindow('2026-10-05', START, END, [nihalLeaveRange, RUDRA], [], []);
+  assert.equal(resultOct5.bestProxy?.id, 'u_rudra');
+  assert.deepEqual(resultOct5.availableProxies.map(p => p.id), ['u_rudra']);
+
+  // Oct 7 (middle of leave)
+  const resultOct7 = findBestProxyForWindow('2026-10-07', START, END, [nihalLeaveRange, RUDRA], [], []);
+  assert.equal(resultOct7.bestProxy?.id, 'u_rudra');
+  assert.deepEqual(resultOct7.availableProxies.map(p => p.id), ['u_rudra']);
+
+  // Oct 8 (end of leave)
+  const resultOct8 = findBestProxyForWindow('2026-10-08', START, END, [nihalLeaveRange, RUDRA], [], []);
+  assert.equal(resultOct8.bestProxy?.id, 'u_rudra');
+  assert.deepEqual(resultOct8.availableProxies.map(p => p.id), ['u_rudra']);
+});
+
+test('Proxy on date-range leave remains AVAILABLE for dates outside the leave window', () => {
+  const nihalLeaveRange = {
+    ...NIHAL,
+    is_on_leave: true,
+    leave_start_date: '2026-10-05',
+    leave_end_date: '2026-10-08'
+  };
+
+  // Oct 4 (before leave starts) -> Nihal MUST be available
+  const resultBefore = findBestProxyForWindow('2026-10-04', START, END, [nihalLeaveRange, RUDRA], [], []);
+  assert.ok(resultBefore.availableProxies.some(p => p.id === 'u_nihal'), 'Nihal should be available before leave window');
+
+  // Oct 9 (after leave ends) -> Nihal MUST be available
+  const resultAfter = findBestProxyForWindow('2026-10-09', START, END, [nihalLeaveRange, RUDRA], [], []);
+  assert.ok(resultAfter.availableProxies.some(p => p.id === 'u_nihal'), 'Nihal should be available after leave window');
+});
+
+test('Cancelling date-range leave restores availability immediately across all dates', () => {
+  const nihalCancelledLeave = {
+    ...NIHAL,
+    is_on_leave: false,
+    leave_start_date: null,
+    leave_end_date: null,
+    leave_return_date: null
+  };
+
+  const result = findBestProxyForWindow(DATE, START, END, [nihalCancelledLeave, RUDRA], [], []);
+  assert.ok(result.availableProxies.some(p => p.id === 'u_nihal'), 'Nihal should be restored to available');
+});
