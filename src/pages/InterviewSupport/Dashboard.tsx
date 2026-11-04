@@ -1287,7 +1287,12 @@ const ProxyMemberCard: React.FC<{
         leave_end_date: newStatus ? (proxy.leave_end_date || null) : null,
         leave_return_date: newStatus ? (proxy.leave_return_date || null) : null
       });
-      await syncUserLeaveAvailability(String(proxy.id), null, null, newStatus);
+      await syncUserLeaveAvailability(
+        String(proxy.id),
+        newStatus ? (proxy.leave_start_date || null) : null,
+        newStatus ? (proxy.leave_end_date || null) : null,
+        newStatus
+      );
       showToast(newStatus ? `${proxy.display_name} marked on indefinite leave.` : `${proxy.display_name} marked active.`, 'success');
     } catch (err) {
       showToast('Failed to toggle leave status.', 'error');
