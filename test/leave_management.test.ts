@@ -13,7 +13,10 @@ import {
   resolveBestSlotForBooking,
   getProxyConflictingRounds,
   isProxyUser,
-  getProxyLeaveStatusForDate
+  getProxyLeaveStatusForDate,
+  shouldHideProxyLeaveFromRole,
+  hasActiveOrFutureLeave,
+  getActiveOrFutureProxyLeaves
 } from '../src/services/interviewService';
 import {
   getNextDayDateString,
@@ -232,7 +235,7 @@ test('5.2 findBestProxyForWindow: returns error when all eligible proxies are on
   assert.equal(result.bestProxy, null);
   assert.equal(result.availableProxies.length, 0);
   assert.ok(result.errors.length > 0);
-  assert.ok(result.errors[0].includes('Both proxy members are on leave and unavailable for the selected interview date'));
+  assert.ok(result.errors[0].includes('BOTH PROXY MEMBERS HAVE LEAVE BOOKED FOR THE SELECTED DATE. NO PROXY IS AVAILABLE FOR THIS INTERVIEW.'));
 });
 
 test('5.3 findBestProxyForWindow: blocks proxy based on synchronized calendarEvents', () => {
@@ -407,7 +410,7 @@ test('7.1 getProxyLeaveStatusForDate: correctly identifies on-leave proxy with l
   assert.equal(status.leaveFrom, '2026-11-09');
   assert.equal(status.leaveTo, '2026-11-15');
   assert.equal(status.leavePeriodText, 'Nov 09, 2026 - Nov 15, 2026 (EST)');
-  assert.equal(status.message, 'This proxy is currently on leave and unavailable for this interview date.');
+  assert.equal(status.message, 'THIS PROXY HAS ALREADY BOOKED LEAVE FOR THE SELECTED DATE. PLEASE CHECK AVAILABILITY BEFORE SCHEDULING THE INTERVIEW.');
 });
 
 test('7.2 getProxyLeaveStatusForDate: correctly identifies active proxy outside leave window', () => {
@@ -456,7 +459,7 @@ test('7.3 findBestProxyForWindow: returns prominent warning when both proxy memb
   assert.equal(result.bestProxy, null);
   assert.equal(result.availableProxies.length, 0);
   assert.equal(result.errors.length, 1);
-  assert.equal(result.errors[0], 'Both proxy members are on leave and unavailable for the selected interview date.');
+  assert.equal(result.errors[0], 'BOTH PROXY MEMBERS HAVE LEAVE BOOKED FOR THE SELECTED DATE. NO PROXY IS AVAILABLE FOR THIS INTERVIEW.');
 });
 
 test('7.4 findBestProxyForWindow: selects available proxy when only one proxy is on leave', () => {
@@ -517,7 +520,95 @@ test('7.5 assignProxiesForRounds: rejects multi-round assignment when both proxi
   );
 
   assert.equal(result.roundAssignments[0].bestProxy, null);
-  assert.equal(result.roundAssignments[0].errors[0], 'Both proxy members are on leave and unavailable for the selected interview date.');
+  assert.equal(result.roundAssignments[0].errors[0], 'BOTH PROXY MEMBERS HAVE LEAVE BOOKED FOR THE SELECTED DATE. NO PROXY IS AVAILABLE FOR THIS INTERVIEW.');
   assert.equal(result.roundAssignments[1].bestProxy, null);
-  assert.equal(result.roundAssignments[1].errors[0], 'Both proxy members are on leave and unavailable for the selected interview date.');
+  assert.equal(result.roundAssignments[1].errors[0], 'BOTH PROXY MEMBERS HAVE LEAVE BOOKED FOR THE SELECTED DATE. NO PROXY IS AVAILABLE FOR THIS INTERVIEW.');
+});
+
+// =========================================================================
+// 8. ROLE-BASED PRIVACY & REAL-TIME FUTURE LEAVE ALERTS
+// =========================================================================
+test('8.1 shouldHideProxyLeaveFromRole: hides proxy leave status from lead and sales teams only', () => {
+  // Restricted roles
+  assert.equal(shouldHideProxyLeaveFromRole('jpc_lead_gen'), true);
+  assert.equal(shouldHideProxyLeaveFromRole('jpc_sales'), true);
+  assert.equal(shouldHideProxyLeaveFromRole('aurrum_sales'), true);
+  assert.equal(shouldHideProxyLeaveFromRole('candidate'), true);
+  assert.equal(shouldHideProxyLeaveFromRole('jpc_candidate'), true);
+
+  // Authorized roles that MUST see proxy leave alerts
+  assert.equal(shouldHideProxyLeaveFromRole('administrator'), false);
+  assert.equal(shouldHideProxyLeaveFromRole('jpc_sysadmin'), false);
+  assert.equal(shouldHideProxyLeaveFromRole('jpc_manager'), false);
+  assert.equal(shouldHideProxyLeaveFromRole('jpc_recruiter'), false);
+  assert.equal(shouldHideProxyLeaveFromRole('jpc_cs'), false);
+  assert.equal(shouldHideProxyLeaveFromRole('jpc_proxy'), false);
+  assert.equal(shouldHideProxyLeaveFromRole('jpc_compliance_person'), false);
+  assert.equal(shouldHideProxyLeaveFromRole('jpc_marketing'), false);
+  assert.equal(shouldHideProxyLeaveFromRole(undefined), false);
+});
+
+test('8.2 hasActiveOrFutureLeave: immediately flags saved leave even if start date is in future', () => {
+  // Proxy has leave scheduled in the future (Nov 09 to Nov 15, 2026)
+  const proxyFutureLeave = {
+    ...NIHAL,
+    is_on_leave: true,
+    leave_start_date: '2026-11-09',
+    leave_end_date: '2026-11-15'
+  };
+
+  // Immediate detection on Nov 04 (today)
+  assert.equal(hasActiveOrFutureLeave(proxyFutureLeave, '2026-11-04'), true);
+
+  // Detection during the leave window
+  assert.equal(hasActiveOrFutureLeave(proxyFutureLeave, '2026-11-10'), true);
+
+  // Expired leave in the past
+  assert.equal(hasActiveOrFutureLeave(proxyFutureLeave, '2026-11-16'), false);
+
+  // Indefinite manual override
+  const proxyIndefinite = {
+    ...NIHAL,
+    is_on_leave: true,
+    leave_start_date: null,
+    leave_end_date: null
+  };
+  assert.equal(hasActiveOrFutureLeave(proxyIndefinite, '2026-11-04'), true);
+
+  // Not on leave
+  const proxyAvailable = {
+    ...NIHAL,
+    is_on_leave: false
+  };
+  assert.equal(hasActiveOrFutureLeave(proxyAvailable, '2026-11-04'), false);
+});
+
+test('8.3 getActiveOrFutureProxyLeaves: aggregates proxy leaves with full date ranges for global alerts', () => {
+  const team = [
+    {
+      ...NIHAL,
+      is_on_leave: true,
+      leave_start_date: '2026-11-09',
+      leave_end_date: '2026-11-15'
+    },
+    {
+      ...RUDRA,
+      is_on_leave: true,
+      leave_start_date: '2026-11-12',
+      leave_end_date: '2026-11-20'
+    },
+    {
+      id: 'u_recruiter',
+      display_name: 'Param Recruiter',
+      role: 'jpc_recruiter',
+      is_on_leave: true // Not a proxy
+    }
+  ];
+
+  const leaves = getActiveOrFutureProxyLeaves(team, '2026-11-04');
+  assert.equal(leaves.length, 2);
+  assert.equal(leaves[0].proxy.id, 'u_nihal');
+  assert.equal(leaves[0].leavePeriodText, 'Nov 09, 2026 - Nov 15, 2026 (EST)');
+  assert.equal(leaves[1].proxy.id, 'u_rudra');
+  assert.equal(leaves[1].leavePeriodText, 'Nov 12, 2026 - Nov 20, 2026 (EST)');
 });

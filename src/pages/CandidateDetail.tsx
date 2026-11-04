@@ -80,6 +80,7 @@ import { sendWelcomeEmail } from '../services/welcomeEmail';
 import { Candidate, Payment, Promise as PromiseType, QCChecklistItem, FollowUp, ActivityLog, User, Stage, ResumeChangeRequest, Application, InterviewSupportRequest, TargetReductionRequest, ResumeVersion, InterviewOfferRequest, RecruiterAssignmentHistory } from '../types';
 import { InterviewCompletionModal } from '../components/InterviewCompletionModal';
 import { ComplianceOfferApprovalModal } from '../components/ComplianceOfferApprovalModal';
+import { ProxyLeaveBanner } from '../components/ProxyLeaveBanner';
 import { query, collection, where, onSnapshot, doc, setDoc, getDocs } from 'firebase/firestore';
 import { db, firebaseConfig } from '../firebase';
 import { initializeApp } from 'firebase/app';
@@ -2212,6 +2213,9 @@ export const CandidateDetail: React.FC = () => {
 
         </div>
       )}
+
+      {/* Real-Time Proxy Leave Alert (Hidden from Lead and Sales) */}
+      <ProxyLeaveBanner team={allUsers} contextTitle="Interview Support Notice" />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
 

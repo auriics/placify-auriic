@@ -2,7 +2,7 @@ import { addProxyAvailability, now } from './storage';
 import { ProxyAvailability, User, Candidate, InterviewSupportRequest, InterviewRound } from '../types';
 import { collection, query, where, getDocs, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { parseLocalTimeToDate, isUserOnLeaveDuring, isUserCurrentlyOnLeave, formatLeavePeriod, parseLeaveRange } from '../lib/utils';
+import { parseLocalTimeToDate, isUserOnLeaveDuring, isUserCurrentlyOnLeave, formatLeavePeriod, parseLeaveRange, getEasternDate } from '../lib/utils';
 import { syncProxyLeaveToGoogleCalendar } from './calendarService';
 
 export function isProxyUser(u: User): boolean {
@@ -360,7 +360,7 @@ export const findBestProxyForWindow = (
       availableProxies: [], 
       errors: [
         isBothOnLeave
-          ? 'Both proxy members are on leave and unavailable for the selected interview date.'
+          ? 'BOTH PROXY MEMBERS HAVE LEAVE BOOKED FOR THE SELECTED DATE. NO PROXY IS AVAILABLE FOR THIS INTERVIEW.'
           : 'Currently no proxy is available for the selected interview time. Please choose another time.'
       ] 
     };
@@ -809,15 +809,92 @@ export function getProxyLeaveStatusForDate(
   const start = startTime ? `${dateStr}T${startTime}` : dateStr;
   const end = endTime ? `${dateStr}T${endTime}` : dateStr;
   const onLeave = isUserOnLeaveDuring(proxy, start, end);
-  const leaveText = formatLeavePeriod(proxy?.leave_start_date, proxy?.leave_end_date);
+  const leaveText = formatLeavePeriod(proxy?.leave_start_date, proxy?.leave_end_date, proxy?.leave_return_date);
   return {
     isOnLeave: onLeave,
     proxyName: proxy?.display_name || 'Proxy',
     leaveFrom: proxy?.leave_start_date || null,
-    leaveTo: proxy?.leave_end_date || null,
+    leaveTo: proxy?.leave_end_date || proxy?.leave_return_date || null,
     leavePeriodText: leaveText,
     message: onLeave
-      ? 'This proxy is currently on leave and unavailable for this interview date.'
+      ? 'THIS PROXY HAS ALREADY BOOKED LEAVE FOR THE SELECTED DATE. PLEASE CHECK AVAILABILITY BEFORE SCHEDULING THE INTERVIEW.'
       : 'Available'
   };
+}
+
+/**
+ * Checks whether a user role should be restricted from viewing proxy leave information.
+ * Lead and Sales teams (and candidates) must NOT see proxy leave status.
+ */
+export function shouldHideProxyLeaveFromRole(role?: string | null): boolean {
+  if (!role) return false;
+  return ['jpc_lead_gen', 'jpc_sales', 'aurrum_sales', 'candidate', 'jpc_candidate'].includes(role);
+}
+
+/**
+ * Checks whether a proxy has an active or future saved leave record.
+ * Immediately after leave is saved (even for future dates), this returns true
+ * until the leave end date has passed.
+ */
+export function hasActiveOrFutureLeave(
+  user: {
+    is_on_leave?: boolean;
+    leave_start_date?: string | null;
+    leave_end_date?: string | null;
+    leave_return_date?: string | null;
+  } | null | undefined,
+  referenceDate?: string
+): boolean {
+  if (!user) return false;
+  // If user explicitly has is_on_leave === false and no leave dates, they are active
+  if (user.is_on_leave === false && !user.leave_start_date && !user.leave_end_date) {
+    return false;
+  }
+  
+  const todayStr = referenceDate || getEasternDate();
+  const endDate = user.leave_end_date ? user.leave_end_date.substring(0, 10) : (user.leave_return_date ? user.leave_return_date.substring(0, 10) : null);
+  
+  if (endDate) {
+    return endDate >= todayStr;
+  }
+  
+  if (user.leave_start_date) {
+    const startDate = user.leave_start_date.substring(0, 10);
+    return startDate >= todayStr;
+  }
+  
+  return !!user.is_on_leave;
+}
+
+export interface ActiveProxyLeave {
+  proxy?: any;
+  proxyId: string;
+  proxyName: string;
+  leaveFrom: string;
+  leaveTo: string;
+  leavePeriodText: string;
+}
+
+/**
+ * Retrieves all proxy members who have an active or future approved/saved leave record.
+ */
+export function getActiveOrFutureProxyLeaves(team: any[], referenceDate?: string): ActiveProxyLeave[] {
+  if (!Array.isArray(team)) return [];
+  const proxies = team.filter(isProxyUser);
+  const result: ActiveProxyLeave[] = [];
+
+  for (const proxy of proxies) {
+    if (hasActiveOrFutureLeave(proxy, referenceDate)) {
+      result.push({
+        proxy,
+        proxyId: String(proxy.id),
+        proxyName: proxy.display_name || proxy.username || 'Proxy Member',
+        leaveFrom: proxy.leave_start_date || 'Ongoing',
+        leaveTo: proxy.leave_end_date || proxy.leave_return_date || 'Indefinite',
+        leavePeriodText: formatLeavePeriod(proxy.leave_start_date, proxy.leave_end_date, proxy.leave_return_date)
+      });
+    }
+  }
+
+  return result;
 }

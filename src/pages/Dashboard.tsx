@@ -21,6 +21,7 @@ import { ThoughtsConfigModal, DEFAULT_QUOTES } from '../components/ThoughtsConfi
 import { SMTPConfigModal } from '../components/SMTPConfigModal';
 import { ComplianceOfferApprovalModal } from '../components/ComplianceOfferApprovalModal';
 import { CelebrationBanner } from '../components/CelebrationBanner';
+import { ProxyLeaveBanner } from '../components/ProxyLeaveBanner';
 import { db, firebaseConfig } from '../firebase';
 import { query, collection, where, limit, doc, getDoc } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
@@ -747,6 +748,9 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6 sm:space-y-10">
+      {/* Global Real-Time Proxy Leave Alert (Hidden from Lead and Sales) */}
+      <ProxyLeaveBanner team={allUsers} contextTitle="Global Leave Alert" />
+
       {/* Feature Blast Alerts */}
       <AnimatePresence>
         {activeAnnouncements.length > 0 && (

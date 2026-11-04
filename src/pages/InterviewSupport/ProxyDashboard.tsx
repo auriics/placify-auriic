@@ -31,7 +31,7 @@ import {
   InterviewFeedback,
   User
 } from '../../types';
-import { generateDefaultProxySlots, getSlotStatusColor, cleanupDuplicateProxySlots, isProxyUser, getInterviewResumeInfo, getProxyLeaveStatusForDate, syncUserLeaveAvailability } from '../../services/interviewService';
+import { generateDefaultProxySlots, getSlotStatusColor, cleanupDuplicateProxySlots, isProxyUser, getInterviewResumeInfo, getProxyLeaveStatusForDate, syncUserLeaveAvailability, shouldHideProxyLeaveFromRole, hasActiveOrFutureLeave, getActiveOrFutureProxyLeaves } from '../../services/interviewService';
 import { handleViewFile } from '../../services/fileService';
 import { 
   Calendar as CalendarIcon, 
@@ -491,16 +491,31 @@ export const ProxyDashboard: React.FC = () => {
     return filterDate || getEasternDate();
   }, [filterDate]);
 
+  const hideLeaveStatus = useMemo(() => {
+    return shouldHideProxyLeaveFromRole(user?.role);
+  }, [user]);
+
   const activeProxyLeaveInfo = useMemo(() => {
-    if (!activeProxyUser) return null;
+    if (!activeProxyUser || hideLeaveStatus) return null;
     return getProxyLeaveStatusForDate(activeProxyUser, effectiveProxyDate);
-  }, [activeProxyUser, effectiveProxyDate]);
+  }, [activeProxyUser, effectiveProxyDate, hideLeaveStatus]);
+
+  const activeProxyHasFutureLeave = useMemo(() => {
+    if (!activeProxyUser || hideLeaveStatus) return false;
+    return hasActiveOrFutureLeave(activeProxyUser);
+  }, [activeProxyUser, hideLeaveStatus]);
 
   const bothProxiesOnLeaveInCentral = useMemo(() => {
-    if (proxyList.length === 0) return false;
+    if (proxyList.length === 0 || hideLeaveStatus) return false;
     const onLeaveCount = proxyList.filter(p => isUserOnLeaveDuring(p, effectiveProxyDate, effectiveProxyDate)).length;
     return onLeaveCount >= 2 && onLeaveCount === proxyList.length;
-  }, [proxyList, effectiveProxyDate]);
+  }, [proxyList, effectiveProxyDate, hideLeaveStatus]);
+
+  const allProxiesScheduledLeave = useMemo(() => {
+    if (proxyList.length === 0 || hideLeaveStatus) return false;
+    const activeLeaves = getActiveOrFutureProxyLeaves(proxyList);
+    return activeLeaves.length >= proxyList.length;
+  }, [proxyList, hideLeaveStatus]);
 
   const isGoogleConnected = useMemo(() => {
     return activeProxyUser?.google_calendar_connected || false;
@@ -567,17 +582,20 @@ export const ProxyDashboard: React.FC = () => {
                     <option value="">No Active Proxy Members</option>
                   ) : (
                     proxyList.map((p) => {
-                      const pLeave = getProxyLeaveStatusForDate(p, effectiveProxyDate);
+                      const hasFuture = !hideLeaveStatus && hasActiveOrFutureLeave(p);
+                      const pLeave = !hideLeaveStatus ? getProxyLeaveStatusForDate(p, effectiveProxyDate) : null;
+                      const isConflict = pLeave?.isOnLeave;
+                      const leaveRange = formatLeavePeriod(p.leave_start_date, p.leave_end_date);
                       return (
                         <option key={p.id} value={p.id}>
-                          {p.display_name} {pLeave.isOnLeave ? `🔴 [ON LEAVE: ${pLeave.leavePeriodText}] - UNAVAILABLE` : ''}
+                          {p.display_name} {isConflict ? `🔴 [ON LEAVE: ${leaveRange}] - UNAVAILABLE` : hasFuture ? `🔴 [ON LEAVE: ${leaveRange}]` : ''}
                         </option>
                       );
                     })
                   )}
                 </select>
 
-                {activeProxyLeaveInfo?.isOnLeave && (
+                {(activeProxyLeaveInfo?.isOnLeave || activeProxyHasFutureLeave) && !hideLeaveStatus && (
                   <span className="px-2.5 py-1 text-[9px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-lg flex items-center gap-1 shadow-sm shrink-0">
                     <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                     ON LEAVE
@@ -590,23 +608,38 @@ export const ProxyDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Prominent Warning when both proxies are on leave */}
-      {bothProxiesOnLeaveInCentral && (
+      {/* Prominent Warning when both proxies have leave on selected date */}
+      {bothProxiesOnLeaveInCentral && !hideLeaveStatus && (
         <div className="p-5 bg-rose-500/15 border border-rose-500/30 rounded-3xl flex items-start sm:items-center gap-3">
           <AlertCircle className="w-6 h-6 text-rose-500 shrink-0 mt-0.5 sm:mt-0" />
           <div className="flex-1">
             <p className="text-sm sm:text-base font-black text-rose-500">
-              Both proxy members are on leave and unavailable for the selected interview date{filterDate ? ` (${filterDate})` : ''}.
+              BOTH PROXY MEMBERS HAVE LEAVE BOOKED FOR THE SELECTED DATE. NO PROXY IS AVAILABLE FOR THIS INTERVIEW.
             </p>
             <p className="text-xs text-text-secondary mt-0.5">
-              Neither proxy can be assigned or booked during this leave window. Please select another date or review leave schedules in Team Management.
+              Neither proxy can be assigned or booked during this leave window. Please select another date.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Prominent Warning when all proxies have active/future leave scheduled */}
+      {allProxiesScheduledLeave && !bothProxiesOnLeaveInCentral && !hideLeaveStatus && (
+        <div className="p-5 bg-rose-500/15 border border-rose-500/30 rounded-3xl flex items-start sm:items-center gap-3">
+          <AlertCircle className="w-6 h-6 text-rose-500 shrink-0 mt-0.5 sm:mt-0" />
+          <div className="flex-1">
+            <p className="text-sm sm:text-base font-black text-rose-500">
+              ALL PROXY TEAM MEMBERS HAVE LEAVE SCHEDULED. PLEASE CHECK AVAILABILITY BEFORE SCHEDULING INTERVIEWS.
+            </p>
+            <p className="text-xs text-text-secondary mt-0.5">
+              Review individual leave schedules below before making interview assignments.
             </p>
           </div>
         </div>
       )}
 
       {/* Detailed leave banner for active proxy */}
-      {activeProxyLeaveInfo?.isOnLeave && !bothProxiesOnLeaveInCentral && (
+      {(activeProxyLeaveInfo?.isOnLeave || activeProxyHasFutureLeave) && !bothProxiesOnLeaveInCentral && !hideLeaveStatus && (
         <div className="p-4 sm:p-5 bg-rose-500/10 border border-rose-500/25 rounded-2xl sm:rounded-3xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center font-black text-sm">
@@ -621,12 +654,14 @@ export const ProxyDashboard: React.FC = () => {
                 </span>
               </div>
               <p className="text-[11px] text-rose-400 font-bold mt-0.5">
-                Leave Period: {activeProxyLeaveInfo.leaveFrom || 'N/A'} - {activeProxyLeaveInfo.leaveTo || 'N/A'} ({activeProxyLeaveInfo.leavePeriodText})
+                Leave Period: {activeProxyUser?.leave_start_date || 'N/A'} - {activeProxyUser?.leave_end_date || 'N/A'} ({formatLeavePeriod(activeProxyUser?.leave_start_date, activeProxyUser?.leave_end_date)})
               </p>
             </div>
           </div>
           <p className="text-xs font-bold text-rose-400 italic">
-            {activeProxyLeaveInfo.message}
+            {activeProxyLeaveInfo?.isOnLeave
+              ? "THIS PROXY HAS ALREADY BOOKED LEAVE FOR THE SELECTED DATE. PLEASE CHECK AVAILABILITY BEFORE SCHEDULING THE INTERVIEW."
+              : `This proxy has future leave booked (${formatLeavePeriod(activeProxyUser?.leave_start_date, activeProxyUser?.leave_end_date)}).`}
           </p>
         </div>
       )}

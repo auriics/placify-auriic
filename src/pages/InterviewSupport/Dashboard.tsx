@@ -73,9 +73,10 @@ import { ProxyAssignmentModal } from '../../components/ProxyAssignmentModal';
 import { ResumeSubstitutionModal } from '../../components/ResumeSubstitutionModal';
 import { SlotVisualizer } from '../../components/SlotVisualizer';
 import { InterviewTimeDisplay } from '../../components/InterviewTimeDisplay';
-import { findBestProxyForWindow, assignProxiesForRounds, isProxyUser, getLatestCandidateResume, getInterviewResumeInfo, syncUserLeaveAvailability, getProxyConflictingRounds, getProxyLeaveStatusForDate } from '../../services/interviewService';
+import { findBestProxyForWindow, assignProxiesForRounds, isProxyUser, getLatestCandidateResume, getInterviewResumeInfo, syncUserLeaveAvailability, getProxyConflictingRounds, getProxyLeaveStatusForDate, shouldHideProxyLeaveFromRole, hasActiveOrFutureLeave } from '../../services/interviewService';
 import { sharedSelectStyles } from '../../lib/selectStyles';
 import { FreeTrialBadge } from '../../components/FreeTrialBadge';
+import { ProxyLeaveBanner } from '../../components/ProxyLeaveBanner';
 
 type TabType = 'today' | 'upcoming' | 'pending_bookings' | 'booked' | 'live' | 'completed' | 'cancelled' | 'rescheduled' | 'self_attended' | 'analytics' | 'team_status';
 
@@ -400,6 +401,9 @@ export const InterviewSupportDashboard: React.FC = () => {
 
   return (
     <div className="space-y-8 pb-20">
+      {/* Real-time Proxy Leave Alert Banner (Hidden from Lead and Sales) */}
+      <ProxyLeaveBanner team={team} contextTitle="Interview Support Live Notice" />
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
@@ -1375,10 +1379,8 @@ const ProxyMemberCard: React.FC<{
       <div className="flex items-center gap-4 mb-6">
         <div className={cn(
           "w-16 h-16 rounded-[24px] flex items-center justify-center text-2xl font-black border transition-all",
-          isOnLeaveNow 
-            ? "bg-accent-red/10 border-accent-red/20 text-accent-red" 
-            : hasLeaveConfigured 
-            ? "bg-accent-amber/10 border-accent-amber/20 text-accent-amber"
+          hasLeaveConfigured 
+            ? "bg-rose-500/10 border-rose-500/20 text-rose-500" 
             : "bg-accent-green/10 border-accent-green/20 text-accent-green"
         )}>
           {proxy.display_name.charAt(0)}
@@ -1388,13 +1390,11 @@ const ProxyMemberCard: React.FC<{
             <h4 className="text-xl font-black text-text-primary tracking-tight truncate">{proxy.display_name}</h4>
             <span className={cn(
               "px-2.5 py-0.5 text-[9px] font-black rounded-lg uppercase tracking-wider shrink-0",
-              isOnLeaveNow 
-                ? "bg-accent-red/10 text-accent-red border border-accent-red/20" 
-                : hasLeaveConfigured 
-                ? "bg-accent-amber/10 text-accent-amber border border-accent-amber/20"
+              hasLeaveConfigured 
+                ? "bg-rose-500 text-white shadow-sm" 
                 : "bg-accent-green/10 text-accent-green border border-accent-green/20"
             )}>
-              {isOnLeaveNow ? "On Leave" : hasLeaveConfigured ? "Scheduled" : "Available"}
+              {hasLeaveConfigured ? "ON LEAVE" : "Available"}
             </span>
           </div>
           <p className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em]">{proxy.username}</p>
@@ -1413,11 +1413,9 @@ const ProxyMemberCard: React.FC<{
                   <p className="text-xs font-black text-text-primary mt-0.5">{leavePeriodText}</p>
                 </div>
               </div>
-              <span className={cn(
-                "px-2 py-0.5 text-[8px] font-black rounded uppercase tracking-wider shrink-0",
-                isOnLeaveNow ? "bg-accent-red/15 text-accent-red" : "bg-accent-amber/15 text-accent-amber"
-              )}>
-                {isOnLeaveNow ? "Active Now" : "Upcoming"}
+              <span className="px-2 py-0.5 text-[8px] font-black rounded uppercase tracking-wider shrink-0 bg-rose-500 text-white shadow-sm inline-flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                ON LEAVE
               </span>
             </div>
 
@@ -2138,7 +2136,7 @@ const RequestModal: React.FC<{
           const r = formData.rounds[i];
           const onLeaveProxies = proxyTeamMembers.filter(p => isUserOnLeaveDuring(p, `${r.interview_date}T${r.start_time}`, `${r.interview_date}T${r.end_time}`));
           if (proxyTeamMembers.length > 0 && onLeaveProxies.length === proxyTeamMembers.length) {
-            showToast("Both proxy members are on leave and unavailable for the selected interview date.", "error");
+            showToast("BOTH PROXY MEMBERS HAVE LEAVE BOOKED FOR THE SELECTED DATE. NO PROXY IS AVAILABLE FOR THIS INTERVIEW.", "error");
             return;
           }
         }
@@ -2169,7 +2167,7 @@ const RequestModal: React.FC<{
 
           // Double check the chosen proxy is not on leave
           if (isUserOnLeaveDuring(roundEval.bestProxy, `${r.interview_date}T${r.start_time}`, `${r.interview_date}T${r.end_time}`)) {
-            showToast(`This proxy (${roundEval.bestProxy.display_name}) is currently on leave and unavailable for this interview date.`, "error");
+            showToast("THIS PROXY HAS ALREADY BOOKED LEAVE FOR THE SELECTED DATE. PLEASE CHECK AVAILABILITY BEFORE SCHEDULING THE INTERVIEW.", "error");
             return;
           }
 
@@ -2692,15 +2690,17 @@ const RequestModal: React.FC<{
                       </div>
                     </div>
 
-                    {/* Proxy Availability & Leave Status for Round */}
-                    {formData.proxy_required && round.interview_date && (() => {
+                    {/* Proxy Availability & Leave Status for Round (Hidden from Lead and Sales) */}
+                    {formData.proxy_required && !shouldHideProxyLeaveFromRole(user?.role) && round.interview_date && (() => {
                       const proxyTeam = team.filter(isProxyUser);
                       const targetDate = round.interview_date;
 
                       const leaveStatuses = proxyTeam.map(p => {
                         const status = getProxyLeaveStatusForDate(p, targetDate, round.start_time, round.end_time);
+                        const hasFuture = hasActiveOrFutureLeave(p);
                         return {
                           proxy: p,
+                          hasFuture,
                           ...status
                         };
                       });
@@ -2715,8 +2715,8 @@ const RequestModal: React.FC<{
                               Proxy Availability & Leave Check ({targetDate})
                             </span>
                             {bothOnLeave ? (
-                              <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-md">
-                                All Proxies On Leave
+                              <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-md shadow-sm">
+                                NO PROXY AVAILABLE
                               </span>
                             ) : onLeaveCount > 0 ? (
                               <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-md">
@@ -2734,7 +2734,7 @@ const RequestModal: React.FC<{
                               <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
                               <div>
                                 <p className="text-xs font-black text-rose-500">
-                                  Both proxy members are on leave and unavailable for the selected interview date.
+                                  BOTH PROXY MEMBERS HAVE LEAVE BOOKED FOR THE SELECTED DATE. NO PROXY IS AVAILABLE FOR THIS INTERVIEW.
                                 </p>
                                 <p className="text-[10px] text-text-secondary mt-0.5">
                                   Please select another interview date or uncheck Proxy Support Required to schedule as candidate self-attended.
@@ -2744,19 +2744,21 @@ const RequestModal: React.FC<{
                           )}
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                            {leaveStatuses.map(({ proxy: p, isOnLeave, leavePeriodText, leaveFrom, leaveTo, message }) => (
+                            {leaveStatuses.map(({ proxy: p, isOnLeave, hasFuture, leavePeriodText, leaveFrom, leaveTo, message }) => (
                               <div 
                                 key={p.id}
                                 className={cn(
                                   "p-3 rounded-2xl border flex flex-col justify-between gap-1.5 transition-all",
                                   isOnLeave 
                                     ? "bg-rose-500/10 border-rose-500/30 text-rose-400" 
+                                    : hasFuture
+                                    ? "bg-rose-500/5 border-rose-500/20 text-text-primary"
                                     : "bg-bg-secondary border-border-primary/60 text-text-primary"
                                 )}
                               >
                                 <div className="flex items-center justify-between gap-1">
                                   <span className="text-xs font-black truncate">{p.display_name}</span>
-                                  {isOnLeave ? (
+                                  {isOnLeave || hasFuture ? (
                                     <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-md inline-flex items-center gap-1 shadow-sm shrink-0">
                                       <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                                       ON LEAVE
@@ -2777,6 +2779,15 @@ const RequestModal: React.FC<{
                                     </div>
                                     <p className="font-bold text-rose-400 italic">
                                       {message}
+                                    </p>
+                                  </div>
+                                ) : hasFuture ? (
+                                  <div className="space-y-0.5 text-[9px] mt-1 pt-1 border-t border-rose-500/10 text-text-secondary">
+                                    <p className="font-bold text-rose-300">
+                                      Leave Scheduled: {leaveFrom} - {leaveTo} ({leavePeriodText})
+                                    </p>
+                                    <p className="text-text-muted">
+                                      Available on {targetDate}, but has scheduled leave on the above dates.
                                     </p>
                                   </div>
                                 ) : (
