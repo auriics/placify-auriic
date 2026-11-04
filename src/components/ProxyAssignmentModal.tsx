@@ -6,7 +6,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { updateInterviewRound, updateInterviewSupportRequest, logInterviewActivity, addInterviewNotification } from '../services/storage';
 import { syncInterviewRoundToGoogleCalendar, checkProxyAvailability } from '../services/calendarService';
-import { findBestProxyForWindow, isProxyUser, resolveEffectiveProxySelection } from '../services/interviewService';
+import { findBestProxyForWindow, isProxyUser, resolveEffectiveProxySelection, getProxyLeaveStatusForDate } from '../services/interviewService';
+import { isUserOnLeaveDuring, formatLeavePeriod, getEasternDate, cn } from '../lib/utils';
 import { db } from '../firebase';
 import { collection, addDoc } from 'firebase/firestore';
 import { TimeSlotSelector } from './TimeSlotSelector';
@@ -100,16 +101,38 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
     return team.find(u => String(u.id) === String(selectedProxyId));
   }, [selectedProxyId, team]);
 
+  const proxyTeam = useMemo(() => {
+    return team.filter(isProxyUser);
+  }, [team]);
+
+  const selectedProxyLeaveInfo = useMemo(() => {
+    if (!selectedProxy) return null;
+    return getProxyLeaveStatusForDate(
+      selectedProxy,
+      date || getEasternDate(),
+      startTime || undefined,
+      endTime || undefined
+    );
+  }, [selectedProxy, date, startTime, endTime]);
+
+  const bothProxiesOnLeave = useMemo(() => {
+    const targetDate = date || getEasternDate();
+    if (proxyTeam.length === 0) return false;
+    const onLeaveCount = proxyTeam.filter(p => isUserOnLeaveDuring(p, targetDate, targetDate)).length;
+    return onLeaveCount >= 2 && onLeaveCount === proxyTeam.length;
+  }, [proxyTeam, date]);
+
   const isSelectedProxyAvailable = useMemo(() => {
     if (!selectedProxyId) return true;
+    if (selectedProxyLeaveInfo?.isOnLeave) return false;
     return assignmentResult.availableProxies.some(p => String(p.id) === String(selectedProxyId));
-  }, [selectedProxyId, assignmentResult.availableProxies]);
+  }, [selectedProxyId, selectedProxyLeaveInfo, assignmentResult.availableProxies]);
 
   // Real-time Google Calendar check
   useEffect(() => {
     let active = true;
     const checkGCal = async () => {
-      if (!selectedProxy || !date || !startTime || !endTime) {
+      if (!selectedProxy || !date || !startTime || !endTime || selectedProxyLeaveInfo?.isOnLeave) {
         setCalendarStatus(null);
         return;
       }
@@ -135,12 +158,22 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
 
     checkGCal();
     return () => { active = false; };
-  }, [selectedProxy, date, startTime, endTime]);
+  }, [selectedProxy, date, startTime, endTime, selectedProxyLeaveInfo?.isOnLeave]);
 
   const handleAssign = async () => {
     if (!user) return;
     if (!selectedProxy) {
       showToast('Please select a proxy to assign.', 'error');
+      return;
+    }
+
+    if (selectedProxyLeaveInfo?.isOnLeave) {
+      showToast('This proxy is currently on leave and unavailable for this interview date.', 'error');
+      return;
+    }
+
+    if (bothProxiesOnLeave) {
+      showToast('Both proxy members are on leave and unavailable for the selected interview date.', 'error');
       return;
     }
 
@@ -319,6 +352,20 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
               <label className="text-[10px] font-black text-text-muted uppercase tracking-widest px-1">Selected Allocation</label>
               
               <div className="space-y-3">
+                {bothProxiesOnLeave && (
+                  <div className="p-4 bg-rose-500/15 border border-rose-500/30 rounded-2xl flex items-start gap-2.5">
+                    <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-black text-rose-500">
+                        Both proxy members are on leave and unavailable for the selected interview date.
+                      </p>
+                      <p className="text-[10px] text-text-secondary mt-0.5">
+                        Please choose a different date when a proxy member is available.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-1">
                   <span className="text-[9px] font-black text-text-muted uppercase tracking-wider block">Choose Proxy Member</span>
                   <select
@@ -328,11 +375,12 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
                   >
                     <option value="">-- Select Proxy --</option>
                     {team.filter(isProxyUser).map(p => {
-                      const isAvailable = assignmentResult.availableProxies.some(ap => ap.id === p.id);
-                      const isRecommended = p.id === assignmentResult.bestProxy?.id;
+                      const leaveInfo = getProxyLeaveStatusForDate(p, date || getEasternDate(), startTime, endTime);
+                      const isAvailable = !leaveInfo.isOnLeave && assignmentResult.availableProxies.some(ap => ap.id === p.id);
+                      const isRecommended = !leaveInfo.isOnLeave && p.id === assignmentResult.bestProxy?.id;
                       return (
-                        <option key={p.id} value={p.id}>
-                          {p.display_name} {isRecommended ? '(Recommended)' : ''} {!isAvailable ? '(Busy/Conflict)' : ''}
+                        <option key={p.id} value={p.id} disabled={leaveInfo.isOnLeave}>
+                          {p.display_name} {leaveInfo.isOnLeave ? `🔴 [ON LEAVE: ${leaveInfo.leavePeriodText}] - UNAVAILABLE` : isRecommended ? '(Recommended)' : !isAvailable ? '(Busy/Conflict)' : ''}
                         </option>
                       );
                     })}
@@ -340,7 +388,27 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
                 </div>
               </div>
 
-              {assignmentResult.errors && assignmentResult.errors.length > 0 && !selectedProxyId && (
+              {selectedProxyLeaveInfo?.isOnLeave && selectedProxy && (
+                <div className="p-4 bg-rose-500/15 border border-rose-500/30 rounded-2xl space-y-2 mt-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black text-rose-400">{selectedProxy.display_name}</span>
+                    <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-md inline-flex items-center gap-1 shadow-sm">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                      ON LEAVE
+                    </span>
+                  </div>
+                  <div className="space-y-0.5 text-[10px] text-text-secondary">
+                    <p><strong className="text-rose-300">Leave From:</strong> {selectedProxyLeaveInfo.leaveFrom || 'N/A'}</p>
+                    <p><strong className="text-rose-300">Leave To:</strong> {selectedProxyLeaveInfo.leaveTo || 'N/A'}</p>
+                    <p><strong className="text-rose-300">Duration:</strong> {selectedProxyLeaveInfo.leavePeriodText}</p>
+                  </div>
+                  <p className="text-[11px] font-bold text-rose-400 italic">
+                    {selectedProxyLeaveInfo.message}
+                  </p>
+                </div>
+              )}
+
+              {assignmentResult.errors && assignmentResult.errors.length > 0 && !selectedProxyId && !bothProxiesOnLeave && (
                 <div className="p-5 bg-rose-500/10 border border-rose-500/20 rounded-3xl flex gap-3 items-start mt-4">
                   <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
                   <div>
@@ -352,7 +420,7 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
                 </div>
               )}
 
-              {!isSelectedProxyAvailable && selectedProxy && (
+              {!isSelectedProxyAvailable && selectedProxy && !selectedProxyLeaveInfo?.isOnLeave && (
                 <div className="p-5 bg-accent-red/10 border border-accent-red/20 rounded-3xl flex gap-3 items-start mt-4">
                   <AlertCircle className="w-5 h-5 text-accent-red shrink-0 mt-0.5" />
                   <div>
@@ -364,7 +432,7 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
                 </div>
               )}
 
-              {selectedProxy && (
+              {selectedProxy && !selectedProxyLeaveInfo?.isOnLeave && (
                 <div className="p-5 bg-accent-green/5 border border-accent-green/10 rounded-3xl space-y-4 mt-4">
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 rounded-2xl bg-bg-secondary flex items-center justify-center border border-border-primary text-accent-green">

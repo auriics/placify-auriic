@@ -12,7 +12,8 @@ import {
   assignProxiesForRounds,
   resolveBestSlotForBooking,
   getProxyConflictingRounds,
-  isProxyUser
+  isProxyUser,
+  getProxyLeaveStatusForDate
 } from '../src/services/interviewService';
 import {
   getNextDayDateString,
@@ -231,7 +232,7 @@ test('5.2 findBestProxyForWindow: returns error when all eligible proxies are on
   assert.equal(result.bestProxy, null);
   assert.equal(result.availableProxies.length, 0);
   assert.ok(result.errors.length > 0);
-  assert.ok(result.errors[0].includes('Currently no proxy is available'));
+  assert.ok(result.errors[0].includes('Both proxy members are on leave and unavailable for the selected interview date'));
 });
 
 test('5.3 findBestProxyForWindow: blocks proxy based on synchronized calendarEvents', () => {
@@ -387,4 +388,136 @@ test('6.1 getProxyConflictingRounds: detects only conflicting rounds within leav
   const conflicts = getProxyConflictingRounds('u_nihal', '2026-11-05', '2026-11-08', allRounds);
   assert.equal(conflicts.length, 1);
   assert.equal(conflicts[0].id, 'rnd_1');
+});
+
+// =========================================================================
+// 7. PROXY LEAVE STATUS VISIBILITY & VALIDATION (CREATE SUPPORT REQUEST & PROXY CENTRAL)
+// =========================================================================
+test('7.1 getProxyLeaveStatusForDate: correctly identifies on-leave proxy with leave dates and warning message', () => {
+  const proxyOnLeave = {
+    ...NIHAL,
+    is_on_leave: true,
+    leave_start_date: '2026-11-09',
+    leave_end_date: '2026-11-15'
+  };
+
+  const status = getProxyLeaveStatusForDate(proxyOnLeave, '2026-11-10');
+  assert.equal(status.isOnLeave, true);
+  assert.equal(status.proxyName, 'Nihal Proxy');
+  assert.equal(status.leaveFrom, '2026-11-09');
+  assert.equal(status.leaveTo, '2026-11-15');
+  assert.equal(status.leavePeriodText, 'Nov 09, 2026 - Nov 15, 2026 (EST)');
+  assert.equal(status.message, 'This proxy is currently on leave and unavailable for this interview date.');
+});
+
+test('7.2 getProxyLeaveStatusForDate: correctly identifies active proxy outside leave window', () => {
+  const proxyWithLeaveNextWeek = {
+    ...NIHAL,
+    is_on_leave: true,
+    leave_start_date: '2026-11-09',
+    leave_end_date: '2026-11-15'
+  };
+
+  // Target date is before leave window
+  const statusBefore = getProxyLeaveStatusForDate(proxyWithLeaveNextWeek, '2026-11-04');
+  assert.equal(statusBefore.isOnLeave, false);
+  assert.equal(statusBefore.message, 'Available');
+
+  // Target date is after leave window
+  const statusAfter = getProxyLeaveStatusForDate(proxyWithLeaveNextWeek, '2026-11-16');
+  assert.equal(statusAfter.isOnLeave, false);
+  assert.equal(statusAfter.message, 'Available');
+});
+
+test('7.3 findBestProxyForWindow: returns prominent warning when both proxy members are on leave', () => {
+  const nihalLeave = {
+    ...NIHAL,
+    is_on_leave: true,
+    leave_start_date: '2026-11-09',
+    leave_end_date: '2026-11-15'
+  };
+
+  const rudraLeave = {
+    ...RUDRA,
+    is_on_leave: true,
+    leave_start_date: '2026-11-09',
+    leave_end_date: '2026-11-15'
+  };
+
+  const result = findBestProxyForWindow(
+    '2026-11-10',
+    '10:30',
+    '11:00',
+    [nihalLeave, rudraLeave],
+    [],
+    []
+  );
+
+  assert.equal(result.bestProxy, null);
+  assert.equal(result.availableProxies.length, 0);
+  assert.equal(result.errors.length, 1);
+  assert.equal(result.errors[0], 'Both proxy members are on leave and unavailable for the selected interview date.');
+});
+
+test('7.4 findBestProxyForWindow: selects available proxy when only one proxy is on leave', () => {
+  const nihalLeave = {
+    ...NIHAL,
+    is_on_leave: true,
+    leave_start_date: '2026-11-09',
+    leave_end_date: '2026-11-15'
+  };
+
+  const rudraActive = {
+    ...RUDRA,
+    is_on_leave: false,
+    leave_start_date: null,
+    leave_end_date: null
+  };
+
+  const result = findBestProxyForWindow(
+    '2026-11-10',
+    '10:30',
+    '11:00',
+    [nihalLeave, rudraActive],
+    [],
+    []
+  );
+
+  assert.ok(result.bestProxy);
+  assert.equal(result.bestProxy.id, 'u_rudra');
+  assert.equal(result.availableProxies.length, 1);
+  assert.equal(result.availableProxies[0].id, 'u_rudra');
+});
+
+test('7.5 assignProxiesForRounds: rejects multi-round assignment when both proxies are on leave for any round', () => {
+  const nihalLeave = {
+    ...NIHAL,
+    is_on_leave: true,
+    leave_start_date: '2026-11-09',
+    leave_end_date: '2026-11-15'
+  };
+
+  const rudraLeave = {
+    ...RUDRA,
+    is_on_leave: true,
+    leave_start_date: '2026-11-09',
+    leave_end_date: '2026-11-15'
+  };
+
+  const rounds = [
+    { label: 'Round 1: Screening', interview_date: '2026-11-10', start_time: '10:30', end_time: '11:00' },
+    { label: 'Round 2: Technical', interview_date: '2026-11-10', start_time: '14:00', end_time: '15:00' }
+  ];
+
+  const result = assignProxiesForRounds(
+    rounds,
+    [nihalLeave, rudraLeave],
+    [],
+    []
+  );
+
+  assert.equal(result.roundAssignments[0].bestProxy, null);
+  assert.equal(result.roundAssignments[0].errors[0], 'Both proxy members are on leave and unavailable for the selected interview date.');
+  assert.equal(result.roundAssignments[1].bestProxy, null);
+  assert.equal(result.roundAssignments[1].errors[0], 'Both proxy members are on leave and unavailable for the selected interview date.');
 });

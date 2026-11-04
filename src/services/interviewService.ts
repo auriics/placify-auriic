@@ -352,10 +352,17 @@ export const findBestProxyForWindow = (
   }
 
   if (availableProxies.length === 0) {
+    const allProxies = proxies.filter(isProxyUser);
+    const onLeaveProxies = allProxies.filter(u => isUserOnLeaveDuring(u, jointStart, jointEnd));
+    const isBothOnLeave = allProxies.length > 0 && onLeaveProxies.length >= 2 && onLeaveProxies.length === allProxies.length;
     return { 
       bestProxy: null, 
       availableProxies: [], 
-      errors: ['Currently no proxy is available for the selected interview time. Please choose another time.'] 
+      errors: [
+        isBothOnLeave
+          ? 'Both proxy members are on leave and unavailable for the selected interview date.'
+          : 'Currently no proxy is available for the selected interview time. Please choose another time.'
+      ] 
     };
   }
 
@@ -781,4 +788,36 @@ export function getProxyConflictingRounds(
     if (!time) return false;
     return isUserOnLeaveDuring(dummyUser, time, r.booked_slot_end || undefined);
   });
+}
+
+/**
+ * Returns structured leave status details for a proxy member on a target date/time window.
+ */
+export function getProxyLeaveStatusForDate(
+  proxy: any,
+  dateStr: string,
+  startTime?: string,
+  endTime?: string
+): {
+  isOnLeave: boolean;
+  proxyName: string;
+  leaveFrom: string | null;
+  leaveTo: string | null;
+  leavePeriodText: string;
+  message: string;
+} {
+  const start = startTime ? `${dateStr}T${startTime}` : dateStr;
+  const end = endTime ? `${dateStr}T${endTime}` : dateStr;
+  const onLeave = isUserOnLeaveDuring(proxy, start, end);
+  const leaveText = formatLeavePeriod(proxy?.leave_start_date, proxy?.leave_end_date);
+  return {
+    isOnLeave: onLeave,
+    proxyName: proxy?.display_name || 'Proxy',
+    leaveFrom: proxy?.leave_start_date || null,
+    leaveTo: proxy?.leave_end_date || null,
+    leavePeriodText: leaveText,
+    message: onLeave
+      ? 'This proxy is currently on leave and unavailable for this interview date.'
+      : 'Available'
+  };
 }

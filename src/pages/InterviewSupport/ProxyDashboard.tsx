@@ -31,7 +31,7 @@ import {
   InterviewFeedback,
   User
 } from '../../types';
-import { generateDefaultProxySlots, getSlotStatusColor, cleanupDuplicateProxySlots, isProxyUser, getInterviewResumeInfo } from '../../services/interviewService';
+import { generateDefaultProxySlots, getSlotStatusColor, cleanupDuplicateProxySlots, isProxyUser, getInterviewResumeInfo, getProxyLeaveStatusForDate, syncUserLeaveAvailability } from '../../services/interviewService';
 import { handleViewFile } from '../../services/fileService';
 import { 
   Calendar as CalendarIcon, 
@@ -60,7 +60,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn, getLocalYYYYMMDD, formatDisplayDateWithWeekday, parseLocalTimeToDate, formatInterviewSlotRange } from '../../lib/utils';
+import { cn, getLocalYYYYMMDD, formatDisplayDateWithWeekday, parseLocalTimeToDate, formatInterviewSlotRange, isUserOnLeaveDuring, formatLeavePeriod, getEasternDate } from '../../lib/utils';
 import { AddSlotModal } from '../../components/AddSlotModal';
 import { ProxyAssignmentModal } from '../../components/ProxyAssignmentModal';
 
@@ -249,6 +249,14 @@ export const ProxyDashboard: React.FC = () => {
     setIsGenerating(true);
     try {
       await generateDefaultProxySlots(String(activeProxyId));
+      if (activeProxyUser && (activeProxyUser.is_on_leave || activeProxyUser.leave_start_date || activeProxyUser.leave_end_date)) {
+        await syncUserLeaveAvailability(
+          String(activeProxyId),
+          activeProxyUser.leave_start_date,
+          activeProxyUser.leave_end_date,
+          activeProxyUser.is_on_leave
+        );
+      }
       showToast('Default availability generated!', 'success');
     } catch (error) {
       showToast('Failed to generate slots', 'error');
@@ -479,6 +487,21 @@ export const ProxyDashboard: React.FC = () => {
     return team.find(u => String(u.id) === String(activeProxyId));
   }, [team, activeProxyId]);
 
+  const effectiveProxyDate = useMemo(() => {
+    return filterDate || getEasternDate();
+  }, [filterDate]);
+
+  const activeProxyLeaveInfo = useMemo(() => {
+    if (!activeProxyUser) return null;
+    return getProxyLeaveStatusForDate(activeProxyUser, effectiveProxyDate);
+  }, [activeProxyUser, effectiveProxyDate]);
+
+  const bothProxiesOnLeaveInCentral = useMemo(() => {
+    if (proxyList.length === 0) return false;
+    const onLeaveCount = proxyList.filter(p => isUserOnLeaveDuring(p, effectiveProxyDate, effectiveProxyDate)).length;
+    return onLeaveCount >= 2 && onLeaveCount === proxyList.length;
+  }, [proxyList, effectiveProxyDate]);
+
   const isGoogleConnected = useMemo(() => {
     return activeProxyUser?.google_calendar_connected || false;
   }, [activeProxyUser]);
@@ -534,26 +557,79 @@ export const ProxyDashboard: React.FC = () => {
           {isHigherAuthority && (
             <div className="flex items-center gap-3 bg-bg-secondary p-3 rounded-2xl border border-border-primary w-full sm:w-auto">
               <span className="text-[10px] font-black text-text-muted uppercase tracking-widest shrink-0">Proxy Member:</span>
-              <select
-                value={selectedProxyId || activeProxyId}
-                onChange={(e) => setSelectedProxyId(e.target.value)}
-                className="flex-1 sm:flex-initial px-4 py-2 bg-bg-tertiary border border-border-primary rounded-xl text-xs font-bold text-text-primary focus:outline-none focus:border-accent-blue min-w-0 sm:min-w-[200px]"
-              >
-                {proxyList.length === 0 ? (
-                  <option value="">No Active Proxy Members</option>
-                ) : (
-                  proxyList.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.display_name} {p.is_on_leave ? '(On Leave)' : ''}
-                    </option>
-                  ))
+              <div className="flex items-center gap-2 flex-1 sm:flex-initial">
+                <select
+                  value={selectedProxyId || activeProxyId}
+                  onChange={(e) => setSelectedProxyId(e.target.value)}
+                  className="flex-1 sm:flex-initial px-4 py-2 bg-bg-tertiary border border-border-primary rounded-xl text-xs font-bold text-text-primary focus:outline-none focus:border-accent-blue min-w-0 sm:min-w-[200px]"
+                >
+                  {proxyList.length === 0 ? (
+                    <option value="">No Active Proxy Members</option>
+                  ) : (
+                    proxyList.map((p) => {
+                      const pLeave = getProxyLeaveStatusForDate(p, effectiveProxyDate);
+                      return (
+                        <option key={p.id} value={p.id}>
+                          {p.display_name} {pLeave.isOnLeave ? `🔴 [ON LEAVE: ${pLeave.leavePeriodText}] - UNAVAILABLE` : ''}
+                        </option>
+                      );
+                    })
+                  )}
+                </select>
+
+                {activeProxyLeaveInfo?.isOnLeave && (
+                  <span className="px-2.5 py-1 text-[9px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-lg flex items-center gap-1 shadow-sm shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                    ON LEAVE
+                  </span>
                 )}
-              </select>
+              </div>
             </div>
           )}
 
+        </div>
       </div>
-      </div>
+
+      {/* Prominent Warning when both proxies are on leave */}
+      {bothProxiesOnLeaveInCentral && (
+        <div className="p-5 bg-rose-500/15 border border-rose-500/30 rounded-3xl flex items-start sm:items-center gap-3">
+          <AlertCircle className="w-6 h-6 text-rose-500 shrink-0 mt-0.5 sm:mt-0" />
+          <div className="flex-1">
+            <p className="text-sm sm:text-base font-black text-rose-500">
+              Both proxy members are on leave and unavailable for the selected interview date{filterDate ? ` (${filterDate})` : ''}.
+            </p>
+            <p className="text-xs text-text-secondary mt-0.5">
+              Neither proxy can be assigned or booked during this leave window. Please select another date or review leave schedules in Team Management.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Detailed leave banner for active proxy */}
+      {activeProxyLeaveInfo?.isOnLeave && !bothProxiesOnLeaveInCentral && (
+        <div className="p-4 sm:p-5 bg-rose-500/10 border border-rose-500/25 rounded-2xl sm:rounded-3xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center font-black text-sm">
+              {activeProxyUser?.display_name?.charAt(0) || 'P'}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-black text-text-primary">{activeProxyUser?.display_name}</span>
+                <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-md flex items-center gap-1 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                  ON LEAVE
+                </span>
+              </div>
+              <p className="text-[11px] text-rose-400 font-bold mt-0.5">
+                Leave Period: {activeProxyLeaveInfo.leaveFrom || 'N/A'} - {activeProxyLeaveInfo.leaveTo || 'N/A'} ({activeProxyLeaveInfo.leavePeriodText})
+              </p>
+            </div>
+          </div>
+          <p className="text-xs font-bold text-rose-400 italic">
+            {activeProxyLeaveInfo.message}
+          </p>
+        </div>
+      )}
 
       {/* Google Calendar Integration Settings Panel */}
       {activeProxyUser && (

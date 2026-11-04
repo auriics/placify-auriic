@@ -73,7 +73,7 @@ import { ProxyAssignmentModal } from '../../components/ProxyAssignmentModal';
 import { ResumeSubstitutionModal } from '../../components/ResumeSubstitutionModal';
 import { SlotVisualizer } from '../../components/SlotVisualizer';
 import { InterviewTimeDisplay } from '../../components/InterviewTimeDisplay';
-import { findBestProxyForWindow, assignProxiesForRounds, isProxyUser, getLatestCandidateResume, getInterviewResumeInfo, syncUserLeaveAvailability, getProxyConflictingRounds } from '../../services/interviewService';
+import { findBestProxyForWindow, assignProxiesForRounds, isProxyUser, getLatestCandidateResume, getInterviewResumeInfo, syncUserLeaveAvailability, getProxyConflictingRounds, getProxyLeaveStatusForDate } from '../../services/interviewService';
 import { sharedSelectStyles } from '../../lib/selectStyles';
 import { FreeTrialBadge } from '../../components/FreeTrialBadge';
 
@@ -2132,6 +2132,17 @@ const RequestModal: React.FC<{
           return;
         }
 
+        // Validate leave status explicitly for all rounds
+        const proxyTeamMembers = team.filter(isProxyUser);
+        for (let i = 0; i < formData.rounds.length; i++) {
+          const r = formData.rounds[i];
+          const onLeaveProxies = proxyTeamMembers.filter(p => isUserOnLeaveDuring(p, `${r.interview_date}T${r.start_time}`, `${r.interview_date}T${r.end_time}`));
+          if (proxyTeamMembers.length > 0 && onLeaveProxies.length === proxyTeamMembers.length) {
+            showToast("Both proxy members are on leave and unavailable for the selected interview date.", "error");
+            return;
+          }
+        }
+
         // Evaluate each round sequentially against temporary in-memory workload & conflict state
         const multiResult = assignProxiesForRounds(
           formData.rounds,
@@ -2146,12 +2157,19 @@ const RequestModal: React.FC<{
           const roundEval = multiResult.roundAssignments[i];
 
           if (!roundEval || (roundEval.errors && roundEval.errors.length > 0)) {
-            showToast(`Currently no proxy is available for the selected interview time on ${r.interview_date} (${r.start_time} - ${r.end_time}). Please choose another time.`, "error");
+            const err = roundEval?.errors?.[0] || `Currently no proxy is available for the selected interview time on ${r.interview_date} (${r.start_time} - ${r.end_time}). Please choose another time.`;
+            showToast(err, "error");
             return;
           }
 
           if (!roundEval.bestProxy) {
             showToast(`Currently no proxy is available for the selected interview time. Please choose another time.`, "error");
+            return;
+          }
+
+          // Double check the chosen proxy is not on leave
+          if (isUserOnLeaveDuring(roundEval.bestProxy, `${r.interview_date}T${r.start_time}`, `${r.interview_date}T${r.end_time}`)) {
+            showToast(`This proxy (${roundEval.bestProxy.display_name}) is currently on leave and unavailable for this interview date.`, "error");
             return;
           }
 
@@ -2673,6 +2691,105 @@ const RequestModal: React.FC<{
                         />
                       </div>
                     </div>
+
+                    {/* Proxy Availability & Leave Status for Round */}
+                    {formData.proxy_required && round.interview_date && (() => {
+                      const proxyTeam = team.filter(isProxyUser);
+                      const targetDate = round.interview_date;
+
+                      const leaveStatuses = proxyTeam.map(p => {
+                        const status = getProxyLeaveStatusForDate(p, targetDate, round.start_time, round.end_time);
+                        return {
+                          proxy: p,
+                          ...status
+                        };
+                      });
+
+                      const onLeaveCount = leaveStatuses.filter(s => s.isOnLeave).length;
+                      const bothOnLeave = proxyTeam.length > 0 && onLeaveCount >= 2 && onLeaveCount === proxyTeam.length;
+
+                      return (
+                        <div className="pt-3 border-t border-border-primary/40 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-black uppercase tracking-wider text-text-muted">
+                              Proxy Availability & Leave Check ({targetDate})
+                            </span>
+                            {bothOnLeave ? (
+                              <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-md">
+                                All Proxies On Leave
+                              </span>
+                            ) : onLeaveCount > 0 ? (
+                              <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-md">
+                                Partial Availability
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-accent-green/20 text-accent-green border border-accent-green/30 rounded-md">
+                                Available
+                              </span>
+                            )}
+                          </div>
+
+                          {bothOnLeave && (
+                            <div className="p-3.5 bg-rose-500/15 border border-rose-500/30 rounded-2xl flex items-start gap-2.5">
+                              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                              <div>
+                                <p className="text-xs font-black text-rose-500">
+                                  Both proxy members are on leave and unavailable for the selected interview date.
+                                </p>
+                                <p className="text-[10px] text-text-secondary mt-0.5">
+                                  Please select another interview date or uncheck Proxy Support Required to schedule as candidate self-attended.
+                                </p>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            {leaveStatuses.map(({ proxy: p, isOnLeave, leavePeriodText, leaveFrom, leaveTo, message }) => (
+                              <div 
+                                key={p.id}
+                                className={cn(
+                                  "p-3 rounded-2xl border flex flex-col justify-between gap-1.5 transition-all",
+                                  isOnLeave 
+                                    ? "bg-rose-500/10 border-rose-500/30 text-rose-400" 
+                                    : "bg-bg-secondary border-border-primary/60 text-text-primary"
+                                )}
+                              >
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="text-xs font-black truncate">{p.display_name}</span>
+                                  {isOnLeave ? (
+                                    <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-md inline-flex items-center gap-1 shadow-sm shrink-0">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                                      ON LEAVE
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-accent-green/15 text-accent-green border border-accent-green/30 rounded-md shrink-0">
+                                      Available
+                                    </span>
+                                  )}
+                                </div>
+
+                                {isOnLeave ? (
+                                  <div className="space-y-1 text-[9px] mt-1 pt-1.5 border-t border-rose-500/20">
+                                    <div className="space-y-0.5 text-text-secondary">
+                                      <p><strong className="text-rose-300">Leave From:</strong> {leaveFrom || 'N/A'}</p>
+                                      <p><strong className="text-rose-300">Leave To:</strong> {leaveTo || 'N/A'}</p>
+                                      <p><strong className="text-rose-300">Duration:</strong> {leavePeriodText}</p>
+                                    </div>
+                                    <p className="font-bold text-rose-400 italic">
+                                      {message}
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <p className="text-[9px] text-text-muted mt-0.5">
+                                    Active & ready for assignment on this date
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 ))}
                 {formData.proxy_required && multiRoundAssignment.roundAssignments.some(ra => ra.bestProxy) && !assignmentResult.errors?.length && (
