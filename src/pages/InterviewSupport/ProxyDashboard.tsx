@@ -31,7 +31,7 @@ import {
   InterviewFeedback,
   User
 } from '../../types';
-import { generateDefaultProxySlots, getSlotStatusColor, cleanupDuplicateProxySlots, isProxyUser, getInterviewResumeInfo, getProxyLeaveStatusForDate, syncUserLeaveAvailability, shouldHideProxyLeaveFromRole, hasActiveOrFutureLeave, getActiveOrFutureProxyLeaves } from '../../services/interviewService';
+import { generateDefaultProxySlots, getSlotStatusColor, cleanupDuplicateProxySlots, isProxyUser, getInterviewResumeInfo, getProxyLeaveStatusForDate, syncUserLeaveAvailability, shouldHideProxyLeaveFromRole, hasActiveOrFutureLeave, getActiveOrFutureProxyLeaves, validateInterviewTimeWindow, INTERVIEW_SCHEDULING_WINDOW_MESSAGE } from '../../services/interviewService';
 import { handleViewFile } from '../../services/fileService';
 import { 
   Calendar as CalendarIcon, 
@@ -1579,6 +1579,14 @@ const DirectScheduleModal: React.FC<{
       const mm = String(endD.getMinutes()).padStart(2, '0');
       const bookedEnd = `${y}-${m}-${dVal}T${hh}:${mm}:00`;
 
+      // Enforce Permitted Interview Scheduling Window (4:15 AM – 5:15 PM EST)
+      const windowCheck = validateInterviewTimeWindow(bookedStart, bookedEnd, duration, parts[0]);
+      if (!windowCheck.isValid) {
+        showToast(windowCheck.error || 'Interview time must be within 4:15 AM – 5:15 PM EST.', 'error');
+        setIsSubmitting(false);
+        return;
+      }
+
       if (clearPrevious) {
         console.log(`[DirectScheduleModal] Clearing previous calendar events for round ${round.id}`);
         await clearPreviousCalendarEvents(round.id);
@@ -1689,6 +1697,19 @@ const DirectScheduleModal: React.FC<{
           </div>
 
           <div className="space-y-6 font-sans">
+            {/* Allowed Interview Scheduling Window Badge */}
+            <div className="p-3.5 bg-emerald-500/15 border border-emerald-500/30 rounded-2xl flex items-center gap-3">
+              <Clock className="w-5 h-5 text-emerald-400 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-emerald-500 text-white rounded-md inline-block">
+                  PERMITTED WINDOW (EST)
+                </span>
+                <p className="text-[11px] font-black text-emerald-300 mt-1 leading-snug">
+                  {INTERVIEW_SCHEDULING_WINDOW_MESSAGE}
+                </p>
+              </div>
+            </div>
+
             <div className="space-y-2">
               <label className="text-[10px] font-black text-text-muted uppercase tracking-widest px-1">Interview Date & Time</label>
               <input 

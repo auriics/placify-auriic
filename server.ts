@@ -15,7 +15,7 @@ import nodemailer from 'nodemailer';
 import { google } from 'googleapis';
 import * as XLSX from 'xlsx';
 import { parseResumeLocally } from './src/services/localResumeParser.ts';
-import { isDirectInterviewSupportCandidate } from './src/lib/utils.ts';
+import { isDirectInterviewSupportCandidate, validateInterviewTimeWindow, INTERVIEW_SCHEDULING_WINDOW_MESSAGE } from './src/lib/utils.ts';
 export { isDirectInterviewSupportCandidate };
 
 dotenv.config();
@@ -1685,6 +1685,28 @@ app.patch('/api/interview-offer-requests/:id', async (req, res) => {
     console.error(`Error in PATCH /api/interview-offer-requests/${req.params.id}:`, error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// ==========================================
+// INTERVIEW SCHEDULING TIME WINDOW VALIDATION
+// ==========================================
+app.post(['/api/interviews/validate-window', '/interviews/validate-window'], (req, res) => {
+  const { startTime, endTime, durationMinutes, interviewDate } = req.body || {};
+  const validation = validateInterviewTimeWindow(startTime, endTime, durationMinutes, interviewDate);
+  if (!validation.isValid) {
+    return res.status(400).json({
+      isValid: false,
+      error: validation.error,
+      message: INTERVIEW_SCHEDULING_WINDOW_MESSAGE,
+      allowedWindow: '4:15 AM – 5:15 PM EST'
+    });
+  }
+  return res.status(200).json({
+    isValid: true,
+    startMinutes: validation.startMinutes,
+    endMinutes: validation.endMinutes,
+    message: 'Time is within the allowed 4:15 AM – 5:15 PM EST scheduling window.'
+  });
 });
 
 // ==========================================

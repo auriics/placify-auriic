@@ -39,7 +39,7 @@ import { useToast } from '../../contexts/ToastContext';
 import { uploadFile } from '../../services/fileService';
 import { InterviewTimeDisplay } from '../../components/InterviewTimeDisplay';
 import { syncInterviewRoundToGoogleCalendar } from '../../services/calendarService';
-import { findBestProxyForWindow, isProxyUser, resolveBestSlotForBooking } from '../../services/interviewService';
+import { findBestProxyForWindow, isProxyUser, resolveBestSlotForBooking, validateInterviewTimeWindow, INTERVIEW_SCHEDULING_WINDOW_MESSAGE } from '../../services/interviewService';
 
 const DetailCard: React.FC<{ label: string; value: string | undefined; icon: any }> = ({ label, value, icon: Icon }) => (
   <div className="flex items-center gap-5 p-5 bg-bg-tertiary rounded-[24px] border border-border-primary shadow-sm hover:border-accent-blue/30 transition-all">
@@ -201,6 +201,7 @@ export const BookingPage: React.FC = () => {
               const proxyUser = proxyUsersMap.get(String(slot.proxy_user_id));
               if (!proxyUser) return false;
               if (isUserOnLeaveDuring(proxyUser, slot.slot_start, slot.slot_end)) return false;
+              if (!validateInterviewTimeWindow(slot.slot_start, slot.slot_end).isValid) return false;
               return slot.slot_start >= nowEastern;
             })
           );
@@ -374,6 +375,12 @@ export const BookingPage: React.FC = () => {
       }
       if (!customDate || !customStartTime || !customEndTime) {
         showToast('Please specify the date, start time, and end time.', 'error');
+        isSubmittingRef.current = false;
+        return;
+      }
+      const windowVal = validateInterviewTimeWindow(customStartTime, customEndTime, undefined, customDate);
+      if (!windowVal.isValid) {
+        showToast(windowVal.error || 'Interview time must be within 4:15 AM – 5:15 PM EST.', 'error');
         isSubmittingRef.current = false;
         return;
       }
@@ -594,6 +601,14 @@ export const BookingPage: React.FC = () => {
         } else {
           showToast(resolveErr.message || 'Error checking availability. Please try again.', 'error');
         }
+        isSubmittingRef.current = false;
+        setIsSubmitting(false);
+        return;
+      }
+
+      const slotWindowCheck = validateInterviewTimeWindow(slot.slot_start, slot.slot_end);
+      if (!slotWindowCheck.isValid) {
+        showToast(slotWindowCheck.error || 'This slot falls outside the permitted scheduling window (4:15 AM – 5:15 PM EST).', 'error');
         isSubmittingRef.current = false;
         setIsSubmitting(false);
         return;

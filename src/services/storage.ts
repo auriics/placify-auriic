@@ -17,7 +17,7 @@ import {
 } from 'firebase/firestore';
 import { clearPreviousCalendarEvents } from './calendarService';
 import { canDeleteInterviewRequest } from '../lib/permissions';
-import { isSalesWorkingHours } from '../lib/utils';
+import { isSalesWorkingHours, validateInterviewTimeWindow } from '../lib/utils';
 import { db, auth } from '../firebase';
 import { isOfferStageDisabled, isCompletedStageDisabled, isPaymentsRevenueDisabled } from '../lib/featureFlags';
 import { 
@@ -1179,6 +1179,13 @@ export const deleteInterviewSupportRequest = async (
 };
 
 export const addInterviewRound = async (round: Omit<InterviewRound, 'id' | 'created_at' | 'updated_at'>) => {
+  if (round.booked_slot_time) {
+    const val = validateInterviewTimeWindow(round.booked_slot_time, round.booked_slot_end, round.duration_minutes, round.interview_date || undefined);
+    if (!val.isValid) {
+      console.error('[storage.addInterviewRound] Time window validation failed:', val.error);
+      throw new Error(val.error || 'Interview time must be within 4:15 AM – 5:15 PM EST.');
+    }
+  }
   const id = generateId();
   const data = { ...round, id, created_at: now(), updated_at: now() };
   try {
@@ -1190,6 +1197,13 @@ export const addInterviewRound = async (round: Omit<InterviewRound, 'id' | 'crea
 };
 
 export const updateInterviewRound = async (id: string, updates: Partial<InterviewRound>) => {
+  if (updates.booked_slot_time) {
+    const val = validateInterviewTimeWindow(updates.booked_slot_time, updates.booked_slot_end, updates.duration_minutes, updates.interview_date || undefined);
+    if (!val.isValid) {
+      console.error('[storage.updateInterviewRound] Time window validation failed:', val.error);
+      throw new Error(val.error || 'Interview time must be within 4:15 AM – 5:15 PM EST.');
+    }
+  }
   try {
     const data = { ...updates, updated_at: now() };
     await updateDoc(doc(db, 'jpc_interview_rounds', id), data);

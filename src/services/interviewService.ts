@@ -2,7 +2,33 @@ import { addProxyAvailability, now } from './storage';
 import { ProxyAvailability, User, Candidate, InterviewSupportRequest, InterviewRound } from '../types';
 import { collection, query, where, getDocs, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { parseLocalTimeToDate, isUserOnLeaveDuring, isUserCurrentlyOnLeave, formatLeavePeriod, parseLeaveRange, getEasternDate } from '../lib/utils';
+import { 
+  parseLocalTimeToDate, 
+  isUserOnLeaveDuring, 
+  isUserCurrentlyOnLeave, 
+  formatLeavePeriod, 
+  parseLeaveRange, 
+  getEasternDate, 
+  isWeekendString,
+  INTERVIEW_WINDOW_START_MINUTES,
+  INTERVIEW_WINDOW_END_MINUTES,
+  INTERVIEW_WINDOW_START_TIME,
+  INTERVIEW_WINDOW_END_TIME,
+  INTERVIEW_SCHEDULING_WINDOW_MESSAGE,
+  getEasternTimeMinutes,
+  validateInterviewTimeWindow
+} from '../lib/utils';
+
+export {
+  INTERVIEW_WINDOW_START_MINUTES,
+  INTERVIEW_WINDOW_END_MINUTES,
+  INTERVIEW_WINDOW_START_TIME,
+  INTERVIEW_WINDOW_END_TIME,
+  INTERVIEW_SCHEDULING_WINDOW_MESSAGE,
+  getEasternTimeMinutes,
+  validateInterviewTimeWindow
+};
+export type { TimeWindowValidationResult } from '../lib/utils';
 import { syncProxyLeaveToGoogleCalendar } from './calendarService';
 
 export function isProxyUser(u: User): boolean {
@@ -160,14 +186,11 @@ export const generateDefaultProxySlots = async (proxyUserId: string) => {
     // Skip weekends (0 is Sunday, 6 is Saturday)
     if (isWeekendString(dateStr)) continue;
     
-    // 9:30 AM to 6:30 PM (18:30)
-    // We work in EST. Note: In a real app, use a library like luxon for timezone math.
-    // For this implementation, we will store times in a way that represents EST.
-    
+    // 9:30 AM to 5:15 PM EST (strictly within allowed 4:15 AM – 5:15 PM EST window)
     let currentHour = 9;
     let currentMinute = 30;
 
-    while (currentHour < 18 || (currentHour === 18 && currentMinute < 30)) {
+    while (currentHour < 17 || (currentHour === 17 && currentMinute < 15)) {
       const startTime = `${dateStr}T${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}:00`;
       
       let nextHour = currentHour;
@@ -177,10 +200,15 @@ export const generateDefaultProxySlots = async (proxyUserId: string) => {
         nextMinute = 0;
       }
       
+      if (nextHour > 17 || (nextHour === 17 && nextMinute > 15)) {
+        nextHour = 17;
+        nextMinute = 15;
+      }
+
       const endTime = `${dateStr}T${String(nextHour).padStart(2, '0')}:${String(nextMinute).padStart(2, '0')}:00`;
 
-      // Skip if this slot_start already exists or is a weekend (extra safety layer)
-      if (!existingStarts.has(startTime) && !isWeekendString(startTime)) {
+      // Skip if this slot_start already exists, is a weekend, or falls outside the permitted 4:15 AM – 5:15 PM window
+      if (!existingStarts.has(startTime) && !isWeekendString(startTime) && validateInterviewTimeWindow(startTime, endTime).isValid) {
         slots.push({
           proxy_user_id: proxyUserId,
           slot_start: startTime,
@@ -246,6 +274,16 @@ export const findBestProxyForWindow = (
   excludeRoundId?: string,
   temporaryWorkloadMap?: Record<string, number>
 ): { bestProxy: any; availableProxies: any[]; errors: string[] } => {
+  // 0. Enforce Permitted Interview Scheduling Window (4:15 AM – 5:15 PM EST)
+  const windowValidation = validateInterviewTimeWindow(startTimeJoint, endTimeJoint, undefined, dateStr);
+  if (!windowValidation.isValid) {
+    return {
+      bestProxy: null,
+      availableProxies: [],
+      errors: [windowValidation.error || 'Interview time must be within 4:15 AM – 5:15 PM EST.']
+    };
+  }
+
   const errors: string[] = [];
   
   // 1. Create buffered window for checking
@@ -452,9 +490,7 @@ export const assignProxiesForRounds = (
     });
 
     if (result.errors && result.errors.length > 0) {
-      errors.push(
-        `Currently no proxy is available for the selected interview time on ${r.interview_date} (${r.start_time} - ${r.end_time}). Please choose another time.`
-      );
+      errors.push(result.errors[0]);
       continue;
     }
 

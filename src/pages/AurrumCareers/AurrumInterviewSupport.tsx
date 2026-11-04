@@ -83,6 +83,8 @@ import {
   getInterviewResumeInfo,
   generateDefaultProxySlots,
   getSlotStatusColor,
+  validateInterviewTimeWindow,
+  INTERVIEW_SCHEDULING_WINDOW_MESSAGE,
   syncUserLeaveAvailability,
 } from '../../services/interviewService';
 import { sharedSelectStyles } from '../../lib/selectStyles';
@@ -2136,6 +2138,14 @@ const AurrumDirectScheduleModal: React.FC<{
       const mm = String(endD.getMinutes()).padStart(2, '0');
       const bookedEnd = `${y}-${m}-${dVal}T${hh}:${mm}:00`;
 
+      // Enforce Permitted Interview Scheduling Window (4:15 AM – 5:15 PM EST)
+      const windowCheck = validateInterviewTimeWindow(bookedStart, bookedEnd, duration, parts[0]);
+      if (!windowCheck.isValid) {
+        showToast(windowCheck.error || 'Interview time must be within 4:15 AM – 5:15 PM EST.', 'error');
+        setIsSubmitting(false);
+        return;
+      }
+
       if (clearPrevious) {
         await clearPreviousCalendarEvents(round.id);
       }
@@ -2196,6 +2206,19 @@ const AurrumDirectScheduleModal: React.FC<{
         </div>
 
         <div className="space-y-4">
+          {/* Allowed Interview Scheduling Window Badge */}
+          <div className="p-3.5 bg-emerald-500/15 border border-emerald-500/30 rounded-2xl flex items-center gap-3">
+            <Clock className="w-5 h-5 text-emerald-400 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-emerald-500 text-white rounded-md inline-block">
+                PERMITTED WINDOW (EST)
+              </span>
+              <p className="text-[11px] font-black text-emerald-300 mt-1 leading-snug">
+                {INTERVIEW_SCHEDULING_WINDOW_MESSAGE}
+              </p>
+            </div>
+          </div>
+
           <div>
             <label className="text-[10px] font-black text-text-muted uppercase tracking-widest block mb-1.5">
               Interview Date & Time (EST)
@@ -2473,6 +2496,13 @@ const AurrumInterviewRequestModal: React.FC<{
     }));
   }, [candidates]);
 
+  const hasAnyRoundTimeWindowViolation = useMemo(() => {
+    return formData.rounds.some(r => {
+      if (!r.start_time || !r.end_time) return false;
+      return !validateInterviewTimeWindow(r.start_time, r.end_time, r.duration, r.interview_date).isValid;
+    });
+  }, [formData.rounds]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -2492,6 +2522,19 @@ const AurrumInterviewRequestModal: React.FC<{
         otherResumeFilename = newResumeFile.name;
         resumeId = otherResumeUrl;
         useOtherResume = true;
+      }
+
+      // Enforce Permitted Interview Scheduling Window (4:15 AM – 5:15 PM EST)
+      for (let i = 0; i < formData.rounds.length; i++) {
+        const r = formData.rounds[i];
+        if (r.start_time || r.end_time) {
+          const windowVal = validateInterviewTimeWindow(r.start_time, r.end_time, r.duration, r.interview_date);
+          if (!windowVal.isValid) {
+            showToast(`Round ${i + 1} (${r.label}): ${windowVal.error || 'Interview time must be within 4:15 AM – 5:15 PM EST.'}`, 'error');
+            setIsSubmitting(false);
+            return;
+          }
+        }
       }
 
       const assignedProxiesByRoundIdx: { [roundIdx: number]: any } = {};
@@ -2687,6 +2730,26 @@ const AurrumInterviewRequestModal: React.FC<{
           >
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* Permitted Interview Scheduling Window Badge */}
+        <div className="mx-6 mt-4 p-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center gap-3.5 shadow-lg shadow-emerald-500/5 shrink-0">
+          <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+            <Clock className="w-5 h-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider bg-emerald-500 text-white rounded-md shadow-sm">
+                PERMITTED WINDOW
+              </span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">
+                4:15 AM – 5:15 PM EST
+              </span>
+            </div>
+            <p className="text-xs sm:text-sm font-black text-emerald-300 tracking-tight mt-1 leading-snug">
+              {INTERVIEW_SCHEDULING_WINDOW_MESSAGE}
+            </p>
+          </div>
         </div>
 
         <form
@@ -2982,6 +3045,8 @@ const AurrumInterviewRequestModal: React.FC<{
                     </span>
                     <input
                       type="time"
+                      min="04:15"
+                      max="17:15"
                       required={formData.proxy_required}
                       value={round.start_time}
                       onChange={(e) => {
@@ -2998,6 +3063,8 @@ const AurrumInterviewRequestModal: React.FC<{
                     </span>
                     <input
                       type="time"
+                      min="04:15"
+                      max="17:15"
                       required={formData.proxy_required}
                       value={round.end_time}
                       onChange={(e) => {
@@ -3009,6 +3076,20 @@ const AurrumInterviewRequestModal: React.FC<{
                     />
                   </div>
                 </div>
+
+                {/* Inline Scheduling Window Validation Alert */}
+                {round.start_time && round.end_time && (() => {
+                  const roundVal = validateInterviewTimeWindow(round.start_time, round.end_time, round.duration, round.interview_date);
+                  if (!roundVal.isValid) {
+                    return (
+                      <div className="p-3 bg-rose-500/15 border border-rose-500/30 rounded-xl flex items-center gap-2 text-rose-400 text-xs font-bold">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span>{roundVal.error}</span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             ))}
 
@@ -3053,7 +3134,7 @@ const AurrumInterviewRequestModal: React.FC<{
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || hasAnyRoundTimeWindowViolation}
               className="flex-1 py-3 bg-amber-500 text-black font-black rounded-xl text-xs hover:bg-amber-400 disabled:opacity-50 cursor-pointer"
             >
               {isSubmitting ? 'Scheduling...' : 'Create Interview Request'}

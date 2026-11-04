@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import Select from 'react-select';
 import { ProxyAvailability } from '../types';
 import { sharedSelectStyles } from '../lib/selectStyles';
+import { validateInterviewTimeWindow } from '../lib/utils';
 
 interface TimeSlot {
   value: string;
@@ -25,7 +26,8 @@ export const TimeSlotSelector: React.FC<TimeSlotSelectorProps> = ({ value, onCha
       .filter(a => 
         a.slot_start?.startsWith(date) && 
         (proxyUserId ? String(a.proxy_user_id) === proxyUserId : true) &&
-        a.slot_status === 'available'
+        a.slot_status === 'available' &&
+        validateInterviewTimeWindow(a.slot_start, a.slot_end).isValid
       )
       .map(a => {
         const start = new Date(a.slot_start).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/New_York' });

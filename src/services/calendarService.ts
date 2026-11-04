@@ -1,6 +1,6 @@
 import { db } from '../firebase';
 import { doc, getDoc, updateDoc, collection, addDoc, query, where, getDocs, deleteDoc } from 'firebase/firestore';
-import { parseLocalTimeToDate, isUserOnLeaveDuring, getEasternDate, formatLeavePeriod } from '../lib/utils';
+import { parseLocalTimeToDate, isUserOnLeaveDuring, getEasternDate, formatLeavePeriod, validateInterviewTimeWindow } from '../lib/utils';
 
 export interface CalendarEventPayload {
   summary: string;
@@ -396,6 +396,12 @@ export async function syncInterviewRoundToGoogleCalendar(
 
     if (!round.booked_slot_time || !round.booked_slot_end) {
       console.log('[CalendarService] Round is not scheduled (missing slot times).');
+      return false;
+    }
+
+    const windowCheck = validateInterviewTimeWindow(round.booked_slot_time, round.booked_slot_end);
+    if (!windowCheck.isValid) {
+      console.warn('[CalendarService] Cannot sync interview to Google Calendar: outside 4:15 AM – 5:15 PM EST window:', windowCheck.error);
       return false;
     }
 

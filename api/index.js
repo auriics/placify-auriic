@@ -1343,6 +1343,94 @@ var isDirectInterviewSupportCandidate = (c) => {
   }
   return false;
 };
+var INTERVIEW_WINDOW_START_MINUTES = 4 * 60 + 15;
+var INTERVIEW_WINDOW_END_MINUTES = 17 * 60 + 15;
+var INTERVIEW_SCHEDULING_WINDOW_MESSAGE = "INTERVIEW SCHEDULING WINDOW: 4:15 AM \u2013 5:15 PM EST. ALL INTERVIEWS MUST BE SCHEDULED WITHIN THIS TIME.";
+function getEasternTimeMinutes(timeOrDateTimeStr, interviewDate) {
+  if (!timeOrDateTimeStr) return null;
+  const str = String(timeOrDateTimeStr).trim();
+  if (str.includes("T") && (str.endsWith("Z") || /[+-]\d{2}:?\d{2}$/.test(str))) {
+    const d = new Date(str);
+    if (isNaN(d.getTime())) return null;
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false
+    });
+    const parts = formatter.formatToParts(d);
+    const hour2 = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
+    const minute2 = parseInt(parts.find((p) => p.type === "minute")?.value || "0", 10);
+    return hour2 % 24 * 60 + minute2;
+  }
+  let timePart = str;
+  if (str.includes("T")) {
+    timePart = str.split("T")[1];
+  }
+  const match = timePart.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const hour = parseInt(match[1], 10);
+  const minute = parseInt(match[2], 10);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+function validateInterviewTimeWindow(startTimeStr, endTimeStr, durationMinutes, interviewDate) {
+  if (!startTimeStr) {
+    return { isValid: false, error: "Start time is required." };
+  }
+  const startM = getEasternTimeMinutes(startTimeStr, interviewDate);
+  if (startM === null) {
+    return { isValid: false, error: "Invalid interview start time format." };
+  }
+  let endM = null;
+  if (endTimeStr) {
+    endM = getEasternTimeMinutes(endTimeStr, interviewDate);
+    if (endM === null) {
+      return { isValid: false, error: "Invalid interview end time format." };
+    }
+  } else if (durationMinutes && durationMinutes > 0) {
+    endM = startM + durationMinutes;
+  }
+  if (startM < INTERVIEW_WINDOW_START_MINUTES) {
+    return {
+      isValid: false,
+      startMinutes: startM,
+      endMinutes: endM ?? void 0,
+      error: "Interview start time cannot be earlier than 4:15 AM EST. Allowed scheduling window is 4:15 AM \u2013 5:15 PM EST."
+    };
+  }
+  if (startM >= INTERVIEW_WINDOW_END_MINUTES) {
+    return {
+      isValid: false,
+      startMinutes: startM,
+      endMinutes: endM ?? void 0,
+      error: "Interview start time cannot be at or after 5:15 PM EST. Allowed scheduling window is 4:15 AM \u2013 5:15 PM EST."
+    };
+  }
+  if (endM !== null) {
+    if (endM <= startM) {
+      return {
+        isValid: false,
+        startMinutes: startM,
+        endMinutes: endM,
+        error: "Interview end time must be after start time."
+      };
+    }
+    if (endM > INTERVIEW_WINDOW_END_MINUTES) {
+      return {
+        isValid: false,
+        startMinutes: startM,
+        endMinutes: endM,
+        error: "Interview end time cannot be later than 5:15 PM EST. Allowed scheduling window is 4:15 AM \u2013 5:15 PM EST."
+      };
+    }
+  }
+  return {
+    isValid: true,
+    startMinutes: startM,
+    endMinutes: endM ?? void 0
+  };
+}
 
 // server.ts
 dotenv.config();
@@ -2726,6 +2814,24 @@ app.patch("/api/interview-offer-requests/:id", async (req, res) => {
     console.error(`Error in PATCH /api/interview-offer-requests/${req.params.id}:`, error);
     res.status(500).json({ error: error.message });
   }
+});
+app.post(["/api/interviews/validate-window", "/interviews/validate-window"], (req, res) => {
+  const { startTime, endTime, durationMinutes, interviewDate } = req.body || {};
+  const validation = validateInterviewTimeWindow(startTime, endTime, durationMinutes, interviewDate);
+  if (!validation.isValid) {
+    return res.status(400).json({
+      isValid: false,
+      error: validation.error,
+      message: INTERVIEW_SCHEDULING_WINDOW_MESSAGE,
+      allowedWindow: "4:15 AM \u2013 5:15 PM EST"
+    });
+  }
+  return res.status(200).json({
+    isValid: true,
+    startMinutes: validation.startMinutes,
+    endMinutes: validation.endMinutes,
+    message: "Time is within the allowed 4:15 AM \u2013 5:15 PM EST scheduling window."
+  });
 });
 app.get(["/api/auth/google/login", "/auth/google/login"], (req, res) => {
   const { userId } = req.query;

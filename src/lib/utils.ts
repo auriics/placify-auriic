@@ -612,3 +612,138 @@ export function formatInterviewSlotRange(
     };
   }
 }
+
+// =========================================================================
+// PERMITTED INTERVIEW SCHEDULING WINDOW CONSTANTS & VALIDATION (4:15 AM – 5:15 PM EST)
+// =========================================================================
+export const INTERVIEW_WINDOW_START_MINUTES = 4 * 60 + 15; // 255 minutes = 4:15 AM EST
+export const INTERVIEW_WINDOW_END_MINUTES = 17 * 60 + 15;   // 1035 minutes = 5:15 PM EST
+export const INTERVIEW_WINDOW_START_TIME = '04:15';
+export const INTERVIEW_WINDOW_END_TIME = '17:15';
+export const INTERVIEW_SCHEDULING_WINDOW_MESSAGE = 
+  'INTERVIEW SCHEDULING WINDOW: 4:15 AM – 5:15 PM EST. ALL INTERVIEWS MUST BE SCHEDULED WITHIN THIS TIME.';
+
+export interface TimeWindowValidationResult {
+  isValid: boolean;
+  error?: string;
+  startMinutes?: number;
+  endMinutes?: number;
+}
+
+/**
+ * Extracts minutes from midnight (0..1439) in America/New_York (EST/EDT)
+ * given a time string ('04:15', '17:15:00', or an ISO datetime string).
+ */
+export function getEasternTimeMinutes(timeOrDateTimeStr: string, interviewDate?: string): number | null {
+  if (!timeOrDateTimeStr) return null;
+  const str = String(timeOrDateTimeStr).trim();
+
+  // If it's a full ISO string with timezone offset or UTC 'Z'
+  if (str.includes('T') && (str.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(str))) {
+    const d = new Date(str);
+    if (isNaN(d.getTime())) return null;
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: false
+    });
+    const parts = formatter.formatToParts(d);
+    const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
+    const minute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
+    return (hour % 24) * 60 + minute;
+  }
+
+  // If it contains 'T' (e.g. '2026-11-04T04:15:00' or '2026-11-04T04:15')
+  let timePart = str;
+  if (str.includes('T')) {
+    timePart = str.split('T')[1];
+  }
+
+  // Match HH:mm or HH:mm:ss
+  const match = timePart.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const hour = parseInt(match[1], 10);
+  const minute = parseInt(match[2], 10);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+/**
+ * Validates that an interview starts no earlier than 4:15 AM EST and finishes no later than 5:15 PM EST.
+ * Validates both start and end times, as well as duration boundaries.
+ */
+export function validateInterviewTimeWindow(
+  startTimeStr?: string | null,
+  endTimeStr?: string | null,
+  durationMinutes?: number,
+  interviewDate?: string
+): TimeWindowValidationResult {
+  if (!startTimeStr) {
+    return { isValid: false, error: 'Start time is required.' };
+  }
+
+  const startM = getEasternTimeMinutes(startTimeStr, interviewDate);
+  if (startM === null) {
+    return { isValid: false, error: 'Invalid interview start time format.' };
+  }
+
+  let endM: number | null = null;
+  if (endTimeStr) {
+    endM = getEasternTimeMinutes(endTimeStr, interviewDate);
+    if (endM === null) {
+      return { isValid: false, error: 'Invalid interview end time format.' };
+    }
+  } else if (durationMinutes && durationMinutes > 0) {
+    endM = startM + durationMinutes;
+  }
+
+  // 1. Boundary check: Start time cannot be earlier than 4:15 AM EST
+  if (startM < INTERVIEW_WINDOW_START_MINUTES) {
+    return {
+      isValid: false,
+      startMinutes: startM,
+      endMinutes: endM ?? undefined,
+      error: 'Interview start time cannot be earlier than 4:15 AM EST. Allowed scheduling window is 4:15 AM – 5:15 PM EST.'
+    };
+  }
+
+  // 2. Start time cannot be at or after 5:15 PM EST
+  if (startM >= INTERVIEW_WINDOW_END_MINUTES) {
+    return {
+      isValid: false,
+      startMinutes: startM,
+      endMinutes: endM ?? undefined,
+      error: 'Interview start time cannot be at or after 5:15 PM EST. Allowed scheduling window is 4:15 AM – 5:15 PM EST.'
+    };
+  }
+
+  // If end time is provided or calculated
+  if (endM !== null) {
+    // 3. End time must be after start time
+    if (endM <= startM) {
+      return {
+        isValid: false,
+        startMinutes: startM,
+        endMinutes: endM,
+        error: 'Interview end time must be after start time.'
+      };
+    }
+
+    // 4. Boundary check: End time cannot be later than 5:15 PM EST
+    if (endM > INTERVIEW_WINDOW_END_MINUTES) {
+      return {
+        isValid: false,
+        startMinutes: startM,
+        endMinutes: endM,
+        error: 'Interview end time cannot be later than 5:15 PM EST. Allowed scheduling window is 4:15 AM – 5:15 PM EST.'
+      };
+    }
+  }
+
+  return {
+    isValid: true,
+    startMinutes: startM,
+    endMinutes: endM ?? undefined
+  };
+}
