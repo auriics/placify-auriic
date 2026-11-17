@@ -1118,7 +1118,7 @@ export const Dashboard: React.FC = () => {
             Pipeline Overview
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {Object.entries(STAGES).filter(([key]) => key !== 'not_interested').map(([key, stage], i) => {
+            {Object.entries(STAGES).filter(([key]) => key !== 'not_interested' && key !== 'offer' && key !== 'completed' && !isStageDisabled(key)).map(([key, stage], i) => {
               const count = candidates.filter(c => {
                 const matchesStage = c.current_stage === key;
                 if (!matchesStage) return false;
