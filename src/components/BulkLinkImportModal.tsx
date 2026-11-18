@@ -17,8 +17,10 @@ import {
   ArrowRight, 
   Check, 
   AlertTriangle,
-  ExternalLink
+  ExternalLink,
+  Download
 } from 'lucide-react';
+import { exportBulkLinksExcel, normalizeUrlForExport } from '../utils/bulkLinkExport';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface BulkLinkImportModalProps {
@@ -37,45 +39,8 @@ interface ParsedLink {
   status: 'ready' | 'duplicate_existing' | 'duplicate_batch' | 'invalid';
 }
 
-// Normalize URLs to prevent false-positives/true-positives bypasses (stripping UTMS, ref params, www, trailing slashes, etc.)
-const normalizeUrl = (urlStr: string): string => {
-  try {
-    let clean = urlStr.trim().toLowerCase();
-    
-    // Add protocol if missing for URL parsing
-    if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
-      clean = 'https://' + clean;
-    }
-    
-    const parsed = new URL(clean);
-    
-    // Get hostname and remove www.
-    let host = parsed.hostname;
-    if (host.startsWith('www.')) {
-      host = host.substring(4);
-    }
-    
-    let pathName = parsed.pathname;
-    // Remove trailing slash
-    if (pathName.endsWith('/')) {
-      pathName = pathName.substring(0, pathName.length - 1);
-    }
-    
-    // Extract key variables for specific tracking query strings
-    // We want to discard general UTMS and tracking tags, but KEEP specific parameters like jk in Indeed.
-    let searchPart = '';
-    if (host.includes('indeed.com')) {
-      const jk = parsed.searchParams.get('jk');
-      if (jk) {
-        searchPart = `?jk=${jk}`;
-      }
-    }
-    
-    return `${host}${pathName}${searchPart}`;
-  } catch (_) {
-    return urlStr.trim().toLowerCase();
-  }
-};
+// Normalize URLs using enhanced duplicate detection across minor formatting differences
+const normalizeUrl = normalizeUrlForExport;
 
 // Attempt to extract company name from certain URLs if possible
 const extractCompanyFromUrl = (urlStr: string): string | null => {
@@ -145,6 +110,36 @@ export const BulkLinkImportModal: React.FC<BulkLinkImportModalProps> = ({
   const [progress, setProgress] = useState(0);
   const [successCount, setSuccessCount] = useState(0);
   const [failCount, setFailCount] = useState(0);
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportExcel = async () => {
+    if (parsedLinks.length === 0) return;
+    try {
+      setIsExporting(true);
+      const allLinks = parsedLinks.map(p => ({
+        url: p.url,
+        isDuplicate: p.status === 'duplicate_existing' || p.status === 'duplicate_batch',
+        status: p.status
+      }));
+
+      const duplicateLinks = parsedLinks
+        .filter(p => p.status === 'duplicate_existing' || p.status === 'duplicate_batch')
+        .map(p => p.url);
+
+      await exportBulkLinksExcel({
+        candidateName: candidate?.full_name,
+        allLinks,
+        duplicateLinks
+      });
+
+      showToast('Exported analyzed job links to Excel', 'success');
+    } catch (err) {
+      console.error('Export error:', err);
+      showToast('Failed to export Excel file', 'error');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // Fetch applications for the candidate specifically to ensure duplicate checks work
   // even if the parent page hasn't loaded full history.
@@ -392,6 +387,16 @@ export const BulkLinkImportModal: React.FC<BulkLinkImportModalProps> = ({
               <div className="flex gap-3">
                 <button
                   type="button"
+                  onClick={handleExportExcel}
+                  disabled={isExporting}
+                  className="px-4 py-3 h-12 bg-emerald-500/15 border border-emerald-500/30 hover:bg-emerald-500/25 text-emerald-400 font-bold text-sm rounded-2xl transition-all flex items-center gap-2 disabled:opacity-50"
+                  title="Download 2-tab Excel report (All Links with yellow duplicates & Duplicate Links tab)"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>{isExporting ? 'Exporting...' : 'Export Excel'}</span>
+                </button>
+                <button
+                  type="button"
                   onClick={handleClose}
                   className="px-5 py-3 h-12 bg-bg-tertiary hover:bg-bg-tertiary/80 font-bold text-sm text-text-secondary rounded-2xl transition-all"
                 >
@@ -536,6 +541,18 @@ export const BulkLinkImportModal: React.FC<BulkLinkImportModalProps> = ({
                   Deselect All
                 </button>
               </div>
+
+              {/* Export Excel Option */}
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                disabled={isExporting}
+                className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/25 hover:bg-emerald-500/20 text-emerald-400 font-bold rounded-xl transition-all shadow-sm text-xs disabled:opacity-50"
+                title="Download 2-tab Excel report with highlighted duplicates"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>{isExporting ? 'Exporting...' : 'Export Excel'}</span>
+              </button>
             </div>
 
             {/* Simple table of URLs */}
