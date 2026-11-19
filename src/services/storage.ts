@@ -20,6 +20,7 @@ import { canDeleteInterviewRequest, canEditCandidateBasicInfo } from '../lib/per
 import { isSalesWorkingHours, validateInterviewTimeWindow } from '../lib/utils';
 import { db, auth } from '../firebase';
 import { isOfferStageDisabled, isCompletedStageDisabled, isPaymentsRevenueDisabled } from '../lib/featureFlags';
+import { DEFAULT_CANDIDATE_FLAGS, normalizeCandidateFlags, normalizeCandidateStage } from '../constants';
 import { 
   Candidate, 
   Payment, 
@@ -175,9 +176,20 @@ export const subscribeToCollection = <T>(collectionName: string, callback: (data
     };
 
     newEntry.unsubFirestore = onSnapshot(q, (snapshot) => {
+      const rawData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+      const cleanedData = collectionName === 'jpc_candidates'
+        ? rawData.filter((c: any) => c.id !== 'test_edit_cand_1795118728093' && c.phone !== '+1 (555) 019-2834')
+        : rawData;
+      const normalizedData = collectionName === 'jpc_candidates'
+        ? cleanedData.map((c: any) => ({
+            ...c,
+            current_stage: normalizeCandidateStage(c?.current_stage),
+            flags: normalizeCandidateFlags(c?.flags),
+          }))
+        : cleanedData;
       newEntry.data = _applyBrandFilter(
         collectionName,
-        snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }))
+        normalizedData
       );
       // Broadcast to all current subscribers
       newEntry.subscribers.forEach(cb => cb(newEntry.data));
@@ -243,7 +255,7 @@ export const subscribeToAurrumCandidates = (callback: (data: Candidate[]) => voi
   return onSnapshot(q, (snapshot) => {
     const data = snapshot.docs
       .map(d => ({ ...d.data(), id: d.id } as Candidate))
-      .filter(c => !c.deleted_at);
+      .filter(c => !c.deleted_at && c.id !== 'test_edit_cand_1795118728093' && c.phone !== '+1 (555) 019-2834');
     callback(data);
   }, (error) => {
     handleFirestoreError(error, OperationType.GET, 'jpc_candidates (aurrum)');
@@ -264,8 +276,16 @@ export const subscribeToAllCandidatesUnfiltered = (callback: (data: Candidate[])
   const q = query(collection(db, 'jpc_candidates'));
   return onSnapshot(q, (snapshot) => {
     const data = snapshot.docs
-      .map(d => ({ ...d.data(), id: d.id } as Candidate))
-      .filter(c => !c.deleted_at);
+      .map(d => {
+        const raw = d.data() as Candidate;
+        return {
+          ...raw,
+          id: d.id,
+          current_stage: normalizeCandidateStage(raw?.current_stage),
+          flags: normalizeCandidateFlags(raw?.flags),
+        };
+      })
+      .filter(c => !c.deleted_at && c.id !== 'test_edit_cand_1795118728093' && c.phone !== '+1 (555) 019-2834');
     callback(data);
   }, (error) => {
     handleFirestoreError(error, OperationType.GET, 'jpc_candidates');
@@ -687,7 +707,11 @@ export const saveCandidate = async (candidate: Candidate, userId: string | null)
     if (candidate.current_stage === 'completed' && isCompletedStageDisabled()) {
       throw new Error('Completed stage is disabled in system configuration');
     }
-    let finalCandidate = { ...candidate };
+    let finalCandidate = { 
+      ...candidate,
+      current_stage: normalizeCandidateStage(candidate.current_stage),
+      flags: normalizeCandidateFlags(candidate.flags),
+    };
 
     // Prevent Lead Generation from overriding or modifying assigned_sales
     const currentUid = userId || auth.currentUser?.uid;
@@ -731,6 +755,12 @@ export const updateCandidate = async (id: string, updates: Partial<Candidate>) =
       throw new Error('Completed stage is disabled in system configuration');
     }
     let finalUpdates = { ...updates };
+    if (finalUpdates.flags) {
+      finalUpdates.flags = normalizeCandidateFlags(finalUpdates.flags);
+    }
+    if (finalUpdates.current_stage) {
+      finalUpdates.current_stage = normalizeCandidateStage(finalUpdates.current_stage);
+    }
 
     // Prevent Lead Generation from altering assigned_sales
     if (auth.currentUser?.uid) {
@@ -895,21 +925,11 @@ export const createAurrumCandidate = async (
     package_amount: Number(candidate.package_amount) || 0,
     domain_suggested: candidate.domain_suggested || '',
     notes: candidate.notes || '',
-    current_stage: candidate.current_stage || 'lead_generation',
+    current_stage: normalizeCandidateStage(candidate.current_stage),
     aurrum_stage: candidate.aurrum_stage || 'lead',
     aurrum_sales_status: candidate.aurrum_sales_status || 'New Lead',
     crm_brand: 'aurrum',
-    flags: candidate.flags || {
-      agreement_sent: false,
-      agreement_signed: false,
-      qc_checklist_done: false,
-      resume_approved: false,
-      candidate_resume_approved: false,
-      marketing_email_created: false,
-      two_step_verification: false,
-      linkedin_optimized: false,
-      marketing_started: false,
-    },
+    flags: normalizeCandidateFlags(candidate.flags),
     resume_url: candidate.resume_url || null,
     resume_base64: candidate.resume_base64 || null,
     resume_filename: candidate.resume_filename || null,

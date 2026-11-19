@@ -1,4 +1,4 @@
-import { Stage, Role } from './types';
+import { Stage, Role, CandidateFlags } from './types';
 import { isStageDisabled } from './lib/featureFlags';
 
 export const STAGES: Record<Stage, { label: string; color: string; icon: string }> = {
@@ -136,3 +136,32 @@ export const QC_CHECKLIST_TEMPLATE = [
   { key: 'promises_discussed', label: 'Promises discussed' },
   { key: 'agreement_ready', label: 'Agreement ready to send' },
 ];
+
+export const DEFAULT_CANDIDATE_FLAGS: CandidateFlags = {
+  agreement_sent: false,
+  agreement_signed: false,
+  qc_checklist_done: false,
+  resume_approved: false,
+  candidate_resume_approved: false,
+  marketing_email_created: false,
+  two_step_verification: false,
+  linkedin_optimized: false,
+  marketing_started: false,
+  sla_timeout_notified: false,
+  marketing_strategy_done: false,
+  resume_briefing_call_done: false,
+};
+
+export const normalizeCandidateFlags = (flags?: Partial<CandidateFlags> | null): CandidateFlags => {
+  return {
+    ...DEFAULT_CANDIDATE_FLAGS,
+    ...(flags || {}),
+  };
+};
+
+export const normalizeCandidateStage = (stage?: any): Stage => {
+  if (stage && typeof stage === 'string' && stage in STAGES) {
+    return stage as Stage;
+  }
+  return 'lead_generation';
+};

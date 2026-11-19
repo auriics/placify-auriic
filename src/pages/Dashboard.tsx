@@ -1088,7 +1088,7 @@ export const Dashboard: React.FC = () => {
                           />
                         )}
                       </div>
-                      <p className="text-[10px] text-text-muted uppercase font-bold">{STAGES[candidate.current_stage].label}</p>
+                      <p className="text-[10px] text-text-muted uppercase font-bold">{STAGES[candidate.current_stage]?.label || candidate.current_stage || 'Lead Generation'}</p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -1470,7 +1470,7 @@ export const Dashboard: React.FC = () => {
                       <span className="text-[10px] font-mono text-text-muted">{candidate.id}</span>
                     </div>
                     <p className="text-xs text-text-muted truncate">
-                      Moved to <span className="text-accent-blue font-medium">{STAGES[candidate.current_stage].label}</span>
+                      Moved to <span className="text-accent-blue font-medium">{STAGES[candidate.current_stage]?.label || candidate.current_stage || 'Lead Generation'}</span>
                     </p>
                   </div>
                   <p className="text-[10px] text-text-muted font-bold uppercase">

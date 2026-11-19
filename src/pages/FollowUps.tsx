@@ -190,8 +190,8 @@ export const FollowUps: React.FC = () => {
                       )}
                     </div>
                     <p className="text-xs text-text-muted mt-1 flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: STAGES[f.stage as Stage]?.color }} />
-                      {STAGES[f.stage as Stage]?.label}
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: STAGES[f.stage as Stage]?.color || '#94a3b8' }} />
+                      {STAGES[f.stage as Stage]?.label || f.stage}
                     </p>
                   </div>
 

@@ -4,7 +4,7 @@ import { db } from '../firebase';
 import { doc, onSnapshot, collection, query, where, orderBy, limit, setDoc } from 'firebase/firestore';
 import { Candidate, Payment, Application, InterviewSupportRequest, ActivityLog, InterviewRound, User } from '../types';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
-import { STAGES } from '../constants';
+import { STAGES, DEFAULT_CANDIDATE_FLAGS, normalizeCandidateFlags, normalizeCandidateStage } from '../constants';
 import { InterviewTimeDisplay } from '../components/InterviewTimeDisplay';
 import { formatInterviewSlotRange } from '../lib/utils';
 import { isStageDisabled, isPaymentsRevenueDisabled } from '../lib/featureFlags';
@@ -82,7 +82,12 @@ export const CandidateDashboard: React.FC = () => {
 
     const unsubCandidate = onSnapshot(doc(db, 'jpc_candidates', id), (docSnap) => {
       if (docSnap.exists()) {
-        const data = docSnap.data() as Candidate;
+        const rawData = docSnap.data() as Candidate;
+        const data: Candidate = {
+          ...rawData,
+          current_stage: normalizeCandidateStage(rawData.current_stage),
+          flags: normalizeCandidateFlags(rawData.flags),
+        };
         setCandidate(data);
         setIsLoading(false);
 
@@ -172,9 +177,10 @@ export const CandidateDashboard: React.FC = () => {
 
   const overduePayments = !isPaymentsRevenueDisabled() ? payments.filter(p => p.status === 'pending' && p.due_date && new Date(p.due_date) < new Date()) : [];
 
-  const currentStageInfo = STAGES[candidate.current_stage];
-  const stageIndex = Object.keys(STAGES).indexOf(candidate.current_stage);
-  const totalStages = Object.keys(STAGES).length - 2; // Exclude completed and not_interested
+  const currentStageInfo = STAGES[candidate.current_stage] || { label: 'In Progress', color: '#3B82F6', icon: '◎' };
+  const rawStageIndex = Object.keys(STAGES).indexOf(candidate.current_stage);
+  const stageIndex = rawStageIndex >= 0 ? rawStageIndex : 0;
+  const totalStages = Math.max(1, Object.keys(STAGES).length - 2); // Exclude completed and not_interested
   const progress = Math.min(100, Math.max(0, (stageIndex / totalStages) * 100));
 
   const handleDownloadResume = () => {

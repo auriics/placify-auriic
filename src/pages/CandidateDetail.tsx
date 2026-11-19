@@ -22,7 +22,7 @@ import { uploadFile, handleViewFile } from '../services/fileService';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { canUserAccessCandidate, canDeleteInterviewRequest } from '../lib/permissions';
-import { STAGES, TRANSITIONS, LEAD_SOURCES, ROLE_PERMISSIONS, PREVIOUS_STAGES } from '../constants';
+import { STAGES, TRANSITIONS, LEAD_SOURCES, ROLE_PERMISSIONS, PREVIOUS_STAGES, DEFAULT_CANDIDATE_FLAGS, normalizeCandidateFlags, normalizeCandidateStage } from '../constants';
 import { isStageDisabled, isOfferStageDisabled, isCompletedStageDisabled, isPaymentsRevenueDisabled } from '../lib/featureFlags';
 import { 
   ArrowLeft, 
@@ -148,7 +148,12 @@ export const CandidateDetail: React.FC = () => {
 
     const unsubCandidate = onSnapshot(doc(db, 'jpc_candidates', id), (doc) => {
       if (doc.exists()) {
-        const data = doc.data() as Candidate;
+        const rawData = doc.data() as Candidate;
+        const data: Candidate = {
+          ...rawData,
+          current_stage: normalizeCandidateStage(rawData.current_stage),
+          flags: normalizeCandidateFlags(rawData.flags),
+        };
         
         // Role-based access check
         if (!canUserAccessCandidate(data, user, allUsers)) {
@@ -1202,8 +1207,8 @@ export const CandidateDetail: React.FC = () => {
     }
 
     try {
-      const oldStageLabel = STAGES[candidate.current_stage].label;
-      const newStageLabel = STAGES[newStage].label;
+      const oldStageLabel = STAGES[candidate.current_stage]?.label || candidate.current_stage || 'Lead Generation';
+      const newStageLabel = STAGES[newStage]?.label || newStage;
       
       const updated = { 
         ...candidate, 
@@ -1213,7 +1218,7 @@ export const CandidateDetail: React.FC = () => {
         backed_out_at: newStage === 'backout' ? (candidate.backed_out_at || now()) : null,
         backout_reason: newStage === 'backout' ? (candidate.backout_reason || null) : null,
         flags: {
-          ...candidate.flags,
+          ...normalizeCandidateFlags(candidate.flags),
           sla_timeout_notified: false
         }
       };
@@ -1245,9 +1250,11 @@ export const CandidateDetail: React.FC = () => {
   };
 
   const handleToggleFlag = async (flag: keyof Candidate['flags']) => {
+    if (!candidate) return;
+    const currentFlags = normalizeCandidateFlags(candidate.flags);
     const updated = {
       ...candidate,
-      flags: { ...candidate.flags, [flag]: !candidate.flags[flag] }
+      flags: { ...currentFlags, [flag]: !currentFlags[flag] }
     };
     await saveCandidate(updated, user?.id ? String(user.id) : null);
     await logActivity(candidate.id, 'Flag toggled', `Flag '${flag.replace(/_/g, ' ')}' was toggled.`, user?.id || null);
@@ -1983,7 +1990,7 @@ export const CandidateDetail: React.FC = () => {
                   ...candidate,
                   updated_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
                   flags: {
-                    ...candidate.flags,
+                    ...normalizeCandidateFlags(candidate.flags),
                     sla_timeout_notified: false
                   }
                 };
@@ -2062,9 +2069,9 @@ export const CandidateDetail: React.FC = () => {
             )
           )}
           <div className="px-3.5 sm:px-4 py-2 rounded-xl border border-border-primary bg-bg-secondary flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: STAGES[candidate.current_stage].color }} />
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: STAGES[candidate.current_stage]?.color || '#3B82F6' }} />
             <span className="text-xs sm:text-sm font-bold text-text-primary uppercase tracking-wider">
-              {STAGES[candidate.current_stage].label}
+              {STAGES[candidate.current_stage]?.label || candidate.current_stage || 'Lead Generation'}
             </span>
           </div>
         </div>
@@ -2153,8 +2160,10 @@ export const CandidateDetail: React.FC = () => {
               <button
                 onClick={async () => {
                   try {
-                    if (window.confirm(`Are you sure you want to revert this candidate back to ${STAGES[PREVIOUS_STAGES[candidate.current_stage]!].label}?`)) {
-                      await handleStageMove(PREVIOUS_STAGES[candidate.current_stage]!, true);
+                    const prevStage = PREVIOUS_STAGES[candidate.current_stage]!;
+                    const prevStageLabel = STAGES[prevStage]?.label || prevStage;
+                    if (window.confirm(`Are you sure you want to revert this candidate back to ${prevStageLabel}?`)) {
+                      await handleStageMove(prevStage, true);
                     }
                   } catch (e) {
                     showToast('Failed to revert', 'error');
@@ -2168,7 +2177,7 @@ export const CandidateDetail: React.FC = () => {
               </button>
             )}
             
-            {TRANSITIONS[candidate.current_stage].map(stageKey => {
+            {(TRANSITIONS[candidate.current_stage] || []).map(stageKey => {
               const isDisabled = false; // CS now has admin-like access
               const isOfferFromInterview = candidate.current_stage === 'interviewing' && stageKey === 'offer';
               const isPendingApproval = isOfferFromInterview && candidate.interview_offer_status === 'pending_approval';
@@ -2187,7 +2196,7 @@ export const CandidateDetail: React.FC = () => {
                         : "bg-bg-tertiary border-border-primary text-text-primary hover:border-accent-blue hover:text-accent-blue"
                   )}
                 >
-                  {STAGES[stageKey as Stage].icon} {STAGES[stageKey as Stage].label.split('. ')[1] || STAGES[stageKey as Stage].label}
+                  {STAGES[stageKey as Stage]?.icon || '◎'} {STAGES[stageKey as Stage]?.label?.split('. ')[1] || STAGES[stageKey as Stage]?.label || stageKey}
                   {isPendingApproval && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-600 dark:text-amber-400">Clearance Pending</span>}
                   <ArrowRight className="w-4 h-4" />
                 </button>
@@ -3543,26 +3552,29 @@ export const CandidateDetail: React.FC = () => {
                     {group.title}
                   </h4>
                   <div className="grid grid-cols-1 gap-3">
-                    {group.flags.map((flag) => (
-                      <label key={flag.key} className="flex items-center justify-between group cursor-pointer">
-                        <span className="text-sm font-medium text-text-secondary group-hover:text-text-primary transition-colors">
-                          {flag.label}
-                        </span>
-                        <div 
-                          onClick={() => canEdit && handleToggleFlag(flag.key as keyof Candidate['flags'])}
-                          className={cn(
-                            "w-10 h-5 rounded-full relative transition-all duration-300",
-                            isCandidate ? "cursor-default" : "cursor-pointer",
-                            candidate.flags[flag.key as keyof Candidate['flags']] ? "bg-accent-green" : "bg-bg-tertiary border border-border-primary"
-                          )}
-                        >
-                          <div className={cn(
-                            "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all duration-300 shadow-sm",
-                            candidate.flags[flag.key as keyof Candidate['flags']] ? "left-5.5" : "left-0.5"
-                          )} />
-                        </div>
-                      </label>
-                    ))}
+                    {group.flags.map((flag) => {
+                      const isFlagActive = Boolean(candidate?.flags?.[flag.key as keyof Candidate['flags']]);
+                      return (
+                        <label key={flag.key} className="flex items-center justify-between group cursor-pointer">
+                          <span className="text-sm font-medium text-text-secondary group-hover:text-text-primary transition-colors">
+                            {flag.label}
+                          </span>
+                          <div 
+                            onClick={() => canEdit && handleToggleFlag(flag.key as keyof Candidate['flags'])}
+                            className={cn(
+                              "w-10 h-5 rounded-full relative transition-all duration-300",
+                              isCandidate ? "cursor-default" : "cursor-pointer",
+                              isFlagActive ? "bg-accent-green" : "bg-bg-tertiary border border-border-primary"
+                            )}
+                          >
+                            <div className={cn(
+                              "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all duration-300 shadow-sm",
+                              isFlagActive ? "left-5.5" : "left-0.5"
+                            )} />
+                          </div>
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
               ))}
@@ -3579,7 +3591,7 @@ export const CandidateDetail: React.FC = () => {
                 'marketing_email_created',
                 'two_step_verification',
                 'linkedin_optimized'
-              ].every(key => candidate.flags[key as keyof Candidate['flags']] === true) && (
+              ].every(key => Boolean(candidate?.flags?.[key as keyof Candidate['flags']])) && (
                 <motion.div 
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}

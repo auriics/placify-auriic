@@ -16,6 +16,7 @@ import { google } from 'googleapis';
 import * as XLSX from 'xlsx';
 import { parseResumeLocally } from './src/services/localResumeParser.ts';
 import { isDirectInterviewSupportCandidate, validateInterviewTimeWindow, INTERVIEW_SCHEDULING_WINDOW_MESSAGE } from './src/lib/utils.ts';
+import { performGlobalSearch, SearchCategory } from './src/lib/searchUtils.ts';
 export { isDirectInterviewSupportCandidate };
 
 dotenv.config();
@@ -131,6 +132,18 @@ if (db && process.env.NODE_ENV !== 'test' && !isServerless) {
       }
     }
   });
+
+  // Permanently remove test candidate test_edit_cand_1795118728093
+  try {
+    const testDocRef = db.collection('jpc_candidates').doc('test_edit_cand_1795118728093');
+    testDocRef.get().then((snap: any) => {
+      if (snap.exists) {
+        testDocRef.delete().then(() => {
+          console.log('[Cleanup] Permanently deleted test candidate test_edit_cand_1795118728093');
+        }).catch(() => {});
+      }
+    }).catch(() => {});
+  } catch (cleanErr) {}
 } else if (!db) {
   // If db is still null, create a proxy that throws on access
   db = new Proxy({}, {
@@ -2808,6 +2821,92 @@ app.patch(['/api/candidates/:id/basic-info', '/candidates/:id/basic-info'], veri
   } catch (error: any) {
     console.error('Error updating candidate basic info via PATCH:', error);
     res.status(500).json({ error: error.message || 'Failed to update candidate information' });
+  }
+});
+
+// Global Search API Endpoint (Protected by verifyAuth, enforces RBAC, brand & shift restrictions)
+app.get(['/api/search', '/search'], verifyAuth, async (req, res) => {
+  try {
+    const q = ((req.query.q as string) || '').trim();
+    const category = ((req.query.category as string) || 'all') as SearchCategory;
+    const user = (req as any).user;
+
+    if (!q) {
+      return res.json({
+        results: [],
+        counts: { all: 0, candidates: 0, applications: 0, interviews: 0, logbooks: 0, followups: 0, team: 0 }
+      });
+    }
+
+    if (!db) {
+      return res.status(503).json({ error: 'Database service unavailable' });
+    }
+
+    const isAurrum = Boolean(user.role?.startsWith('aurrum_'));
+
+    // Fetch Candidates from Firestore
+    const candSnap = await db.collection('jpc_candidates').get();
+    const candidates: any[] = [];
+    candSnap.forEach((docSnap: any) => {
+      const data = docSnap.data();
+      if (docSnap.id === 'test_edit_cand_1795118728093' || data?.phone === '+1 (555) 019-2834') return;
+      if (data?.deleted_at) return;
+      candidates.push({ id: docSnap.id, ...data });
+    });
+
+    // Fetch Users
+    const usersSnap = await db.collection('jpc_users').get();
+    const allUsers: any[] = [];
+    usersSnap.forEach((docSnap: any) => {
+      allUsers.push({ id: docSnap.id, ...docSnap.data() });
+    });
+
+    // Fetch Applications
+    const appsSnap = await db.collection('jpc_applications').get();
+    const applications: any[] = [];
+    appsSnap.forEach((docSnap: any) => {
+      applications.push({ id: docSnap.id, ...docSnap.data() });
+    });
+
+    // Fetch Interviews
+    const interviewsSnap = await db.collection('jpc_interview_requests').get();
+    const interviews: any[] = [];
+    interviewsSnap.forEach((docSnap: any) => {
+      interviews.push({ id: docSnap.id, ...docSnap.data() });
+    });
+
+    // Fetch Logbooks (Resume & RTR requests)
+    const logbooksSnap = await db.collection('jpc_resume_requests').get();
+    const logbooks: any[] = [];
+    logbooksSnap.forEach((docSnap: any) => {
+      logbooks.push({ id: docSnap.id, ...docSnap.data() });
+    });
+
+    // Fetch Followups
+    const followupsSnap = await db.collection('jpc_followups').get();
+    const followups: any[] = [];
+    followupsSnap.forEach((docSnap: any) => {
+      followups.push({ id: docSnap.id, ...docSnap.data() });
+    });
+
+    const searchResponse = performGlobalSearch({
+      query: q,
+      category,
+      user,
+      allUsers,
+      isAurrumRoute: isAurrum,
+      candidates,
+      applications,
+      interviews,
+      logbooks,
+      followups,
+      team: allUsers
+    });
+
+    res.json(searchResponse);
+  } catch (error: any) {
+    console.error('Global search error:', error);
+    res.status(500).json({ error: error.message || 'Global search failed' });
   }
 });
 

@@ -13,6 +13,7 @@ import { MigrationExecutor } from './MigrationExecutor';
 import { migrateAllChecklists, testConnection, autoAssignFaizToCandidates } from './services/storage';
 import { Plus, Menu, Search } from 'lucide-react';
 import { MobileBottomNav } from './components/MobileBottomNav';
+import { GlobalSearchModal } from './components/GlobalSearchModal';
 
 // Lazy load pages
 const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })));
@@ -56,6 +57,22 @@ const AppContent: React.FC = () => {
   const [currentHash, setCurrentHash] = useState(window.location.hash || '#dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  // Global search shortcut (Ctrl+K, Cmd+K, or '/')
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsSearchOpen(prev => !prev);
+      } else if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
+        e.preventDefault();
+        setIsSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
 
   useEffect(() => {
@@ -328,12 +345,25 @@ const AppContent: React.FC = () => {
             </div>
             
             <div className="flex items-center gap-2 sm:gap-3 ml-auto shrink-0">
-              {/* Command Palette Placeholder (To be implemented) */}
-              <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-bg-tertiary/50 border border-border-primary rounded-md text-xs text-text-muted font-medium cursor-pointer hover:bg-bg-tertiary transition-colors mr-2">
-                <Search className="w-3.5 h-3.5" />
-                <span>Search anywhere...</span>
-                <kbd className="ml-2 px-1.5 py-0.5 rounded bg-bg-secondary border border-border-primary text-[10px] font-sans">⌘K</kbd>
-              </div>
+              {/* Global Search Trigger */}
+              <button
+                onClick={() => setIsSearchOpen(true)}
+                className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-bg-tertiary/60 border border-border-primary rounded-xl text-xs text-text-muted font-medium hover:border-accent-blue/50 hover:bg-bg-tertiary transition-all mr-1 shadow-sm cursor-pointer"
+                title="Search all CRM modules (⌘K or Ctrl+K)"
+              >
+                <Search className="w-3.5 h-3.5 text-accent-blue" />
+                <span className="hidden md:inline">Search CRM records...</span>
+                <span className="md:hidden">Search...</span>
+                <kbd className="ml-1 px-1.5 py-0.5 rounded bg-bg-secondary border border-border-primary text-[10px] font-mono text-text-muted">⌘K</kbd>
+              </button>
+
+              <button
+                onClick={() => setIsSearchOpen(true)}
+                className="sm:hidden p-2 text-text-secondary hover:text-text-primary hover:bg-bg-tertiary rounded-xl transition-all cursor-pointer"
+                aria-label="Open Global Search"
+              >
+                <Search className="w-4 h-4 text-accent-blue" />
+              </button>
 
               <NotificationList />
               
@@ -374,6 +404,12 @@ const AppContent: React.FC = () => {
         onSuccess={() => {
           window.dispatchEvent(new HashChangeEvent('hashchange'));
         }}
+      />
+      <GlobalSearchModal
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+        user={user}
+        isAurrumRoute={isAurrumRoute}
       />
     </div>
   );

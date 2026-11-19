@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
 import { useAuth } from './contexts/AuthContext';
 import { db } from './firebase';
-import { collection, query, getDocs, writeBatch, doc } from 'firebase/firestore';
+import { collection, query, getDocs, writeBatch, doc, getDoc } from 'firebase/firestore';
+import { deleteCandidate } from './services/storage';
 
 export const MigrationExecutor = () => {
   const { user } = useAuth();
@@ -82,6 +83,28 @@ export const MigrationExecutor = () => {
     };
     
     run();
+  }, [user]);
+
+  // Permanently remove specified test candidate test_edit_cand_1795118728093
+  useEffect(() => {
+    if (!user) return;
+    const cleanupTestCandidate = async () => {
+      try {
+        const testCandId = 'test_edit_cand_1795118728093';
+        const testRef = doc(db, 'jpc_candidates', testCandId);
+        const snap = await getDoc(testRef);
+        if (snap.exists()) {
+          const cand = snap.data();
+          if (cand?.phone === '+1 (555) 019-2834' || snap.id === testCandId) {
+            await deleteCandidate(testCandId);
+            console.log('[Cleanup] Permanently removed test candidate test_edit_cand_1795118728093');
+          }
+        }
+      } catch (err) {
+        console.warn('[Cleanup] Test candidate removal check:', err);
+      }
+    };
+    cleanupTestCandidate();
   }, [user]);
   
   return null;

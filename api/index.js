@@ -41,6 +41,11 @@ var isCompletedStageDisabled = () => {
 var isPaymentsRevenueDisabled = () => {
   return parseBool(getEnvVar("DISABLE_PAYMENTS_REVENUE"));
 };
+var isStageDisabled = (stageKey) => {
+  if (stageKey === "offer" && isOfferStageDisabled()) return true;
+  if (stageKey === "completed" && isCompletedStageDisabled()) return true;
+  return false;
+};
 
 // server.ts
 import cron from "node-cron";
@@ -1432,6 +1437,472 @@ function validateInterviewTimeWindow(startTimeStr, endTimeStr, durationMinutes, 
   };
 }
 
+// src/lib/permissions.ts
+function matchesProfileHandlingAccess(candidateShift, profileAccess) {
+  const normalizedAccess = (profileAccess || "Day Shift").trim().toLowerCase();
+  if (normalizedAccess === "all" || normalizedAccess === "all profiles") {
+    return true;
+  }
+  const normalizedShift = (candidateShift || "").trim().toLowerCase();
+  if (normalizedAccess === "day shift" || normalizedAccess === "day_shift") {
+    return normalizedShift === "day shift";
+  }
+  if (normalizedAccess === "night shift" || normalizedAccess === "night_shift") {
+    return normalizedShift === "night shift";
+  }
+  return normalizedShift === "day shift";
+}
+function canUserAccessCandidate(candidate, user, teamUsers = []) {
+  if (!user) return true;
+  if (user.role === "administrator" || user.role === "jpc_sysadmin" || user.role === "jpc_manager" || user.role === "aurrum_admin" || user.role === "aurrum_sales" || user.role === "aurrum_team") {
+    return true;
+  }
+  if (user.role === "candidate" || user.role === "jpc_candidate") {
+    if (user.candidate_id && String(candidate.id) === String(user.candidate_id)) return true;
+    if (user.email && candidate.email && user.email.toLowerCase().trim() === candidate.email.toLowerCase().trim()) return true;
+    if (user.username && (candidate.phone?.includes(user.username) || candidate.id === user.username)) return true;
+    return false;
+  }
+  if (user.role === "jpc_cs") {
+    const profileAccess = user.profile_handling_access || "Day Shift";
+    return matchesProfileHandlingAccess(candidate.shift_preference, profileAccess);
+  }
+  const userMatches = (targetVal) => {
+    if (targetVal === null || targetVal === void 0 || targetVal === "") return false;
+    const targetStr = String(targetVal).toLowerCase().trim();
+    if (user.id && targetStr === String(user.id).toLowerCase().trim()) return true;
+    if (user.username && targetStr === String(user.username).toLowerCase().trim()) return true;
+    if (user.email && targetStr === String(user.email).toLowerCase().trim()) return true;
+    if (user.display_name && targetStr === String(user.display_name).toLowerCase().trim()) return true;
+    return false;
+  };
+  const isUnassigned = !candidate.assigned_recruiter && !candidate.assigned_sales && !candidate.assigned_cs && !candidate.assigned_resume && !candidate.assigned_marketing_leader && !candidate.assigned_marketing && !candidate.lead_generated_by;
+  if (isUnassigned) return true;
+  if (user.role === "jpc_lead_gen") {
+    return userMatches(candidate.lead_generated_by);
+  }
+  if (user.role === "jpc_sales") {
+    return userMatches(candidate.assigned_sales) || userMatches(candidate.lead_generated_by);
+  }
+  if (user.role === "jpc_compliance_person") {
+    if (userMatches(candidate.assigned_cs) || userMatches(candidate.assigned_sales)) return true;
+    if (user.leader_id) {
+      if (String(candidate.assigned_cs) === String(user.leader_id) || userMatches(candidate.assigned_cs)) return true;
+    }
+    return false;
+  }
+  if (user.role === "jpc_resume") {
+    if (candidate.current_stage === "marketing_active" || candidate.current_stage === "interviewing") {
+      return true;
+    }
+    return userMatches(candidate.assigned_resume);
+  }
+  if (user.role === "jpc_marketing" || user.role === "jpc_marketing_support") {
+    if (userMatches(candidate.assigned_marketing_leader)) return true;
+    if (userMatches(candidate.assigned_marketing)) return true;
+    if (userMatches(candidate.assigned_recruiter)) return true;
+    if (candidate.assigned_recruiter && teamUsers.length > 0) {
+      const isMyRecruiter = teamUsers.some(
+        (u) => (userMatches(u.leader_id) || String(u.leader_id) === String(user.id)) && (String(u.id) === String(candidate.assigned_recruiter) || String(u.username) === String(candidate.assigned_recruiter))
+      );
+      if (isMyRecruiter) return true;
+    }
+    return false;
+  }
+  if (user.role === "jpc_recruiter") {
+    if (userMatches(candidate.assigned_recruiter)) return true;
+    if (userMatches(candidate.assigned_marketing_leader)) return true;
+    if (user.leader_id && candidate.assigned_marketing_leader && (String(candidate.assigned_marketing_leader) === String(user.leader_id) || userMatches(candidate.assigned_marketing_leader))) return true;
+    return false;
+  }
+  if (user.role === "jpc_proxy") {
+    return userMatches(candidate.assigned_recruiter);
+  }
+  return true;
+}
+
+// src/constants.ts
+var STAGES = {
+  lead_generation: { label: "1. Lead Generation", color: "#3B82F6", icon: "\u25CE" },
+  sales: { label: "2. Sales", color: "#10B981", icon: "\u25C8" },
+  cs_qc: { label: "3. CS QC Call", color: "#8B5CF6", icon: "\u25C9" },
+  marketing_leader: { label: "4. Marketing Leader", color: "#059669", icon: "\u25C6" },
+  cs_strategy_check: { label: "5. CS Strategy Check", color: "#8B5CF6", icon: "\u25C9" },
+  resume_team: { label: "6. Resume Team", color: "#F59E0B", icon: "\u25D0" },
+  cs_assign_recruiter: { label: "7. CS Assign Recruiter", color: "#8B5CF6", icon: "\u25C9" },
+  recruiter: { label: "8. Recruiter", color: "#3B82F6", icon: "\u25CE" },
+  sys_admin: { label: "9. System Admin", color: "#64748B", icon: "\u25E7" },
+  marketing_active: { label: "10. Marketing Active", color: "#059669", icon: "\u25C6" },
+  marketing_inactive: { label: "Marketing Inactive", color: "#F43F5E", icon: "\u23F8" },
+  interviewing: { label: "11. Interviewing", color: "#8B5CF6", icon: "\u25C9" },
+  application_tracking: { label: "12. App Tracking", color: "#3B82F6", icon: "\u25CE" },
+  offer: { label: "Offer", color: "#10B981", icon: "\u2709" },
+  backout: { label: "Backout", color: "#6B7280", icon: "\u21A9" },
+  completed: { label: "Completed", color: "#10B981", icon: "\u2713" },
+  not_eligible: { label: "Not Eligible", color: "#F43F5E", icon: "\u2298" },
+  not_interested: { label: "Not Interested", color: "#6B7280", icon: "\u2715" }
+};
+var BASE_TRANSITIONS = {
+  lead_generation: ["sales", "not_eligible"],
+  sales: ["cs_qc", "not_interested", "not_eligible"],
+  cs_qc: ["marketing_leader"],
+  marketing_leader: ["cs_strategy_check"],
+  cs_strategy_check: ["resume_team"],
+  resume_team: ["cs_assign_recruiter"],
+  cs_assign_recruiter: ["recruiter"],
+  recruiter: ["sys_admin"],
+  sys_admin: ["marketing_active"],
+  marketing_active: ["completed", "marketing_inactive", "offer", "backout", "interviewing"],
+  marketing_inactive: ["marketing_active"],
+  interviewing: ["offer", "backout", "application_tracking"],
+  application_tracking: [],
+  offer: ["completed", "backout"],
+  backout: [],
+  completed: [],
+  not_eligible: [],
+  not_interested: []
+};
+var TRANSITIONS = new Proxy(BASE_TRANSITIONS, {
+  get(target, prop) {
+    const list = target[prop] || [];
+    return list.filter((s) => !isStageDisabled(s));
+  }
+});
+var BASE_PREVIOUS_STAGES = {
+  lead_generation: null,
+  sales: "lead_generation",
+  cs_qc: "sales",
+  marketing_leader: "cs_qc",
+  cs_strategy_check: "marketing_leader",
+  resume_team: "cs_strategy_check",
+  cs_assign_recruiter: "resume_team",
+  recruiter: "cs_assign_recruiter",
+  sys_admin: "recruiter",
+  marketing_active: "sys_admin",
+  marketing_inactive: "marketing_active",
+  interviewing: "marketing_active",
+  application_tracking: "interviewing",
+  offer: "interviewing",
+  backout: "offer",
+  completed: "marketing_active",
+  not_eligible: null,
+  not_interested: null
+  // Usually moved to from Sales, but could be anywhere, so let's keep it null for back tracking (or handle specifically)
+};
+var PREVIOUS_STAGES = new Proxy(BASE_PREVIOUS_STAGES, {
+  get(target, prop) {
+    if (isStageDisabled(prop)) {
+      return null;
+    }
+    const prev = target[prop];
+    if (prev && isStageDisabled(prev)) {
+      return null;
+    }
+    return prev ?? null;
+  }
+});
+
+// src/lib/searchUtils.ts
+function normalizePhoneDigits(phone) {
+  if (!phone) return "";
+  return phone.replace(/\D/g, "");
+}
+function matchesPhone(phoneOrWhatsapp, query) {
+  if (!phoneOrWhatsapp || !query) return false;
+  const rawTarget = phoneOrWhatsapp.toLowerCase();
+  const rawQuery = query.toLowerCase().trim();
+  if (rawTarget.includes(rawQuery)) return true;
+  const queryDigits = normalizePhoneDigits(query);
+  if (queryDigits.length >= 3) {
+    const targetDigits = normalizePhoneDigits(phoneOrWhatsapp);
+    return targetDigits.includes(queryDigits);
+  }
+  return false;
+}
+function matchesTokens(targetText, queryTokens) {
+  if (!targetText || queryTokens.length === 0) return false;
+  const lowerTarget = targetText.toLowerCase();
+  return queryTokens.every((token) => lowerTarget.includes(token));
+}
+function performGlobalSearch({
+  query,
+  category = "all",
+  user,
+  allUsers = [],
+  isAurrumRoute = false,
+  candidates = [],
+  applications = [],
+  interviews = [],
+  logbooks = [],
+  followups = [],
+  team = [],
+  limitPerCategory = 25
+}) {
+  const cleanQuery = query.trim();
+  const queryTokens = cleanQuery.toLowerCase().split(/\s+/).filter(Boolean);
+  const counts = {
+    all: 0,
+    candidates: 0,
+    applications: 0,
+    interviews: 0,
+    logbooks: 0,
+    followups: 0,
+    team: 0
+  };
+  if (!cleanQuery) {
+    return { results: [], counts };
+  }
+  const isAurrum = Boolean(isAurrumRoute || user?.role?.startsWith("aurrum_"));
+  const authorizedCandidateMap = /* @__PURE__ */ new Map();
+  const matchedCandidates = [];
+  for (const cand of candidates) {
+    if (!cand || cand.deleted_at) continue;
+    if (cand.id === "test_edit_cand_1795118728093" || cand.phone === "+1 (555) 019-2834") continue;
+    const candIsAurrum = cand.crm_brand === "aurrum";
+    if (isAurrum !== candIsAurrum && user?.role !== "administrator" && user?.role !== "jpc_sysadmin" && user?.role !== "jpc_manager") {
+      continue;
+    }
+    if (!canUserAccessCandidate(cand, user, allUsers)) {
+      continue;
+    }
+    if (user?.role === "jpc_cs" && !matchesProfileHandlingAccess(cand.shift_preference, user.profile_handling_access)) {
+      continue;
+    }
+    authorizedCandidateMap.set(cand.id, cand);
+    const nameMatch = matchesTokens(cand.full_name, queryTokens);
+    const idMatch = cand.id.toLowerCase().includes(cleanQuery.toLowerCase());
+    const emailMatch = (cand.email || "").toLowerCase().includes(cleanQuery.toLowerCase());
+    const phoneMatch = matchesPhone(cand.phone, cleanQuery) || matchesPhone(cand.whatsapp, cleanQuery);
+    const domainMatch = matchesTokens(cand.domain_interested, queryTokens) || matchesTokens(cand.job_interest, queryTokens);
+    const skillsMatch = matchesTokens(cand.skills, queryTokens);
+    const notesMatch = matchesTokens(cand.notes, queryTokens);
+    const sourceMatch = matchesTokens(cand.lead_source, queryTokens);
+    if (nameMatch || idMatch || emailMatch || phoneMatch || domainMatch || skillsMatch || notesMatch || sourceMatch) {
+      const stageInfo = STAGES[cand.current_stage];
+      const stageLabel = stageInfo?.label?.split(". ")[1] || stageInfo?.label || cand.current_stage || "Lead Generation";
+      const isAurrumCand = cand.crm_brand === "aurrum";
+      matchedCandidates.push({
+        id: cand.id,
+        category: "candidates",
+        title: cand.full_name || "Unnamed Candidate",
+        subtitle: `${cand.phone || "No phone"} \u2022 ${cand.email || "No email"}`,
+        details: `${cand.domain_interested || cand.job_interest || "General"} \u2022 ID: ${cand.id}`,
+        badge: stageLabel,
+        badgeColor: stageInfo?.color || "#3B82F6",
+        secondaryBadge: cand.shift_preference || (isAurrumCand ? "Aurrum" : void 0),
+        icon: "User",
+        url: isAurrumCand ? `#aurrum-candidate?id=${cand.id}` : `#candidate?id=${cand.id}`,
+        timestamp: cand.updated_at || cand.created_at,
+        metadata: {
+          phone: cand.phone,
+          whatsapp: cand.whatsapp,
+          email: cand.email,
+          stage: cand.current_stage,
+          brand: cand.crm_brand
+        }
+      });
+    }
+  }
+  counts.candidates = matchedCandidates.length;
+  const matchedApplications = [];
+  for (const app2 of applications) {
+    if (!app2) continue;
+    if (app2.candidate_id && !authorizedCandidateMap.has(app2.candidate_id) && user?.role !== "administrator" && user?.role !== "jpc_sysadmin" && user?.role !== "jpc_manager") {
+      continue;
+    }
+    if (isAurrum !== (app2.crm_brand === "aurrum") && user?.role !== "administrator" && user?.role !== "jpc_sysadmin") {
+      continue;
+    }
+    const cand = authorizedCandidateMap.get(app2.candidate_id);
+    const candName = cand?.full_name || "";
+    const compMatch = matchesTokens(app2.company_name, queryTokens);
+    const titleMatch = matchesTokens(app2.job_title, queryTokens);
+    const linkMatch = (app2.job_link || "").toLowerCase().includes(cleanQuery.toLowerCase());
+    const notesMatch = matchesTokens(app2.notes, queryTokens);
+    const candMatch = candName ? matchesTokens(candName, queryTokens) : false;
+    if (compMatch || titleMatch || linkMatch || notesMatch || candMatch) {
+      matchedApplications.push({
+        id: app2.id,
+        category: "applications",
+        title: app2.company_name || "Untitled Application",
+        subtitle: `${app2.job_title || "Position"} \u2022 Candidate: ${candName || app2.candidate_id}`,
+        details: `Platform: ${app2.sheet_type || "Direct"} \u2022 Status: ${app2.status || "Applied"}`,
+        badge: app2.status || "Applied",
+        badgeColor: "#10B981",
+        secondaryBadge: app2.sheet_type,
+        icon: "Briefcase",
+        url: `#applications?search=${encodeURIComponent(candName || app2.company_name)}`,
+        timestamp: app2.applied_at || app2.created_at,
+        metadata: {
+          candidateId: app2.candidate_id,
+          company: app2.company_name,
+          jobLink: app2.job_link
+        }
+      });
+    }
+  }
+  counts.applications = matchedApplications.length;
+  const matchedInterviews = [];
+  for (const interview of interviews) {
+    if (!interview) continue;
+    if (interview.candidate_id && !authorizedCandidateMap.has(interview.candidate_id) && user?.role !== "administrator" && user?.role !== "jpc_sysadmin" && user?.role !== "jpc_manager") {
+      continue;
+    }
+    const cand = authorizedCandidateMap.get(interview.candidate_id);
+    const candName = cand?.full_name || "";
+    const compName = interview.interview_company_name || interview.company_name || "";
+    const compMatch = matchesTokens(compName, queryTokens);
+    const titleMatch = matchesTokens(interview.job_title, queryTokens);
+    const candMatch = candName ? matchesTokens(candName, queryTokens) : false;
+    const notesMatch = matchesTokens(interview.notes, queryTokens);
+    const statusMatch = (interview.overall_status || "").toLowerCase().includes(cleanQuery.toLowerCase());
+    if (compMatch || titleMatch || candMatch || notesMatch || statusMatch) {
+      matchedInterviews.push({
+        id: interview.id,
+        category: "interviews",
+        title: compName || "Interview Request",
+        subtitle: `${interview.job_title || "Interview"} \u2022 Candidate: ${candName || interview.candidate_id}`,
+        details: `Type: ${interview.interview_type || "Interview"} \u2022 Status: ${interview.overall_status?.replace(/_/g, " ") || "Pending"}`,
+        badge: interview.overall_status?.replace(/_/g, " ") || "Pending",
+        badgeColor: interview.overall_status === "confirmed" ? "#10B981" : "#8B5CF6",
+        secondaryBadge: interview.proxy_required ? "Proxy Required" : void 0,
+        icon: "Video",
+        url: isAurrum ? `#aurrum-interviews?search=${encodeURIComponent(candName || compName)}` : `#interview-support?search=${encodeURIComponent(candName || compName)}`,
+        timestamp: interview.created_at,
+        metadata: {
+          candidateId: interview.candidate_id,
+          company: compName,
+          status: interview.overall_status
+        }
+      });
+    }
+  }
+  counts.interviews = matchedInterviews.length;
+  const matchedLogbooks = [];
+  for (const log of logbooks) {
+    if (!log) continue;
+    if (log.candidate_id && !authorizedCandidateMap.has(log.candidate_id) && user?.role !== "administrator" && user?.role !== "jpc_sysadmin" && user?.role !== "jpc_manager") {
+      continue;
+    }
+    const cand = authorizedCandidateMap.get(log.candidate_id);
+    const candName = cand?.full_name || "";
+    const detailsMatch = matchesTokens(log.details, queryTokens);
+    const candMatch = candName ? matchesTokens(candName, queryTokens) : false;
+    const statusMatch = (log.status || "").toLowerCase().includes(cleanQuery.toLowerCase());
+    const tlNotesMatch = matchesTokens(log.tl_notes, queryTokens);
+    const csNotesMatch = matchesTokens(log.cs_notes, queryTokens);
+    if (detailsMatch || candMatch || statusMatch || tlNotesMatch || csNotesMatch) {
+      matchedLogbooks.push({
+        id: log.id,
+        category: "logbooks",
+        title: candName ? `${candName} - Resume Change` : "Resume Change Request",
+        subtitle: log.details || "Resume change log details",
+        details: `Status: ${log.status?.replace(/_/g, " ") || "Pending"} \u2022 Recruiter: ${log.recruiter_id || "N/A"}`,
+        badge: log.status?.replace(/_/g, " ") || "Pending",
+        badgeColor: log.status === "completed" ? "#10B981" : "#F59E0B",
+        icon: "FileText",
+        url: `#resume-log`,
+        timestamp: log.updated_at || log.created_at,
+        metadata: {
+          candidateId: log.candidate_id,
+          status: log.status
+        }
+      });
+    }
+  }
+  counts.logbooks = matchedLogbooks.length;
+  const matchedFollowUps = [];
+  for (const f of followups) {
+    if (!f) continue;
+    if (f.candidate_id && !authorizedCandidateMap.has(f.candidate_id) && user?.role !== "administrator" && user?.role !== "jpc_sysadmin" && user?.role !== "jpc_manager") {
+      continue;
+    }
+    if (isAurrum !== (f.crm_brand === "aurrum") && user?.role !== "administrator" && user?.role !== "jpc_sysadmin") {
+      continue;
+    }
+    const cand = authorizedCandidateMap.get(f.candidate_id);
+    const candName = cand?.full_name || "";
+    const noteMatch = matchesTokens(f.note, queryTokens);
+    const candMatch = candName ? matchesTokens(candName, queryTokens) : false;
+    const stageMatch = matchesTokens(f.stage, queryTokens);
+    if (noteMatch || candMatch || stageMatch) {
+      matchedFollowUps.push({
+        id: f.id,
+        category: "followups",
+        title: candName ? `Follow-up: ${candName}` : "Candidate Follow-up",
+        subtitle: f.note || "No notes provided",
+        details: `Stage: ${f.stage || "General"} \u2022 Due: ${f.followup_date || "N/A"}`,
+        badge: f.done ? "Done" : "Pending",
+        badgeColor: f.done ? "#10B981" : "#F59E0B",
+        icon: "Clock",
+        url: `#follow-ups?search=${encodeURIComponent(candName || f.note || "")}`,
+        timestamp: f.created_at,
+        metadata: {
+          candidateId: f.candidate_id,
+          stage: f.stage
+        }
+      });
+    }
+  }
+  counts.followups = matchedFollowUps.length;
+  const matchedTeam = [];
+  const isCandidateRole = user?.role === "candidate" || user?.role === "jpc_candidate";
+  if (!isCandidateRole && team.length > 0) {
+    for (const member of team) {
+      if (!member) continue;
+      const nameMatch = matchesTokens(member.display_name, queryTokens);
+      const userMatch = (member.username || "").toLowerCase().includes(cleanQuery.toLowerCase());
+      const emailMatch = (member.email || "").toLowerCase().includes(cleanQuery.toLowerCase());
+      const roleMatch = (member.role || "").toLowerCase().includes(cleanQuery.toLowerCase());
+      const phoneMatch = matchesPhone(member.phone, cleanQuery);
+      if (nameMatch || userMatch || emailMatch || roleMatch || phoneMatch) {
+        matchedTeam.push({
+          id: String(member.id),
+          category: "team",
+          title: member.display_name || member.username || "Team Member",
+          subtitle: `${member.role?.replace(/_/g, " ") || "Staff"} \u2022 ${member.email || "No email"}`,
+          details: `Username: @${member.username || member.id} \u2022 ${member.phone || "No phone"}`,
+          badge: member.role?.replace(/_/g, " ") || "Staff",
+          badgeColor: "#8B5CF6",
+          icon: "Shield",
+          url: `#team`,
+          metadata: {
+            username: member.username,
+            role: member.role,
+            email: member.email
+          }
+        });
+      }
+    }
+  }
+  counts.team = matchedTeam.length;
+  counts.all = counts.candidates + counts.applications + counts.interviews + counts.logbooks + counts.followups + counts.team;
+  let results = [];
+  if (category === "all") {
+    results = [
+      ...matchedCandidates.slice(0, limitPerCategory),
+      ...matchedApplications.slice(0, limitPerCategory),
+      ...matchedInterviews.slice(0, limitPerCategory),
+      ...matchedLogbooks.slice(0, limitPerCategory),
+      ...matchedFollowUps.slice(0, limitPerCategory),
+      ...matchedTeam.slice(0, limitPerCategory)
+    ];
+  } else if (category === "candidates") {
+    results = matchedCandidates.slice(0, limitPerCategory * 2);
+  } else if (category === "applications") {
+    results = matchedApplications.slice(0, limitPerCategory * 2);
+  } else if (category === "interviews") {
+    results = matchedInterviews.slice(0, limitPerCategory * 2);
+  } else if (category === "logbooks") {
+    results = matchedLogbooks.slice(0, limitPerCategory * 2);
+  } else if (category === "followups") {
+    results = matchedFollowUps.slice(0, limitPerCategory * 2);
+  } else if (category === "team") {
+    results = matchedTeam.slice(0, limitPerCategory * 2);
+  }
+  return { results, counts };
+}
+
 // server.ts
 dotenv.config();
 var isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
@@ -1524,6 +1995,19 @@ if (db && process.env.NODE_ENV !== "test" && !isServerless) {
       }
     }
   });
+  try {
+    const testDocRef = db.collection("jpc_candidates").doc("test_edit_cand_1795118728093");
+    testDocRef.get().then((snap) => {
+      if (snap.exists) {
+        testDocRef.delete().then(() => {
+          console.log("[Cleanup] Permanently deleted test candidate test_edit_cand_1795118728093");
+        }).catch(() => {
+        });
+      }
+    }).catch(() => {
+    });
+  } catch (cleanErr) {
+  }
 } else if (!db) {
   db = new Proxy({}, {
     get(target, prop) {
@@ -3078,7 +3562,7 @@ function isSalesWorkingHours(date = /* @__PURE__ */ new Date()) {
     return false;
   }
 }
-function matchesProfileHandlingAccess(candidateShift, profileAccess) {
+function matchesProfileHandlingAccess2(candidateShift, profileAccess) {
   const normalizedAccess = (profileAccess || "Day Shift").trim().toLowerCase();
   if (normalizedAccess === "all" || normalizedAccess === "all profiles") {
     return true;
@@ -3550,7 +4034,7 @@ app.get("/api/candidates/:id", verifyAuth, async (req, res) => {
     const candidateData = existingDoc.data();
     if (user.role === "jpc_cs") {
       const profileAccess = user.profile_handling_access || "Day Shift";
-      if (!matchesProfileHandlingAccess(candidateData?.shift_preference, profileAccess)) {
+      if (!matchesProfileHandlingAccess2(candidateData?.shift_preference, profileAccess)) {
         return res.status(403).json({
           error: "Forbidden: Access denied to candidate profile outside your Profile Handling Access settings"
         });
@@ -3584,7 +4068,7 @@ app.patch("/api/candidates/:id", verifyAuth, async (req, res) => {
       if (existingDoc.exists) {
         const existingData = existingDoc.data();
         const profileAccess = user.profile_handling_access || "Day Shift";
-        if (!matchesProfileHandlingAccess(existingData?.shift_preference, profileAccess)) {
+        if (!matchesProfileHandlingAccess2(existingData?.shift_preference, profileAccess)) {
           return res.status(403).json({
             error: "Forbidden: You do not have permission to modify this candidate profile under your Profile Handling Access settings"
           });
@@ -3610,6 +4094,147 @@ app.patch("/api/candidates/:id", verifyAuth, async (req, res) => {
   } catch (error) {
     console.error("Error updating candidate via PATCH:", error);
     res.status(500).json({ error: error.message || "Failed to update candidate" });
+  }
+});
+app.patch(["/api/candidates/:id/basic-info", "/candidates/:id/basic-info"], verifyAuth, async (req, res) => {
+  try {
+    const candidateId = req.params.id;
+    const user = req.user;
+    const allowedRoles = [
+      "administrator",
+      "jpc_sysadmin",
+      "jpc_manager",
+      "jpc_lead_gen",
+      "jpc_sales",
+      "jpc_cs",
+      "jpc_compliance_person"
+    ];
+    if (!user || !allowedRoles.includes(user.role)) {
+      return res.status(403).json({
+        error: "Forbidden: You do not have permission to edit candidate contact information"
+      });
+    }
+    if (user.role === "jpc_cs") {
+      const existingDoc = await db.collection("jpc_candidates").doc(candidateId).get();
+      if (existingDoc.exists) {
+        const existingData = existingDoc.data();
+        const profileAccess = user.profile_handling_access || "Day Shift";
+        if (!matchesProfileHandlingAccess2(existingData?.shift_preference, profileAccess)) {
+          return res.status(403).json({
+            error: "Forbidden: You do not have permission to modify this candidate profile under your Profile Handling Access settings"
+          });
+        }
+      }
+    }
+    const { full_name, email, phone, whatsapp } = req.body;
+    if (!full_name || typeof full_name !== "string" || !full_name.trim()) {
+      return res.status(400).json({ error: "Candidate Name is required" });
+    }
+    if (!email || typeof email !== "string" || !email.trim()) {
+      return res.status(400).json({ error: "Email Address is required" });
+    }
+    if (!phone || typeof phone !== "string" || !phone.trim()) {
+      return res.status(400).json({ error: "Phone Number is required" });
+    }
+    const trimmedFullName = full_name.trim();
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedPhone = phone.trim();
+    const trimmedWhatsapp = whatsapp && typeof whatsapp === "string" ? whatsapp.trim() : trimmedPhone;
+    const payload = {
+      full_name: trimmedFullName,
+      email: trimmedEmail,
+      phone: trimmedPhone,
+      whatsapp: trimmedWhatsapp,
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    await db.collection("jpc_candidates").doc(candidateId).set(payload, { merge: true });
+    try {
+      const logRef = db.collection("jpc_activity_logs").doc();
+      await logRef.set({
+        id: logRef.id,
+        candidate_id: candidateId,
+        action: "Updated Candidate Contact Details",
+        details: `Contact details (Name: ${trimmedFullName}, Email: ${trimmedEmail}, Phone: ${trimmedPhone}, WhatsApp: ${trimmedWhatsapp}) updated by ${user.display_name || user.role}.`,
+        user_id: user.id || user.uid,
+        user_name: user.display_name || "Authorized User",
+        user_role: user.role,
+        type: "activity",
+        created_at: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    } catch (logErr) {
+      console.warn("Could not log activity for candidate basic info update:", logErr);
+    }
+    res.json({ success: true, message: "Candidate contact details updated successfully", data: payload });
+  } catch (error) {
+    console.error("Error updating candidate basic info via PATCH:", error);
+    res.status(500).json({ error: error.message || "Failed to update candidate information" });
+  }
+});
+app.get(["/api/search", "/search"], verifyAuth, async (req, res) => {
+  try {
+    const q = (req.query.q || "").trim();
+    const category = req.query.category || "all";
+    const user = req.user;
+    if (!q) {
+      return res.json({
+        results: [],
+        counts: { all: 0, candidates: 0, applications: 0, interviews: 0, logbooks: 0, followups: 0, team: 0 }
+      });
+    }
+    if (!db) {
+      return res.status(503).json({ error: "Database service unavailable" });
+    }
+    const isAurrum = Boolean(user.role?.startsWith("aurrum_"));
+    const candSnap = await db.collection("jpc_candidates").get();
+    const candidates = [];
+    candSnap.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (docSnap.id === "test_edit_cand_1795118728093" || data?.phone === "+1 (555) 019-2834") return;
+      if (data?.deleted_at) return;
+      candidates.push({ id: docSnap.id, ...data });
+    });
+    const usersSnap = await db.collection("jpc_users").get();
+    const allUsers = [];
+    usersSnap.forEach((docSnap) => {
+      allUsers.push({ id: docSnap.id, ...docSnap.data() });
+    });
+    const appsSnap = await db.collection("jpc_applications").get();
+    const applications = [];
+    appsSnap.forEach((docSnap) => {
+      applications.push({ id: docSnap.id, ...docSnap.data() });
+    });
+    const interviewsSnap = await db.collection("jpc_interview_requests").get();
+    const interviews = [];
+    interviewsSnap.forEach((docSnap) => {
+      interviews.push({ id: docSnap.id, ...docSnap.data() });
+    });
+    const logbooksSnap = await db.collection("jpc_resume_requests").get();
+    const logbooks = [];
+    logbooksSnap.forEach((docSnap) => {
+      logbooks.push({ id: docSnap.id, ...docSnap.data() });
+    });
+    const followupsSnap = await db.collection("jpc_followups").get();
+    const followups = [];
+    followupsSnap.forEach((docSnap) => {
+      followups.push({ id: docSnap.id, ...docSnap.data() });
+    });
+    const searchResponse = performGlobalSearch({
+      query: q,
+      category,
+      user,
+      allUsers,
+      isAurrumRoute: isAurrum,
+      candidates,
+      applications,
+      interviews,
+      logbooks,
+      followups,
+      team: allUsers
+    });
+    res.json(searchResponse);
+  } catch (error) {
+    console.error("Global search error:", error);
+    res.status(500).json({ error: error.message || "Global search failed" });
   }
 });
 app.post(["/api/sales/availability", "/sales/availability"], verifyAuth, async (req, res) => {

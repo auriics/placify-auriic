@@ -80,10 +80,11 @@ export const Pipeline: React.FC = () => {
       
       if (!matchesEntity) return;
 
-      if (!groups[c.current_stage]) {
-        groups[c.current_stage] = [];
+      const stageKey = c.current_stage || 'lead_generation';
+      if (!groups[stageKey]) {
+        groups[stageKey] = [];
       }
-      groups[c.current_stage].push(c);
+      groups[stageKey].push(c);
     });
 
     return groups;
@@ -224,7 +225,7 @@ export const Pipeline: React.FC = () => {
                         <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-border-primary flex items-center justify-between">
                           <div className="flex -space-x-2">
                             <div className="w-6 h-6 rounded-full bg-bg-tertiary border-2 border-bg-secondary flex items-center justify-center text-[8px] font-bold text-text-muted">
-                              {candidate.full_name[0]}
+                              {(candidate.full_name || '?')[0]}
                             </div>
                           </div>
                           <p className="text-[10px] font-bold text-text-muted uppercase">
