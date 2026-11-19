@@ -32,6 +32,73 @@ export const getActiveStages = (): Record<Stage, { label: string; color: string;
   return result;
 };
 
+export const normalizeStage = (rawStage?: string | null): Stage => {
+  if (!rawStage) return 'lead_generation';
+  const clean = String(rawStage).trim();
+  if (clean in STAGES) return clean as Stage;
+
+  const s = clean.toLowerCase().replace(/[\s-]+/g, '_');
+  if (s in STAGES) return s as Stage;
+
+  // Strip numeric prefixes like "1._" or "10._" or "12._"
+  const stripped = s.replace(/^\d+[\._\s]+/, '');
+  if (stripped in STAGES) return stripped as Stage;
+
+  const aliases: Record<string, Stage> = {
+    'lead': 'lead_generation',
+    'lead_gen': 'lead_generation',
+    'leads': 'lead_generation',
+    'lead_generation': 'lead_generation',
+    'sales': 'sales',
+    'cs_qc': 'cs_qc',
+    'qc': 'cs_qc',
+    'csqc': 'cs_qc',
+    'marketing_leader': 'marketing_leader',
+    'cs_strategy_check': 'cs_strategy_check',
+    'strategy': 'cs_strategy_check',
+    'resume_team': 'resume_team',
+    'resume': 'resume_team',
+    'cs_assign_recruiter': 'cs_assign_recruiter',
+    'assign_recruiter': 'cs_assign_recruiter',
+    'recruiter': 'recruiter',
+    'sys_admin': 'sys_admin',
+    'system_admin': 'sys_admin',
+    'admin': 'sys_admin',
+    'marketing_active': 'marketing_active',
+    'marketing': 'marketing_active',
+    'active_marketing': 'marketing_active',
+    'marketing_inactive': 'marketing_inactive',
+    'inactive': 'marketing_inactive',
+    'interview': 'interviewing',
+    'interviewing': 'interviewing',
+    'interviews': 'interviewing',
+    'app_tracking': 'application_tracking',
+    'application_tracking': 'application_tracking',
+    'app_tracker': 'application_tracking',
+    'apptracker': 'application_tracking',
+    'application_tracker': 'application_tracking',
+    'offer': 'offer',
+    'backout': 'backout',
+    'backed_out': 'backout',
+    'completed': 'completed',
+    'placed': 'completed',
+    'not_eligible': 'not_eligible',
+    'not_interested': 'not_interested',
+  };
+
+  if (aliases[s]) return aliases[s];
+  if (aliases[stripped]) return aliases[stripped];
+
+  for (const [key, val] of Object.entries(STAGES)) {
+    const labelKey = val.label.toLowerCase().replace(/[\s-]+/g, '_');
+    if (labelKey === s || labelKey.includes(s) || s.includes(labelKey)) {
+      return key as Stage;
+    }
+  }
+
+  return 'lead_generation';
+};
+
 export const BASE_TRANSITIONS: Record<Stage, Stage[]> = {
   lead_generation:     ['sales', 'not_eligible'],
   sales:               ['cs_qc', 'not_interested', 'not_eligible'],
@@ -42,15 +109,15 @@ export const BASE_TRANSITIONS: Record<Stage, Stage[]> = {
   cs_assign_recruiter: ['recruiter'],
   recruiter:           ['sys_admin'],
   sys_admin:           ['marketing_active'],
-  marketing_active:    ['completed', 'marketing_inactive', 'offer', 'backout', 'interviewing'],
+  marketing_active:    ['completed', 'marketing_inactive', 'offer', 'backout', 'interviewing', 'application_tracking'],
   marketing_inactive:  ['marketing_active'],
-  interviewing:        ['offer', 'backout', 'application_tracking'],
-  application_tracking: [],
+  interviewing:        ['offer', 'backout', 'application_tracking', 'marketing_active'],
+  application_tracking: ['interviewing', 'marketing_active', 'offer', 'marketing_inactive', 'backout', 'completed'],
   offer:               ['completed', 'backout'],
-  backout:             [],
+  backout:             ['marketing_active', 'interviewing', 'application_tracking'],
   completed:           [],
-  not_eligible:        [],
-  not_interested:      [],
+  not_eligible:        ['lead_generation', 'sales'],
+  not_interested:      ['lead_generation', 'sales'],
 };
 
 /**
@@ -85,8 +152,8 @@ export const BASE_PREVIOUS_STAGES: Record<Stage, Stage | null> = {
   offer:               'interviewing',
   backout:             'offer',
   completed:           'marketing_active',
-  not_eligible:        null,
-  not_interested:      null, // Usually moved to from Sales, but could be anywhere, so let's keep it null for back tracking (or handle specifically)
+  not_eligible:        'sales',
+  not_interested:      'sales',
 };
 
 export const PREVIOUS_STAGES: Record<Stage, Stage | null> = new Proxy(BASE_PREVIOUS_STAGES, {
@@ -106,20 +173,20 @@ export const ROLE_PERMISSIONS: Record<Role, { allowedStages: Stage[] | 'ALL'; ad
   administrator: { allowedStages: 'ALL', adminFeatures: true, teamManagement: true },
   jpc_manager: { allowedStages: 'ALL', teamManagement: true },
   jpc_sysadmin: { allowedStages: 'ALL', adminFeatures: true, teamManagement: true },
-  jpc_lead_gen: { allowedStages: ['lead_generation'] },
-  jpc_sales: { allowedStages: ['lead_generation', 'sales'] },
+  jpc_lead_gen: { allowedStages: ['lead_generation', 'not_eligible'] },
+  jpc_sales: { allowedStages: ['lead_generation', 'sales', 'not_interested', 'not_eligible'] },
   jpc_cs: { allowedStages: 'ALL' },
   jpc_compliance_person: { allowedStages: 'ALL' },
-  jpc_resume: { allowedStages: ['resume_team', 'marketing_active', 'interviewing'] },
-  jpc_marketing: { allowedStages: ['marketing_leader', 'marketing_active', 'application_tracking', 'interviewing'] },
-  jpc_marketing_support: { allowedStages: ['marketing_active', 'application_tracking', 'interviewing'] },
-  jpc_recruiter: { allowedStages: ['recruiter', 'sys_admin', 'marketing_active', 'application_tracking', 'interviewing'] },
+  jpc_resume: { allowedStages: ['resume_team', 'marketing_active', 'application_tracking', 'interviewing'] },
+  jpc_marketing: { allowedStages: ['marketing_leader', 'marketing_active', 'marketing_inactive', 'application_tracking', 'interviewing'] },
+  jpc_marketing_support: { allowedStages: ['marketing_active', 'marketing_inactive', 'application_tracking', 'interviewing'] },
+  jpc_recruiter: { allowedStages: ['recruiter', 'sys_admin', 'marketing_active', 'marketing_inactive', 'application_tracking', 'interviewing'] },
   jpc_proxy: { allowedStages: 'ALL' },
   jpc_candidate: { allowedStages: [] },
   candidate: { allowedStages: [] },
-  aurrum_admin: { allowedStages: ['lead_generation', 'sales', 'interviewing', 'offer', 'completed'], teamManagement: true },
-  aurrum_sales: { allowedStages: ['lead_generation', 'sales', 'interviewing'] },
-  aurrum_team: { allowedStages: ['lead_generation', 'sales', 'interviewing', 'offer', 'completed'] },
+  aurrum_admin: { allowedStages: ['lead_generation', 'sales', 'marketing_active', 'application_tracking', 'interviewing', 'offer', 'completed', 'not_interested', 'not_eligible'], teamManagement: true },
+  aurrum_sales: { allowedStages: ['lead_generation', 'sales', 'marketing_active', 'application_tracking', 'interviewing', 'not_interested', 'not_eligible'] },
+  aurrum_team: { allowedStages: ['lead_generation', 'sales', 'marketing_active', 'application_tracking', 'interviewing', 'offer', 'completed', 'not_interested', 'not_eligible'] },
 };
 
 export const LEAD_SOURCES = [
@@ -160,8 +227,5 @@ export const normalizeCandidateFlags = (flags?: Partial<CandidateFlags> | null):
 };
 
 export const normalizeCandidateStage = (stage?: any): Stage => {
-  if (stage && typeof stage === 'string' && stage in STAGES) {
-    return stage as Stage;
-  }
-  return 'lead_generation';
+  return normalizeStage(stage);
 };

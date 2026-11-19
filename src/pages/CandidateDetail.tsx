@@ -113,12 +113,17 @@ export const CandidateDetail: React.FC = () => {
   const [isEditingTrialDates, setIsEditingTrialDates] = useState(false);
   const [trialDatesForm, setTrialDatesForm] = useState({ start_date: '', end_date: '' });
 
+  const currentStageKey = useMemo(() => {
+    return normalizeCandidateStage(candidate?.current_stage);
+  }, [candidate?.current_stage]);
+
   const canMoveStage = (() => {
     if (!user || !user.role || !candidate) return false;
     const permissions = ROLE_PERMISSIONS[user.role];
     if (!permissions) return false;
     if (permissions.allowedStages === 'ALL') return true;
-    return permissions.allowedStages.includes(candidate.current_stage);
+    return permissions.allowedStages.includes(currentStageKey) ||
+           (candidate.current_stage && permissions.allowedStages.includes(candidate.current_stage as Stage));
   })();
 
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -2156,11 +2161,11 @@ export const CandidateDetail: React.FC = () => {
         <div className="bg-bg-secondary border border-border-primary rounded-2xl p-3.5 sm:p-4 flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <span className="text-xs font-bold text-text-muted uppercase tracking-widest mr-1 sm:mr-2">Move to Stage:</span>
-            {PREVIOUS_STAGES[candidate.current_stage] && (
+            {PREVIOUS_STAGES[currentStageKey] && (
               <button
                 onClick={async () => {
                   try {
-                    const prevStage = PREVIOUS_STAGES[candidate.current_stage]!;
+                    const prevStage = PREVIOUS_STAGES[currentStageKey]!;
                     const prevStageLabel = STAGES[prevStage]?.label || prevStage;
                     if (window.confirm(`Are you sure you want to revert this candidate back to ${prevStageLabel}?`)) {
                       await handleStageMove(prevStage, true);
@@ -2177,9 +2182,9 @@ export const CandidateDetail: React.FC = () => {
               </button>
             )}
             
-            {(TRANSITIONS[candidate.current_stage] || []).map(stageKey => {
+            {(TRANSITIONS[currentStageKey] || []).map(stageKey => {
               const isDisabled = false; // CS now has admin-like access
-              const isOfferFromInterview = candidate.current_stage === 'interviewing' && stageKey === 'offer';
+              const isOfferFromInterview = (currentStageKey === 'interviewing' || currentStageKey === 'application_tracking') && stageKey === 'offer';
               const isPendingApproval = isOfferFromInterview && candidate.interview_offer_status === 'pending_approval';
 
               return (
@@ -2202,7 +2207,7 @@ export const CandidateDetail: React.FC = () => {
                 </button>
               );
             })}
-            {candidate.current_stage !== 'not_interested' && (
+            {currentStageKey !== 'not_interested' && (
               <button
                 onClick={() => handleStageMove('not_interested')}
                 className="px-3 sm:px-4 py-2 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs sm:text-sm font-bold text-rose-500 hover:bg-rose-500 hover:text-white transition-all ml-auto cursor-pointer"
@@ -2210,7 +2215,7 @@ export const CandidateDetail: React.FC = () => {
                 Not Interested
               </button>
             )}
-            {candidate.current_stage !== 'not_eligible' && (
+            {currentStageKey !== 'not_eligible' && (
               <button
                 onClick={() => handleStageMove('not_eligible')}
                 className="px-3 sm:px-4 py-2 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs sm:text-sm font-bold text-rose-500 hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
@@ -3469,25 +3474,27 @@ export const CandidateDetail: React.FC = () => {
                   </span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
-                <button
-                  onClick={() => {
-                    if (candidate.current_stage === 'interviewing') {
-                      if (candidate.interview_offer_status === 'pending_approval') {
-                        setIsComplianceApprovalModalOpen(true);
+                {!isOfferStageDisabled() && (
+                  <button
+                    onClick={() => {
+                      if (candidate.current_stage === 'interviewing') {
+                        if (candidate.interview_offer_status === 'pending_approval') {
+                          setIsComplianceApprovalModalOpen(true);
+                        } else {
+                          setIsInterviewCompletionModalOpen(true);
+                        }
                       } else {
-                        setIsInterviewCompletionModalOpen(true);
+                        setIsOfferModalOpen(true);
                       }
-                    } else {
-                      setIsOfferModalOpen(true);
-                    }
-                  }}
-                  className="w-full py-3 px-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-sm font-bold text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all flex items-center justify-between cursor-pointer"
-                >
-                  <span className="flex items-center gap-2">
-                    <Briefcase className="w-4 h-4" /> {candidate.current_stage === 'interviewing' && candidate.interview_offer_status === 'pending_approval' ? 'Offer (Clearance Pending)' : 'Offer Received'}
-                  </span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
+                    }}
+                    className="w-full py-3 px-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-sm font-bold text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all flex items-center justify-between cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Briefcase className="w-4 h-4" /> {candidate.current_stage === 'interviewing' && candidate.interview_offer_status === 'pending_approval' ? 'Offer (Clearance Pending)' : 'Offer Received'}
+                    </span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                )}
                 <button
                   onClick={() => setIsBackoutModalOpen(true)}
                   className="w-full py-3 px-4 bg-slate-500/10 border border-slate-500/20 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-500 hover:text-white transition-all flex items-center justify-between"

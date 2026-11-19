@@ -1552,15 +1552,15 @@ var BASE_TRANSITIONS = {
   cs_assign_recruiter: ["recruiter"],
   recruiter: ["sys_admin"],
   sys_admin: ["marketing_active"],
-  marketing_active: ["completed", "marketing_inactive", "offer", "backout", "interviewing"],
+  marketing_active: ["completed", "marketing_inactive", "offer", "backout", "interviewing", "application_tracking"],
   marketing_inactive: ["marketing_active"],
-  interviewing: ["offer", "backout", "application_tracking"],
-  application_tracking: [],
+  interviewing: ["offer", "backout", "application_tracking", "marketing_active"],
+  application_tracking: ["interviewing", "marketing_active", "offer", "marketing_inactive", "backout", "completed"],
   offer: ["completed", "backout"],
-  backout: [],
+  backout: ["marketing_active", "interviewing", "application_tracking"],
   completed: [],
-  not_eligible: [],
-  not_interested: []
+  not_eligible: ["lead_generation", "sales"],
+  not_interested: ["lead_generation", "sales"]
 };
 var TRANSITIONS = new Proxy(BASE_TRANSITIONS, {
   get(target, prop) {
@@ -1585,9 +1585,8 @@ var BASE_PREVIOUS_STAGES = {
   offer: "interviewing",
   backout: "offer",
   completed: "marketing_active",
-  not_eligible: null,
-  not_interested: null
-  // Usually moved to from Sales, but could be anywhere, so let's keep it null for back tracking (or handle specifically)
+  not_eligible: "sales",
+  not_interested: "sales"
 };
 var PREVIOUS_STAGES = new Proxy(BASE_PREVIOUS_STAGES, {
   get(target, prop) {

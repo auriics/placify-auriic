@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { subscribeToCollection } from '../services/storage';
-import { STAGES } from '../constants';
+import { STAGES, normalizeCandidateStage } from '../constants';
 import { isStageDisabled } from '../lib/featureFlags';
 import { Search, Filter, X, Package, Phone, Mail, MapPin, Calendar, Users, ArrowRight, MoreVertical, Edit2, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -15,7 +15,7 @@ import { FreeTrialBadge } from '../components/FreeTrialBadge';
 import { ShiftPreferenceBadge } from '../components/ShiftPreferenceBadge';
 
 export const getStageEntries = () => Object.entries(STAGES).filter(
-  ([key]) => key !== 'not_interested' && key !== 'not_eligible' && key !== 'application_tracking' && !isStageDisabled(key)
+  ([key]) => key !== 'not_interested' && key !== 'not_eligible' && !isStageDisabled(key)
 );
 const STAGE_ENTRIES = getStageEntries();
 
@@ -80,7 +80,7 @@ export const Pipeline: React.FC = () => {
       
       if (!matchesEntity) return;
 
-      const stageKey = c.current_stage || 'lead_generation';
+      const stageKey = normalizeCandidateStage(c.current_stage);
       if (!groups[stageKey]) {
         groups[stageKey] = [];
       }

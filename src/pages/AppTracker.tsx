@@ -24,6 +24,7 @@ import { sharedSelectStyles } from '../lib/selectStyles';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, getEasternDate, formatDisplayDate } from '../lib/utils';
 import { canUserAccessCandidate } from '../lib/permissions';
+import { normalizeStage } from '../constants';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
 import { useDebounce } from '../lib/hooks';
 import { db } from '../firebase';
@@ -204,11 +205,12 @@ export const AppTracker: React.FC = () => {
 
     // Subscribe to non-deleted candidates so history & exports work even across stage/recruiter transitions
     const cQuery = query(collection(db, 'jpc_candidates'));
+    const isAurrumUser = Boolean(user?.role?.startsWith('aurrum_'));
 
     const unsubCandidates = onSnapshot(cQuery, (snapshot) => {
       const data = snapshot.docs
         .map(doc => ({ ...doc.data(), id: doc.id } as Candidate))
-        .filter(c => !c.deleted_at && c.crm_brand !== 'aurrum');
+        .filter(c => !c.deleted_at && (isAurrumUser ? c.crm_brand === 'aurrum' : c.crm_brand !== 'aurrum'));
       setCandidates(data);
       setIsLoading(false);
     }, (error) => {
@@ -394,24 +396,104 @@ export const AppTracker: React.FC = () => {
     };
   }, [applications, team, candidates, user, filterCandidateId]);
 
+  // Helper to determine if candidate is at a stage relevant to App Tracking
+  const isCandidateEligibleForAppTracking = (candidate: Candidate): boolean => {
+    const s = normalizeStage(candidate.current_stage);
+    return (
+      s === 'application_tracking' ||
+      s === 'marketing_active' ||
+      s === 'interviewing' ||
+      s === 'marketing_inactive' ||
+      s === 'offer' ||
+      s === 'backout' ||
+      s === 'completed'
+    );
+  };
+
+  const isCandidateAccessibleToUser = (c: Candidate): boolean => {
+    if (!user) return false;
+
+    // Administrators, System Admins, Managers, and Aurrum Admins have full access
+    if (
+      user.role === 'administrator' ||
+      user.role === 'jpc_sysadmin' ||
+      user.role === 'jpc_manager' ||
+      user.role === 'aurrum_admin'
+    ) {
+      return true;
+    }
+
+    // Previous recruiter association grants read/track sheet access
+    const wasPreviousRecruiter = Array.isArray(c.previous_recruiters) && c.previous_recruiters.some(p => 
+      String(p.recruiter_id) === String(user.id) ||
+      (user.username && String(p.recruiter_id) === String(user.username)) ||
+      (user.name && p.recruiter_name === user.name)
+    );
+
+    // Standard RBAC check
+    if (canUserAccessCandidate(c, user, team)) return true;
+    if (wasPreviousRecruiter) return true;
+
+    // Loose recruiter assignment check (supports id, username, full_name matching)
+    if (user.role === 'jpc_recruiter') {
+      const isAssigned = (
+        String(c.assigned_recruiter) === String(user.id) ||
+        (user.username && String(c.assigned_recruiter) === String(user.username)) ||
+        (user.name && String(c.assigned_recruiter) === String(user.name))
+      );
+      return isAssigned || wasPreviousRecruiter;
+    }
+
+    // Loose marketing leader assignment check
+    if (user.role === 'jpc_marketing') {
+      const isAssignedLeader = (
+        String(c.assigned_marketing_leader) === String(user.id) ||
+        (user.username && String(c.assigned_marketing_leader) === String(user.username))
+      );
+      const isInCluster = team.some(u => 
+        (String(u.id) === String(c.assigned_recruiter) || (u.username && String(u.username) === String(c.assigned_recruiter))) &&
+        (String(u.leader_id) === String(user.id) || (user.username && String(u.leader_id) === String(user.username)))
+      );
+      return isAssignedLeader || isInCluster;
+    }
+
+    return false;
+  };
+
   // My candidates filter (includes active assigned candidates and any candidate currently inspected via URL)
   const myCandidates = useMemo(() => {
     return candidates.filter(c => {
-      if (filterCandidateId && c.id === filterCandidateId) return canUserAccessCandidate(c, user, team);
-      if (c.current_stage !== 'marketing_active' && c.current_stage !== 'interviewing') return false;
-      if (user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person') {
-        if (!canUserAccessCandidate(c, user, team)) return false;
+      if (filterCandidateId && c.id === filterCandidateId) {
+        return isCandidateAccessibleToUser(c);
       }
-      if (user?.role === 'jpc_recruiter') {
-        const wasPreviousRecruiter = Array.isArray(c.previous_recruiters) && c.previous_recruiters.some(p => String(p.recruiter_id) === String(user.id));
-        return String(c.assigned_recruiter) === String(user.id) || wasPreviousRecruiter;
-      } else if (user?.role === 'jpc_marketing') {
-        const isInCluster = team.some(u => String(u.id) === String(c.assigned_recruiter) && String(u.leader_id) === String(user.id));
-        return String(c.assigned_marketing_leader) === String(user.id) || isInCluster;
-      }
-      return true;
+      if (!isCandidateEligibleForAppTracking(c)) return false;
+      return isCandidateAccessibleToUser(c);
     });
   }, [candidates, user, team, filterCandidateId]);
+
+  // Sync candidate selection from URL query parameters (candidate_id, id, search, q, name)
+  useEffect(() => {
+    if (filterCandidateId || candidates.length === 0) return;
+    const hashParts = window.location.hash.split('?');
+    if (hashParts[1]) {
+      const params = new URLSearchParams(hashParts[1]);
+      const searchParam = params.get('search') || params.get('q') || params.get('name') || params.get('candidate');
+      if (searchParam) {
+        const term = searchParam.trim().toLowerCase();
+        const matching = candidates.filter(c => 
+          (c.full_name || '').toLowerCase() === term ||
+          c.id === term ||
+          (c.full_name || '').toLowerCase().includes(term)
+        );
+        if (matching.length === 1) {
+          setFilterCandidateId(matching[0].id);
+        } else if (matching.length > 1) {
+          const exact = matching.find(c => (c.full_name || '').toLowerCase() === term);
+          if (exact) setFilterCandidateId(exact.id);
+        }
+      }
+    }
+  }, [candidates, filterCandidateId]);
 
   const handleInlineSubmit = async (e: React.KeyboardEvent | React.MouseEvent) => {
     if (!filterCandidateId || !inlineJobLink || isInlineSubmitting) return;
@@ -513,8 +595,24 @@ export const AppTracker: React.FC = () => {
           </h2>
           <div className="w-full sm:w-64">
             <Select
-              value={filterCandidateId ? { value: filterCandidateId, label: candidates.find(c => c.id === filterCandidateId)?.full_name || 'Selected Candidate' } : null}
-              options={myCandidates.map(c => ({ value: c.id, label: c.full_name }))}
+              value={filterCandidateId ? { 
+                value: filterCandidateId, 
+                label: candidates.find(c => c.id === filterCandidateId)?.full_name || 'Selected Candidate' 
+              } : null}
+              options={myCandidates.map(c => ({ 
+                value: c.id, 
+                label: c.full_name,
+                candidate: c
+              }))}
+              filterOption={(candidateOption, rawInput) => {
+                if (!rawInput) return true;
+                const qTokens = rawInput.toLowerCase().trim().split(/\s+/).filter(Boolean);
+                const c = (candidateOption.data as any)?.candidate || candidates.find(item => item.id === candidateOption.value);
+                const targetText = c 
+                  ? `${c.full_name} ${c.id} ${c.email || ''} ${c.phone || ''} ${c.whatsapp || ''}`.toLowerCase()
+                  : candidateOption.label.toLowerCase();
+                return qTokens.every(token => targetText.includes(token));
+              }}
               onChange={(opt: any) => {
                 setFilterCandidateId(opt?.value || null);
                 setSelectedRecruiterFilter('all');
