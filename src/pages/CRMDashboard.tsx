@@ -324,8 +324,7 @@ export const CRMDashboard: React.FC = () => {
           'Assigned Compliance': csUser?.display_name || 'Unassigned',
           'Assigned Recruiter': recruiterUser?.display_name || 'Unassigned',
           'Marketing Team Leader': marketingUser?.display_name || 'Unassigned',
-          'Selected Plan / Package': cleanExcelValue(c.package_name),
-          ...(!isPaymentsRevenueDisabled() ? { 'Total Fee / Amount ($)': c.package_amount || 0 } : {}),
+
           'Agreement Sent': c.flags?.agreement_sent ? 'Yes' : 'No',
           'Agreement Signed': c.flags?.agreement_signed ? 'Yes' : 'No',
           'Candidate Portal Acc': c.email ? 'Yes' : 'No',
@@ -499,7 +498,7 @@ export const CRMDashboard: React.FC = () => {
       </div>
 
       {/* CRM Dynamic metric summary row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-6 animate-fade-in">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-6 animate-fade-in">
         <div className="bg-bg-secondary p-3.5 sm:p-6 rounded-2xl sm:rounded-3xl border border-border-primary shadow-sm hover:shadow-md transition-all flex items-center justify-between min-w-0">
           <div className="min-w-0">
             <p className="text-[9px] sm:text-[10px] font-black text-text-muted uppercase tracking-wider truncate">Filtered Volume</p>
@@ -523,19 +522,6 @@ export const CRMDashboard: React.FC = () => {
           </div>
           <div className="p-2.5 sm:p-4 bg-accent-green/10 text-accent-green rounded-xl sm:rounded-2xl shrink-0 ml-2">
             <CheckCircle2 className="w-4 h-4 sm:w-6 sm:h-6" />
-          </div>
-        </div>
-
-        <div className="bg-bg-secondary p-3.5 sm:p-6 rounded-2xl sm:rounded-3xl border border-border-primary shadow-sm hover:shadow-md transition-all flex items-center justify-between min-w-0">
-          <div className="min-w-0">
-            <p className="text-[9px] sm:text-[10px] font-black text-text-muted uppercase tracking-wider truncate">Gross Value</p>
-            <p className="text-xl sm:text-3xl font-black text-accent-purple mt-0.5 sm:mt-1 truncate">
-              ${filteredCRMLeads.reduce((sum, c) => sum + (c.package_amount || 0), 0).toLocaleString()}
-            </p>
-            <p className="text-[10px] sm:text-xs text-text-secondary font-bold mt-0.5 sm:mt-1 truncate">Sum value</p>
-          </div>
-          <div className="p-2.5 sm:p-4 bg-accent-purple/10 text-accent-purple rounded-xl sm:rounded-2xl shrink-0 ml-2">
-            <DollarSign className="w-4 h-4 sm:w-6 sm:h-6" />
           </div>
         </div>
 
@@ -601,46 +587,7 @@ export const CRMDashboard: React.FC = () => {
             </div>
           </div>
 
-          {/* Trajectory comparison */}
-          <div className="p-4 sm:p-6 lg:p-8 bg-bg-secondary border border-border-primary rounded-2xl sm:rounded-[32px] flex flex-col justify-between shadow-sm min-w-0 overflow-hidden">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 bg-accent-purple/10 text-accent-purple text-[9px] font-black uppercase tracking-widest rounded-full">Financial Yield</span>
-              </div>
-              <h4 className="text-base sm:text-lg font-bold text-text-primary flex items-center gap-2 mt-2">
-                <DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-accent-purple shrink-0" />
-                <span>Realized Revenue vs Potential Pipeline ($)</span>
-              </h4>
-              <p className="text-xs text-text-secondary mt-1">Aggregation tracking of real invoices (closed sales) compared with forecast lead funnel estimations.</p>
-            </div>
-            <div className="w-full h-64 sm:h-72 mt-4 sm:mt-8">
-              {financialTrajectoryData.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-xs text-text-muted">No prospective financial pipeline tracked for filtered parameters.</div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={financialTrajectoryData} margin={{ left: isMobile ? -15 : 5, right: isMobile ? 5 : 15, top: 10, bottom: 5 }}>
-                    <defs>
-                      <linearGradient id="colorRealized" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.35}/>
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                      </linearGradient>
-                      <linearGradient id="colorPotential" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.4}/>
-                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" opacity={0.2} />
-                    <XAxis dataKey="month" fontSize={isMobile ? 8 : 10} stroke="#858585" />
-                    <YAxis tickFormatter={(val) => val >= 1000 ? `$${Math.round(val / 1000)}k` : `$${val}`} fontSize={isMobile ? 8 : 10} stroke="#858585" />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: isMobile ? '10px' : '11px' }} />
-                    <Area type="monotone" dataKey="Realized Revenue ($)" stroke="#10b981" fillOpacity={1} fill="url(#colorRealized)" strokeWidth={2.5} />
-                    <Area type="monotone" dataKey="Potential Pipeline ($)" stroke="#8b5cf6" fillOpacity={1} fill="url(#colorPotential)" strokeWidth={2.5} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </div>
+
 
           {/* Acquisition Channels Distribution */}
           <div className="p-4 sm:p-6 lg:p-8 bg-bg-secondary border border-border-primary rounded-2xl sm:rounded-[32px] flex flex-col justify-between shadow-sm min-w-0 overflow-hidden">
@@ -792,10 +739,6 @@ export const CRMDashboard: React.FC = () => {
                     <span className="text-text-primary font-bold text-xs truncate block">{c.lead_source || 'organic'}</span>
                   </div>
                   <div className="truncate">
-                    <span className="text-[9px] font-black uppercase tracking-wider block text-text-muted">Package</span>
-                    <span className="text-text-primary font-bold text-xs truncate block">{c.package_name || '—'}</span>
-                  </div>
-                  <div className="truncate">
                     <span className="text-[9px] font-black uppercase tracking-wider block text-text-muted">Agreement</span>
                     <span className="block text-xs font-bold truncate">
                       {c.flags?.agreement_signed ? (
@@ -805,12 +748,6 @@ export const CRMDashboard: React.FC = () => {
                       ) : (
                         <span className="text-text-muted">—</span>
                       )}
-                    </span>
-                  </div>
-                  <div className="truncate">
-                    <span className="text-[9px] font-black uppercase tracking-wider block text-text-muted">Fee</span>
-                    <span className="text-accent-purple font-black text-xs block">
-                      {c.package_amount ? `$${c.package_amount.toLocaleString()}` : '$0'}
                     </span>
                   </div>
                 </div>
@@ -831,10 +768,8 @@ export const CRMDashboard: React.FC = () => {
               <tr className="bg-bg-secondary select-none border-b border-border-primary text-text-muted font-bold uppercase tracking-wider">
                 <th className="p-4">Name</th>
                 <th className="p-4">Source Channel</th>
-                <th className="p-4">Package Plan</th>
                 <th className="p-4">Stage</th>
                 <th className="p-4">Agreement Status</th>
-                {!isPaymentsRevenueDisabled() && <th className="p-4 text-right">Fee ($)</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-border-primary font-medium text-text-primary">
@@ -848,9 +783,6 @@ export const CRMDashboard: React.FC = () => {
                     </td>
                     <td className="p-4 text-text-muted">
                       {c.lead_source || 'organic'}
-                    </td>
-                    <td className="p-4">
-                      {c.package_name || '—'}
                     </td>
                     <td className="p-4">
                       <span className={cn(
@@ -872,15 +804,12 @@ export const CRMDashboard: React.FC = () => {
                         <span className="text-text-muted">—</span>
                       )}
                     </td>
-                    <td className="p-4 text-right font-bold">
-                      {c.package_amount ? `$${c.package_amount.toLocaleString()}` : '$0'}
-                    </td>
                   </tr>
                 );
               })}
               {filteredCRMLeads.length === 0 && (
                 <tr>
-                  <td colSpan={isPaymentsRevenueDisabled() ? 5 : 6} className="p-8 text-center text-text-muted italic">
+                  <td colSpan={4} className="p-8 text-center text-text-muted italic">
                     No active leads matching current parameters
                   </td>
                 </tr>

@@ -192,7 +192,22 @@ export const AurrumCandidateDetail: React.FC = () => {
     const unsubActivity = onSnapshot(
       query(collection(db, 'jpc_activity_logs'), where('candidate_id', '==', candidateId)),
       snap => {
-        const items = snap.docs.map(d => ({ ...(d.data() as ActivityLog), id: d.id }));
+        const items = snap.docs
+          .map(d => ({ ...(d.data() as ActivityLog), id: d.id }))
+          .filter(log => {
+            const action = (log.action || '').toLowerCase();
+            const details = (log.details || '').toLowerCase();
+            const type = (log.type || '').toLowerCase();
+            return (
+              !action.includes('payment') &&
+              !details.includes('payment') &&
+              !action.includes('receipt') &&
+              !details.includes('receipt') &&
+              !type.includes('payment') &&
+              !action.includes('package') &&
+              !details.includes('package')
+            );
+          });
         items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
         setActivityLogs(items);
       }
@@ -848,7 +863,7 @@ export const AurrumCandidateDetail: React.FC = () => {
       </div>
 
       {/* Candidate KPI Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div
           onClick={() => setActiveTab('interviews')}
           className="bg-bg-secondary border border-border-primary hover:border-purple-500/40 rounded-2xl p-4 cursor-pointer transition-all"
@@ -884,28 +899,6 @@ export const AurrumCandidateDetail: React.FC = () => {
           <p className="text-[11px] text-amber-500 font-semibold mt-0.5 truncate">
             Sales: {candidate.aurrum_sales_status || 'New Lead'}
           </p>
-        </div>
-
-        <div
-          onClick={() => setActiveTab('profile')}
-          className="bg-bg-secondary border border-border-primary hover:border-emerald-500/40 rounded-2xl p-4 cursor-pointer transition-all"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase tracking-widest text-text-muted">
-              Package & Balance
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
-              <DollarSign className="w-4 h-4" />
-            </div>
-          </div>
-          <p className="text-2xl font-black text-text-primary mt-2">
-            ${pkgAmount.toLocaleString()}
-          </p>
-          {!isPaymentsRevenueDisabled() && (
-      <p className="text-[11px] text-text-secondary mt-0.5">
-        Paid: <span className="text-emerald-500 font-bold">${totalPaid.toLocaleString()}</span> • Due: ${balanceRemaining.toLocaleString()}
-      </p>
-    )}
         </div>
 
         <div
@@ -1620,57 +1613,16 @@ export const AurrumCandidateDetail: React.FC = () => {
               )}
             </div>
 
-            {/* Aurrum Sales & Package Summary Card */}
-            <div className="bg-bg-secondary border border-border-primary rounded-3xl p-6 shadow-sm space-y-5">
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-black text-text-primary flex items-center gap-2">
-                  <Package className="w-4 h-4 text-emerald-500" />
-                  Aurrum Sales & Package Summary
-                </h2>
-                <button
-                  type="button"
-                  onClick={() => setIsEditingDeal(!isEditingDeal)}
-                  className="text-xs font-bold text-accent-blue hover:underline cursor-pointer"
-                >
-                  {isEditingDeal ? 'Cancel' : 'Edit Package / Payment'}
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="p-4 rounded-2xl bg-bg-tertiary/60 border border-border-primary">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block">
-                    Package Value
-                  </span>
-                  <p className="text-xl font-black text-text-primary mt-1">
-                    ${pkgAmount.toLocaleString()}
-                  </p>
-                  <span className="text-[11px] text-text-secondary truncate block">
-                    {candidate.package_name || 'Aurrum Interview Support'}
-                  </span>
-                </div>
-                <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/20">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-500 block">
-                    Total Paid
-                  </span>
-                  <p className="text-xl font-black text-emerald-500 mt-1">
-                    ${totalPaid.toLocaleString()}
-                  </p>
-                  <span className="text-[11px] text-text-secondary">Collected amount</span>
-                </div>
-                <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-500 block">
-                    Balance Due
-                  </span>
-                  <p className="text-xl font-black text-amber-500 mt-1">
-                    ${balanceRemaining.toLocaleString()}
-                  </p>
-                  <span className="text-[11px] text-text-secondary">Remaining balance</span>
-                </div>
-              </div>
+            {/* Aurrum Sales Status Card */}
+            <div className="bg-bg-secondary border border-border-primary rounded-3xl p-6 shadow-sm space-y-4">
+              <h2 className="text-base font-black text-text-primary flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-accent-blue" />
+                Aurrum Sales Status
+              </h2>
 
               <div>
                 <label className="block text-[10px] font-black uppercase tracking-wider text-text-muted mb-1.5">
-                  Aurrum Sales Status
+                  Current Status
                 </label>
                 <select
                   value={candidate.aurrum_sales_status || 'New Lead'}
@@ -1690,67 +1642,6 @@ export const AurrumCandidateDetail: React.FC = () => {
                   ))}
                 </select>
               </div>
-
-              {isEditingDeal && (
-                <div className="p-4 bg-bg-tertiary/70 border border-border-primary rounded-2xl space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase text-text-muted mb-1">
-                        Package Plan
-                      </label>
-                      <input
-                        type="text"
-                        value={dealForm.package_name}
-                        onChange={e => setDealForm({ ...dealForm, package_name: e.target.value })}
-                        className="w-full px-3 py-2 bg-bg-secondary border border-border-primary rounded-xl text-xs font-bold text-text-primary"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase text-text-muted mb-1">
-                        Package Amount ($)
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        value={dealForm.package_amount}
-                        onChange={e =>
-                          setDealForm({
-                            ...dealForm,
-                            package_amount: parseFloat(e.target.value) || 0,
-                          })
-                        }
-                        className="w-full px-3 py-2 bg-bg-secondary border border-border-primary rounded-xl text-xs font-bold text-text-primary"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase text-text-muted mb-1">
-                        Total Paid ($)
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        value={dealForm.total_paid}
-                        onChange={e =>
-                          setDealForm({
-                            ...dealForm,
-                            total_paid: parseFloat(e.target.value) || 0,
-                          })
-                        }
-                        className="w-full px-3 py-2 bg-bg-secondary border border-border-primary rounded-xl text-xs font-bold text-text-primary"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={handleSaveDeal}
-                      className="px-4 py-2 rounded-xl bg-emerald-500 text-white text-xs font-bold hover:bg-emerald-600 transition-colors cursor-pointer"
-                    >
-                      Save Package & Payment
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Follow-Ups & Candidate Notes */}

@@ -6,3 +6,8 @@ coverage/
 !.env.example
 dist/
 
+
+dataset_exports/
+export_job_matching_dataset.js
+public/candidate_journey_presentation.pdf
+public/email-preview.html

@@ -261,7 +261,7 @@ export const AurrumSales: React.FC = () => {
       />
 
       {/* Sales KPI Strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-bg-secondary border border-border-primary rounded-2xl p-4">
           <p className="text-[10px] font-black uppercase tracking-wider text-text-muted">
             Total Aurrum Leads
@@ -280,16 +280,6 @@ export const AurrumSales: React.FC = () => {
           </p>
           <p className="text-2xl font-black text-text-primary mt-1">{salesSummary.converted}</p>
         </div>
-        {!isPaymentsRevenueDisabled() && (
-        <div className="bg-bg-secondary border border-border-primary rounded-2xl p-4">
-          <p className="text-[10px] font-black uppercase tracking-wider text-purple-400">
-            Converted Value
-          </p>
-          <p className="text-2xl font-black text-text-primary mt-1">
-            ${salesSummary.closedValue.toLocaleString()}
-          </p>
-        </div>
-      )}
       </div>
 
       {/* Filters */}
@@ -422,16 +412,7 @@ export const AurrumSales: React.FC = () => {
                         )}
                       </div>
 
-                      <div className="flex items-center justify-between text-[11px] bg-bg-secondary/80 px-2.5 py-1.5 rounded-xl border border-border-primary/60">
-                        <span className="text-text-secondary truncate">
-                          {cand.package_name || 'Aurrum Package'}
-                        </span>
-                        {!isPaymentsRevenueDisabled() && (
-      <span className="font-bold text-emerald-500 shrink-0">
-        ${(Number(cand.package_amount) || 0).toLocaleString()}
-      </span>
-    )}
-                      </div>
+
 
                       {cand.notes && (
                         <p className="text-[11px] text-text-muted line-clamp-2 italic">

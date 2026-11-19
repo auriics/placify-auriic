@@ -1,4 +1,4 @@
-import { isPaymentsRevenueDisabled } from './lib/featureFlags';
+﻿import { isPaymentsRevenueDisabled } from './lib/featureFlags';
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -63,6 +63,23 @@ const AppContent: React.FC = () => {
       testConnection();
     }
   }, [isAuthReady]);
+
+  // Preload the most-visited page bundles in the browser's idle time so that
+  // switching menus doesn't trigger a network fetch for the JS chunk.
+  useEffect(() => {
+    if (!isAuthReady || !user) return;
+    const idle = (typeof window !== 'undefined' && 'requestIdleCallback' in window)
+      ? (window as any).requestIdleCallback
+      : (fn: () => void) => setTimeout(fn, 200);
+    idle(() => {
+      // These are the highest-traffic pages; preload their lazy bundles
+      import('./pages/Candidates');
+      import('./pages/Pipeline');
+      import('./pages/AppTracker');
+      import('./pages/FollowUps');
+      import('./pages/Dashboard');
+    });
+  }, [isAuthReady, user]);
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -136,8 +153,8 @@ const AppContent: React.FC = () => {
         case '#dashboard': return <CandidateDashboard />;
         case '#candidate': return <CandidateDetail />;
         case '#receipt':
-        if (isPaymentsRevenueDisabled()) return <Dashboard />;
-        return <Receipt />;
+          if (isPaymentsRevenueDisabled()) return <CandidateDashboard />;
+          return <Receipt />;
         default: return <CandidateDashboard />;
       }
     }
@@ -152,7 +169,9 @@ const AppContent: React.FC = () => {
         case '#aurrum-team':
           if (user?.role === 'aurrum_admin') return <AurrumTeam />;
           return <AurrumDashboard />;
-        case '#receipt': return <Receipt />;
+        case '#receipt': 
+          if (isPaymentsRevenueDisabled()) return <AurrumDashboard />;
+          return <Receipt />;
         default:
           if (hash.startsWith('#book-interview')) {
             return <BookingPage />;
@@ -185,7 +204,9 @@ const AppContent: React.FC = () => {
       case '#team': 
         if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_marketing' && user?.role !== 'jpc_cs') return <Dashboard />;
         return <Team />;
-      case '#receipt': return <Receipt />;
+      case '#receipt': 
+        if (isPaymentsRevenueDisabled()) return <Dashboard />;
+        return <Receipt />;
       case '#applications': 
         if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_cs' && user?.role !== 'jpc_compliance_person' && user?.role !== 'jpc_recruiter' && user?.role !== 'jpc_marketing') return <Dashboard />;
         return <AppTracker />;

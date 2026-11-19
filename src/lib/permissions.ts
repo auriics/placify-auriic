@@ -409,5 +409,35 @@ export function canDeleteInterviewRequest(
   return false;
 }
 
+/**
+ * Determines whether a user role has permission to edit candidate basic contact info:
+ * 1. Candidate Name (full_name)
+ * 2. Email Address (email)
+ * 3. Phone Number (phone)
+ * 4. WhatsApp Number (whatsapp)
+ *
+ * Authorized roles:
+ * - Lead Generation (jpc_lead_gen)
+ * - Sales Representative (jpc_sales)
+ * - Administrator (administrator)
+ * - Top-Level Management (jpc_manager)
+ * - CS / Compliance Head (jpc_cs)
+ * - Compliance Person (jpc_compliance_person)
+ * - System Admin (jpc_sysadmin)
+ */
+export function canEditCandidateBasicInfo(role?: string | null): boolean {
+  if (!role) return false;
+  return [
+    'administrator',
+    'jpc_sysadmin',
+    'jpc_manager',
+    'jpc_lead_gen',
+    'jpc_sales',
+    'jpc_cs',
+    'jpc_compliance_person'
+  ].includes(role);
+}
+
+
 
 

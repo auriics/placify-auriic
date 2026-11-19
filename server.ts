@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 import path from 'path';
 import { GoogleGenAI, Type } from '@google/genai';
 import fs from 'fs';
@@ -2720,6 +2720,94 @@ app.patch('/api/candidates/:id', verifyAuth, async (req, res) => {
   } catch (error: any) {
     console.error('Error updating candidate via PATCH:', error);
     res.status(500).json({ error: error.message || 'Failed to update candidate' });
+  }
+});
+
+
+// Basic Contact Info Update Endpoint - Strictly limited to 4 fields & authorized roles
+app.patch(['/api/candidates/:id/basic-info', '/candidates/:id/basic-info'], verifyAuth, async (req, res) => {
+  try {
+    const candidateId = req.params.id;
+    const user = (req as any).user;
+
+    const allowedRoles = [
+      'administrator',
+      'jpc_sysadmin',
+      'jpc_manager',
+      'jpc_lead_gen',
+      'jpc_sales',
+      'jpc_cs',
+      'jpc_compliance_person'
+    ];
+
+    if (!user || !allowedRoles.includes(user.role)) {
+      return res.status(403).json({
+        error: 'Forbidden: You do not have permission to edit candidate contact information'
+      });
+    }
+
+    if (user.role === 'jpc_cs') {
+      const existingDoc = await db.collection('jpc_candidates').doc(candidateId).get();
+      if (existingDoc.exists) {
+        const existingData = existingDoc.data();
+        const profileAccess = user.profile_handling_access || 'Day Shift';
+        if (!matchesProfileHandlingAccess(existingData?.shift_preference, profileAccess)) {
+          return res.status(403).json({
+            error: 'Forbidden: You do not have permission to modify this candidate profile under your Profile Handling Access settings'
+          });
+        }
+      }
+    }
+
+    const { full_name, email, phone, whatsapp } = req.body;
+
+    if (!full_name || typeof full_name !== 'string' || !full_name.trim()) {
+      return res.status(400).json({ error: 'Candidate Name is required' });
+    }
+    if (!email || typeof email !== 'string' || !email.trim()) {
+      return res.status(400).json({ error: 'Email Address is required' });
+    }
+    if (!phone || typeof phone !== 'string' || !phone.trim()) {
+      return res.status(400).json({ error: 'Phone Number is required' });
+    }
+
+    const trimmedFullName = full_name.trim();
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedPhone = phone.trim();
+    const trimmedWhatsapp = (whatsapp && typeof whatsapp === 'string') ? whatsapp.trim() : trimmedPhone;
+
+    // Strictly whitelist only these 4 fields
+    const payload = {
+      full_name: trimmedFullName,
+      email: trimmedEmail,
+      phone: trimmedPhone,
+      whatsapp: trimmedWhatsapp,
+      updated_at: new Date().toISOString()
+    };
+
+    await db.collection('jpc_candidates').doc(candidateId).set(payload, { merge: true });
+
+    try {
+      const logRef = db.collection('jpc_activity_logs').doc();
+      await logRef.set({
+        id: logRef.id,
+        candidate_id: candidateId,
+        action: 'Updated Candidate Contact Details',
+        details: `Contact details (Name: ${trimmedFullName}, Email: ${trimmedEmail}, Phone: ${trimmedPhone}, WhatsApp: ${trimmedWhatsapp}) updated by ${user.display_name || user.role}.`,
+        user_id: user.id || user.uid,
+        user_name: user.display_name || 'Authorized User',
+        user_role: user.role,
+        type: 'activity',
+        created_at: new Date().toISOString()
+      });
+    } catch (logErr) {
+      console.warn('Could not log activity for candidate basic info update:', logErr);
+    }
+
+    res.json({ success: true, message: 'Candidate contact details updated successfully', data: payload });
+  } catch (error: any) {
+    console.error('Error updating candidate basic info via PATCH:', error);
+    res.status(500).json({ error: error.message || 'Failed to update candidate information' });
   }
 });
 

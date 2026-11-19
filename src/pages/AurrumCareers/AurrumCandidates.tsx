@@ -141,19 +141,7 @@ const AurrumCandidateRow = React.memo(
           </p>
         </div>
 
-        <div className="w-36 px-4 py-3 hidden sm:block">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <Package className="w-3.5 h-3.5 text-text-muted shrink-0" />
-            <div className="truncate">
-              <p className="text-xs font-bold text-text-primary truncate">
-                {candidate.package_name || '—'}
-              </p>
-              <p className="text-[10px] text-text-muted">
-                ${(Number(candidate.package_amount) || 0).toLocaleString()}
-              </p>
-            </div>
-          </div>
-        </div>
+
 
         <div className="w-64 px-4 py-3 flex items-center justify-end gap-1.5 shrink-0">
           <button
@@ -407,8 +395,6 @@ export const AurrumCandidates: React.FC = () => {
         Location: c.location,
         'Aurrum Stage': resolveAurrumStage(c),
         'Sales Status': c.aurrum_sales_status || 'New Lead',
-        Package: c.package_name || '—',
-        ...(!isPaymentsRevenueDisabled() ? { 'Package Amount ($)': Number(c.package_amount) || 0 } : {}),
         'Lead Source': c.lead_source || '—',
         Notes: c.notes || '—',
         'Created At': c.created_at ? new Date(c.created_at).toLocaleDateString() : '—',
@@ -599,9 +585,7 @@ export const AurrumCandidates: React.FC = () => {
               <div className="w-40 px-4 py-4 text-[10px] font-bold text-text-muted uppercase tracking-widest hidden md:block">
                 Sales Status
               </div>
-              <div className="w-36 px-4 py-4 text-[10px] font-bold text-text-muted uppercase tracking-widest hidden sm:block">
-                Package
-              </div>
+
               <div className="w-64 px-4 py-4 text-[10px] font-bold text-text-muted uppercase tracking-widest text-right">
                 Flow Actions
               </div>

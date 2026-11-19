@@ -215,7 +215,7 @@ export const AurrumDashboard: React.FC = () => {
       />
 
       {/* KPI Metrics Grid (Strictly Aurrum Only) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <a
           href="#aurrum-candidates"
           className="bg-bg-secondary border border-border-primary rounded-2xl p-5 hover:border-accent-blue/40 transition-all group"
@@ -268,24 +268,7 @@ export const AurrumDashboard: React.FC = () => {
           </p>
         </a>
 
-        {!isPaymentsRevenueDisabled() && (
-        <div className="bg-bg-secondary border border-border-primary rounded-2xl p-5">
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center">
-              <DollarSign className="w-5 h-5" />
-            </div>
-            <span className="text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded-full">
-              Closed: ${metrics.convertedRevenue.toLocaleString()}
-            </span>
-          </div>
-          <p className="text-2xl sm:text-3xl font-black text-text-primary">
-            ${metrics.totalPackageValue.toLocaleString()}
-          </p>
-          <p className="text-[11px] font-bold text-text-muted uppercase tracking-wider mt-1">
-            Aurrum Pipeline Value
-          </p>
-        </div>
-      )}
+
 
         <a
           href="#aurrum-interviews"
@@ -345,7 +328,7 @@ export const AurrumDashboard: React.FC = () => {
             </div>
             <h3 className="text-lg font-black text-text-primary mt-2">Aurrum Sales Pipeline</h3>
             <p className="text-xs text-text-secondary mt-1">
-              Track Aurrum leads, follow-ups, packages, and conversions into Interview Support.
+              Track Aurrum leads, follow-ups, and conversions into Interview Support.
             </p>
           </div>
           <div className="mt-4 pt-3 border-t border-border-primary flex items-center justify-between text-xs font-bold text-amber-500">

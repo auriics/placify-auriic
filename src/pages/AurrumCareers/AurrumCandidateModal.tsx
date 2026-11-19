@@ -494,36 +494,7 @@ export const AurrumCandidateModal: React.FC<AurrumCandidateModalProps> = ({
               </select>
             </div>
 
-            <div>
-              <label className="block text-[10px] font-black uppercase tracking-wider text-text-muted mb-1.5">
-                Package / Service Plan
-              </label>
-              <input
-                type="text"
-                value={formData.package_name}
-                onChange={e => setFormData({ ...formData, package_name: e.target.value })}
-                placeholder="Aurrum Interview Support"
-                className="w-full px-4 py-2.5 bg-bg-tertiary border border-border-primary rounded-xl text-sm text-text-primary focus:border-accent-blue outline-none"
-              />
-            </div>
 
-            {!isPaymentsRevenueDisabled() && (
-            <div>
-              <label className="block text-[10px] font-black uppercase tracking-wider text-text-muted mb-1.5">
-                Package Amount ($)
-              </label>
-              <div className="relative">
-                <DollarSign className="w-4 h-4 text-text-muted absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="number"
-                  min={0}
-                  value={formData.package_amount}
-                  onChange={e => setFormData({ ...formData, package_amount: Number(e.target.value) || 0 })}
-                  className="w-full pl-10 pr-4 py-2.5 bg-bg-tertiary border border-border-primary rounded-xl text-sm text-text-primary focus:border-accent-blue outline-none"
-                />
-              </div>
-            </div>
-          )}
           </div>
 
           {/* 15-Day Free Trial Enrollment */}

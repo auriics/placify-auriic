@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import { 
   subscribeToCollection,
   saveCandidate, 
@@ -355,18 +355,33 @@ export const CandidateDetail: React.FC = () => {
   const nextPayment = payments.find(p => p.status === 'pending');
 
   const combinedLogs = useMemo(() => {
-    const logs = activityLogs.map(log => {
-      const actor = resolveRecruiterUser(log.user_id, allUsers, candidate);
-      return {
-        id: log.id,
-        action: log.action,
-        details: log.details,
-        user_name: actor?.display_name || 'System',
-        user_role: actor?.role,
-        created_at: log.created_at,
-        type: 'activity'
-      };
-    });
+    const logs = activityLogs
+      .filter(log => {
+        const action = (log.action || '').toLowerCase();
+        const details = (log.details || '').toLowerCase();
+        const type = (log.type || '').toLowerCase();
+        return (
+          !action.includes('payment') &&
+          !details.includes('payment') &&
+          !action.includes('receipt') &&
+          !details.includes('receipt') &&
+          !type.includes('payment') &&
+          !action.includes('package') &&
+          !details.includes('package')
+        );
+      })
+      .map(log => {
+        const actor = resolveRecruiterUser(log.user_id, allUsers, candidate);
+        return {
+          id: log.id,
+          action: log.action,
+          details: log.details,
+          user_name: actor?.display_name || 'System',
+          user_role: actor?.role,
+          created_at: log.created_at,
+          type: 'activity'
+        };
+      });
 
     const resumeLogs = resumeRequests.map(req => {
       const actor = resolveRecruiterUser(req.recruiter_id, allUsers, candidate);
@@ -901,11 +916,11 @@ export const CandidateDetail: React.FC = () => {
         user?.id || null
       );
     } else {
-      await logActivity(candidate.id, 'Updated package info', 'Package and team assignment details were updated.', user?.id || null);
+      await logActivity(candidate.id, 'Updated team assignment', 'Team assignment details were updated.', user?.id || null);
     }
 
     setIsEditingPackage(false);
-    showToast('Package info updated', 'success');
+    showToast('Team assignment updated', 'success');
   };
 
   const handleExportCandidateApps = () => {
@@ -1876,7 +1891,7 @@ export const CandidateDetail: React.FC = () => {
             job_title: interviews[0]?.job_title || candidate.job_interest || candidate.current_designation || '',
             round_label: 'Final Round',
             proxy_user_id: interviews[0]?.proxy_user_id || null,
-            offered_package: candidate.package_name || (candidate.package_amount ? `$${candidate.package_amount}` : '')
+            offered_package: ''
           }}
           onSuccess={() => {
             setIsInterviewCompletionModalOpen(false);
@@ -2054,21 +2069,6 @@ export const CandidateDetail: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* Next Payment Alert */}
-      {!isPaymentsRevenueDisabled() && nextPayment && (
-        <div className="bg-accent-amber/10 border border-accent-amber/20 rounded-2xl p-4 flex items-center gap-4">
-          <div className="w-10 h-10 bg-accent-amber/20 rounded-full flex items-center justify-center text-accent-amber shrink-0">
-            <CreditCard className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="font-bold text-accent-amber">Next Payment Due</p>
-            <p className="text-sm text-accent-amber/80">
-              ${nextPayment.amount.toLocaleString()} is due on {new Date(nextPayment.due_date).toLocaleDateString()}
-            </p>
-          </div>
-        </div>
-      )}
 
       {/* Pending Compliance Approval Banner */}
       {candidate.current_stage === 'interviewing' && candidate.interview_offer_status === 'pending_approval' && (
@@ -3194,20 +3194,6 @@ export const CandidateDetail: React.FC = () => {
             <div className="p-6">
               {isEditingPackage ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {(!isLeadGen || isSalesperson) && (
-                    <>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-text-muted uppercase">Package Name</label>
-                        <input type="text" value={packageForm.package_name || ''} onChange={e => setPackageForm({...packageForm, package_name: e.target.value})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm" />
-                      </div>
-                      {!isPaymentsRevenueDisabled() && (
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-text-muted uppercase">Package Amount ($)</label>
-                          <input type="number" value={packageForm.package_amount || 0} onChange={e => setPackageForm({...packageForm, package_amount: Number(e.target.value)})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm" />
-                        </div>
-                      )}
-                    </>
-                  )}
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-text-muted uppercase">Assigned Sales</label>
                     {isLeadGen ? (
@@ -3320,20 +3306,6 @@ export const CandidateDetail: React.FC = () => {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-y-6 gap-x-12">
-                  {(!isLeadGen || isSalesperson) && (
-                    <>
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Package Name</p>
-                        <p className="text-text-primary font-bold">{candidate.package_name || '—'}</p>
-                      </div>
-                      {!isPaymentsRevenueDisabled() && (
-                        <div className="space-y-1">
-                          <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Total Amount</p>
-                          <p className="text-text-primary font-bold text-lg">${candidate.package_amount.toLocaleString()}</p>
-                        </div>
-                      )}
-                    </>
-                  )}
                   <div className="space-y-1">
                     <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Assigned Sales</p>
                     <p className="text-text-primary font-medium">{allUsers.find(u => u.id === candidate.assigned_sales)?.display_name || '—'}</p>
@@ -3393,149 +3365,9 @@ export const CandidateDetail: React.FC = () => {
                 </div>
               )}
 
-              {candidate.package_name && candidate.package_name.toLowerCase().includes('support') && (user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person' || user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager') && (
-                <div className="mt-6 p-4 bg-accent-blue/5 border border-accent-blue/20 rounded-xl space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-black text-accent-blue uppercase tracking-wider">
-                    <span>⚡</span> Live Interview Support Package
-                  </div>
-                  <p className="text-xs text-text-secondary font-medium">
-                    This candidate has an **Interview Support** plan. Provide them with this single booking link so they can fill in candidate info and job details directly, locking their chosen proxy slot automatically to avoid conflicts.
-                  </p>
-                  <div className="flex items-center gap-2 pt-1">
-                    <input
-                      readOnly
-                      value={`${window.location.origin}/#book-interview/interview-support-only`}
-                      className="flex-1 px-3 py-1.5 bg-bg-secondary border border-border-primary rounded-lg text-[10px] font-mono font-bold text-text-primary"
-                    />
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(`${window.location.origin}/#book-interview/interview-support-only`);
-                        showToast('Interview support booking link copied!', 'success');
-                      }}
-                      className="px-3 py-1.5 bg-accent-blue text-white text-[10px] font-bold rounded-lg hover:bg-accent-blue/90"
-                    >
-                      Copy Link
-                    </button>
-                  </div>
-                </div>
-              )}
+              
             </div>
           </section>
-
-          {/* Payments */}
-          {!isPaymentsRevenueDisabled() && (user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager' || user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person' || user?.role === 'jpc_recruiter' || isSalesperson) && (
-            <section className="bg-bg-secondary border border-border-primary rounded-2xl overflow-hidden shadow-sm">
-              <div className="px-6 py-4 border-b border-border-primary flex items-center justify-between">
-                <h3 className="font-bold text-text-primary flex items-center gap-2">
-                  <CreditCard className="w-5 h-5 text-accent-green" />
-                  Payments
-                </h3>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-text-secondary">${totalPaid} / ${candidate.package_amount}</span>
-                  <div className="w-24 h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
-                    <div className="h-full bg-accent-green" style={{ width: `${Math.min(paymentProgress, 100)}%` }} />
-                  </div>
-                </div>
-              </div>
-              <div className="p-6 space-y-6">
-                {/* Payment List */}
-                <div className="space-y-3">
-                  {payments.map(p => (
-                    <div key={p.id} className="flex items-center justify-between p-4 bg-bg-tertiary/50 border border-border-primary rounded-xl">
-                      <div className="flex items-center gap-4">
-                        <div className="w-8 h-8 rounded-lg bg-bg-secondary flex items-center justify-center font-bold text-xs">
-                          #{p.part_number}
-                        </div>
-                        <div>
-                          <p className="font-bold text-text-primary">${p.amount.toLocaleString()}</p>
-                          <p className="text-[10px] text-text-muted uppercase font-bold">Due: {new Date(p.due_date).toLocaleDateString()}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        {p.status === 'paid' ? (
-                          <>
-                            <span className="text-[10px] px-2 py-1 bg-accent-green/10 text-accent-green font-bold rounded-full uppercase">Paid</span>
-                            <div className="flex items-center gap-2">
-                              <a 
-                                href={`#receipt?pay_id=${p.id}&cand_id=${candidate.id}`}
-                                className="p-2 text-text-secondary hover:text-accent-blue hover:bg-accent-blue/10 rounded-lg transition-all"
-                                title="View Receipt"
-                              >
-                                <FileText className="w-4 h-4" />
-                              </a>
-                              {p.proof_url || p.proof_base64 ? (
-                                <button 
-                                  onClick={() => handleViewFile(p.proof_url || p.proof_base64 || '', 'proof.png')}
-                                  className="p-2 text-text-secondary hover:text-accent-purple hover:bg-accent-purple/10 rounded-lg transition-all"
-                                  title="View Proof"
-                                >
-                                  <Image className="w-4 h-4" />
-                                </button>
-                              ) : null}
-                              {canManagePayments && (
-                                <label className="p-2 text-text-secondary hover:text-accent-purple hover:bg-accent-purple/10 rounded-lg transition-all cursor-pointer" title="Upload Proof">
-                                  <Upload className="w-4 h-4" />
-                                  <input type="file" className="hidden" accept="image/*" onChange={(e) => handlePaymentProofUpload(p, e)} />
-                                </label>
-                              )}
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-[10px] px-2 py-1 bg-accent-amber/10 text-accent-amber font-bold rounded-full uppercase">Pending</span>
-                            <div className="flex items-center gap-2">
-                              {canManagePayments && (
-                                <button 
-                                  onClick={() => handleMarkPaid(p)}
-                                  className="px-3 py-1 bg-accent-green text-white text-xs font-bold rounded-lg hover:bg-accent-green/90 transition-all"
-                                >
-                                  Mark Paid
-                                </button>
-                              )}
-                              {canManagePayments && (
-                                <label className="p-2 text-text-secondary hover:text-accent-purple hover:bg-accent-purple/10 rounded-lg transition-all cursor-pointer" title="Upload Proof">
-                                  <Upload className="w-4 h-4" />
-                                  <input type="file" className="hidden" accept="image/*" onChange={(e) => handlePaymentProofUpload(p, e)} />
-                                </label>
-                              )}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Add Payment Form */}
-                {canManagePayments && (
-                  <form onSubmit={handleAddPayment} className="pt-6 border-t border-border-primary">
-                    <p className="text-xs font-bold text-text-muted uppercase tracking-widest mb-4">Add Payment Plan</p>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-text-muted uppercase">Part #</label>
-                        <select value={paymentForm.part_number || 1} onChange={e => setPaymentForm({...paymentForm, part_number: Number(e.target.value)})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm">
-                          {[1,2].map(n => <option key={n} value={n}>Part {n}</option>)}
-                        </select>
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-text-muted uppercase">Amount</label>
-                        <input type="number" value={paymentForm.amount || 0} onChange={e => setPaymentForm({...paymentForm, amount: Number(e.target.value)})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-text-muted uppercase">Due Date</label>
-                        <input type="date" value={paymentForm.due_date || ''} onChange={e => setPaymentForm({...paymentForm, due_date: e.target.value})} className="w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm" />
-                      </div>
-                      <div className="flex items-end">
-                        <button type="submit" className="w-full h-[38px] bg-bg-tertiary border border-border-primary rounded-lg text-text-primary hover:bg-accent-blue hover:text-white hover:border-accent-blue transition-all font-bold text-xs">
-                          Add Plan
-                        </button>
-                      </div>
-                    </div>
-                  </form>
-                )}
-              </div>
-            </section>
-          )}
 
           {/* Promises */}
           {(user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager' || user?.role === 'jpc_cs' || user?.role === 'jpc_recruiter' || isSalesperson) && (

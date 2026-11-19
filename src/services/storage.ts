@@ -1,4 +1,4 @@
-import { 
+﻿import { 
   collection, 
   doc, 
   setDoc, 
@@ -16,7 +16,7 @@ import {
   runTransaction
 } from 'firebase/firestore';
 import { clearPreviousCalendarEvents } from './calendarService';
-import { canDeleteInterviewRequest } from '../lib/permissions';
+import { canDeleteInterviewRequest, canEditCandidateBasicInfo } from '../lib/permissions';
 import { isSalesWorkingHours, validateInterviewTimeWindow } from '../lib/utils';
 import { db, auth } from '../firebase';
 import { isOfferStageDisabled, isCompletedStageDisabled, isPaymentsRevenueDisabled } from '../lib/featureFlags';
@@ -119,51 +119,123 @@ export async function testConnection() {
 }
 
 // Generic Data Access
-export const subscribeToCollection = <T>(collectionName: string, callback: (data: T[]) => void, limitCount?: number) => {
-  let q = query(collection(db, collectionName));
-  if (limitCount) {
-    q = query(q, limit(limitCount));
+//
+// ── Shared Subscription Cache ───────────────────────────────────────────────────
+// Many pages subscribe to the same Firestore collections (jpc_candidates, jpc_users,
+// jpc_applications, etc.). Without a cache, every page-mount tears down the old
+// listener and immediately reconnects, causing a full data re-download and a loading
+// spinner on every menu click.
+//
+// This shared cache keeps ONE live Firestore listener per (collection + limitCount)
+// key, multicasts its updates to all subscribers, and only tears down the listener
+// after a 30-second grace period once the last subscriber leaves – so navigating
+// back is instantaneous.
+// ────────────────────────────────────────────────────────────────────────────────
+
+interface SharedEntry {
+  unsubFirestore: () => void;
+  data: any[];
+  subscribers: Set<(d: any[]) => void>;
+  releaseTimer: ReturnType<typeof setTimeout> | null;
+}
+
+const _sharedListeners = new Map<string, SharedEntry>();
+
+function _sharedCacheKey(collectionName: string, limitCount?: number): string {
+  return limitCount ? `${collectionName}:${limitCount}` : collectionName;
+}
+
+function _applyBrandFilter(collectionName: string, data: any[]): any[] {
+  if (
+    collectionName === 'jpc_candidates' ||
+    collectionName === 'jpc_followups' ||
+    collectionName === 'jpc_payments' ||
+    collectionName === 'jpc_applications'
+  ) {
+    return data.filter((item: any) => item?.crm_brand !== 'aurrum');
   }
-  return onSnapshot(q, (snapshot) => {
-    let data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as T));
-    if (
-      collectionName === 'jpc_candidates' ||
-      collectionName === 'jpc_followups' ||
-      collectionName === 'jpc_payments' ||
-      collectionName === 'jpc_applications'
-    ) {
-      data = data.filter((item: any) => item?.crm_brand !== 'aurrum');
+  return data;
+}
+
+export const subscribeToCollection = <T>(collectionName: string, callback: (data: T[]) => void, limitCount?: number) => {
+  const key = _sharedCacheKey(collectionName, limitCount);
+
+  let entry = _sharedListeners.get(key);
+
+  if (!entry) {
+    // No active listener – create one now
+    let q = query(collection(db, collectionName));
+    if (limitCount) q = query(q, limit(limitCount));
+
+    const newEntry: SharedEntry = {
+      unsubFirestore: () => {},
+      data: [],
+      subscribers: new Set(),
+      releaseTimer: null,
+    };
+
+    newEntry.unsubFirestore = onSnapshot(q, (snapshot) => {
+      newEntry.data = _applyBrandFilter(
+        collectionName,
+        snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }))
+      );
+      // Broadcast to all current subscribers
+      newEntry.subscribers.forEach(cb => cb(newEntry.data));
+    }, (error) => {
+      if (collectionName === 'jpc_interview_offer_requests') {
+        console.warn('Direct Firestore onSnapshot unavailable for jpc_interview_offer_requests, using API fallback:', error.message);
+        fetch('/api/interview-offer-requests')
+          .then(res => res.ok ? res.json() : [])
+          .then(data => {
+            newEntry.data = data;
+            newEntry.subscribers.forEach(cb => cb(data));
+          })
+          .catch(() => {
+            newEntry.data = [];
+            newEntry.subscribers.forEach(cb => cb([]));
+          });
+        return;
+      }
+      handleFirestoreError(error, OperationType.GET, collectionName);
+    });
+
+    _sharedListeners.set(key, newEntry);
+    entry = newEntry;
+  } else {
+    // Listener already warm – cancel any pending teardown and deliver cached data
+    if (entry.releaseTimer !== null) {
+      clearTimeout(entry.releaseTimer);
+      entry.releaseTimer = null;
     }
-    callback(data);
-  }, (error) => {
-    if (collectionName === 'jpc_interview_offer_requests') {
-      console.warn('Direct Firestore onSnapshot unavailable for jpc_interview_offer_requests, using API fallback:', error.message);
-      fetch('/api/interview-offer-requests')
-        .then(res => res.ok ? res.json() : [])
-        .then(data => callback(data as T[]))
-        .catch(() => callback([]));
-      return;
+    // Immediately deliver the last known data so the page renders without a flicker
+    if (entry.data.length > 0) {
+      callback(entry.data as T[]);
     }
-    handleFirestoreError(error, OperationType.GET, collectionName);
-  });
+  }
+
+  entry.subscribers.add(callback as (d: any[]) => void);
+
+  // Return an unsubscribe function that removes this subscriber.
+  // After a 30-second grace period with no subscribers left, the Firestore listener
+  // is released so we don't hold connections open indefinitely.
+  return () => {
+    const e = _sharedListeners.get(key);
+    if (!e) return;
+    e.subscribers.delete(callback as (d: any[]) => void);
+    if (e.subscribers.size === 0 && e.releaseTimer === null) {
+      e.releaseTimer = setTimeout(() => {
+        const stillEmpty = _sharedListeners.get(key)?.subscribers.size === 0;
+        if (stillEmpty) {
+          _sharedListeners.get(key)?.unsubFirestore();
+          _sharedListeners.delete(key);
+        }
+      }, 30_000); // 30-second grace window
+    }
+  };
 };
 
 export const subscribeToCollectionWithLimit = <T>(collectionName: string, limitCount: number, callback: (data: T[]) => void) => {
-  const q = query(collection(db, collectionName), limit(limitCount));
-  return onSnapshot(q, (snapshot) => {
-    let data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as T));
-    if (
-      collectionName === 'jpc_candidates' ||
-      collectionName === 'jpc_followups' ||
-      collectionName === 'jpc_payments' ||
-      collectionName === 'jpc_applications'
-    ) {
-      data = data.filter((item: any) => item?.crm_brand !== 'aurrum');
-    }
-    callback(data);
-  }, (error) => {
-    handleFirestoreError(error, OperationType.GET, collectionName);
-  });
+  return subscribeToCollection<T>(collectionName, callback, limitCount);
 };
 
 export const subscribeToAurrumCandidates = (callback: (data: Candidate[]) => void) => {
@@ -566,6 +638,12 @@ export const getFaizUserId = async (): Promise<string | null> => {
 };
 
 export const autoAssignFaizToCandidates = async () => {
+  // Guard: run at most once per calendar day per browser session to prevent
+  // hundreds of Firestore writes firing on every admin login / page refresh.
+  const today = new Date().toISOString().split('T')[0];
+  const guardKey = `faiz_autoassign_done_${today}`;
+  if (typeof window !== 'undefined' && localStorage.getItem(guardKey)) return;
+
   try {
     const faizId = await getFaizUserId();
     if (!faizId) return;
@@ -593,6 +671,9 @@ export const autoAssignFaizToCandidates = async () => {
         } catch (le) {}
       }
     }
+
+    // Mark done for today so subsequent logins/refreshes are instant
+    if (typeof window !== 'undefined') localStorage.setItem(guardKey, 'true');
   } catch (error) {
     console.error('Error in autoAssignFaizToCandidates:', error);
   }
@@ -694,6 +775,88 @@ export const updateCandidate = async (id: string, updates: Partial<Candidate>) =
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `jpc_candidates/${id}`);
   }
+};
+
+/**
+ * Updates only the 4 basic candidate contact fields (full_name, email, phone, whatsapp).
+ * Strictly enforced by role-based access control.
+ */
+export const updateCandidateBasicDetails = async (
+  candidateId: string,
+  details: {
+    full_name: string;
+    email: string;
+    phone: string;
+    whatsapp?: string;
+  },
+  actingUser: { id?: string | number | null; role?: string | null; display_name?: string }
+): Promise<{ full_name: string; email: string; phone: string; whatsapp: string }> => {
+  if (!canEditCandidateBasicInfo(actingUser?.role)) {
+    throw new Error('Unauthorized: You do not have permission to edit candidate contact information');
+  }
+
+  const trimmedFullName = details.full_name?.trim();
+  const trimmedEmail = details.email?.trim().toLowerCase();
+  const trimmedPhone = details.phone?.trim();
+  const trimmedWhatsapp = details.whatsapp?.trim() || trimmedPhone;
+
+  if (!trimmedFullName) throw new Error('Candidate Name is required');
+  if (!trimmedEmail) throw new Error('Email Address is required');
+  if (!trimmedPhone) throw new Error('Phone Number is required');
+
+  const payload = {
+    full_name: trimmedFullName,
+    email: trimmedEmail,
+    phone: trimmedPhone,
+    whatsapp: trimmedWhatsapp,
+    updated_at: new Date().toISOString()
+  };
+
+  // 1. Try server API endpoint if authenticated
+  let apiSucceeded = false;
+  try {
+    const token = await auth.currentUser?.getIdToken();
+    if (token || (typeof process !== 'undefined' && process.env.NODE_ENV === 'test')) {
+      const response = await fetch(`/api/candidates/${candidateId}/basic-info`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+      if (response.ok) {
+        apiSucceeded = true;
+      } else if (response.status === 403) {
+        const errJson = await response.json().catch(() => null);
+        throw new Error(errJson?.error || 'Forbidden: You do not have permission to edit candidate contact information');
+      }
+    }
+  } catch (err: any) {
+    if (err.message && err.message.includes('Forbidden')) {
+      throw err;
+    }
+    // Fallback to client Firestore write
+  }
+
+  // 2. Direct Firestore update for offline/client environments and instant listener update
+  if (!apiSucceeded) {
+    const candidateRef = doc(db, 'jpc_candidates', candidateId);
+    await updateDoc(candidateRef, sanitizeForFirestore(payload));
+
+    try {
+      await logActivity(
+        candidateId,
+        'Updated Candidate Contact Details',
+        `Contact information (Name, Email, Phone, WhatsApp) was updated.`,
+        actingUser?.id ? String(actingUser.id) : null
+      );
+    } catch (logErr) {
+      console.warn('Failed to log contact update activity:', logErr);
+    }
+  }
+
+  return payload;
 };
 
 export const createAurrumCandidate = async (
@@ -926,6 +1089,12 @@ export const resetQCChecklist = async (candidateId: string) => {
 };
 
 export const migrateAllChecklists = async () => {
+  // Guard: this migration only needs to run once per installation.
+  // Once every candidate's checklist has been seeded to the latest schema it never
+  // needs to re-run, so we persist a flag in localStorage to skip the 300+ query
+  // waterfall that was freezing the app on every admin login.
+  if (typeof window !== 'undefined' && localStorage.getItem('qc_checklists_migration_done_v1')) return;
+
   try {
     const candidatesSnap = await getDocs(collection(db, 'jpc_candidates'));
     for (const candidateDoc of candidatesSnap.docs) {
@@ -945,6 +1114,8 @@ export const migrateAllChecklists = async () => {
         await seedQCChecklist(candidateId);
       }
     }
+    // Mark migration complete so it never runs again on this device
+    if (typeof window !== 'undefined') localStorage.setItem('qc_checklists_migration_done_v1', 'true');
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, 'jpc_candidates during migration');
   }

@@ -681,8 +681,7 @@ export const Dashboard: React.FC = () => {
           'Assigned CS Rep': csUser?.display_name || 'Unassigned',
           'Assigned Recruiter': recruiterUser?.display_name || 'Unassigned',
           'Marketing Team Leader': marketingUser?.display_name || 'Unassigned',
-          'Selected Plan / Package': cleanExcelValue(c.package_name),
-          ...(!isPaymentsRevenueDisabled() ? { 'Total Fee / Amount ($)': c.package_amount || 0 } : {}),
+
           'Agreement Sent': c.flags?.agreement_sent ? 'Yes' : 'No',
           'Agreement Signed': c.flags?.agreement_signed ? 'Yes' : 'No',
           'QC Validation Passed': c.flags?.qc_checklist_done ? 'Yes' : 'No',
@@ -963,7 +962,7 @@ export const Dashboard: React.FC = () => {
                       </div>
                       <div>
                         <span className="text-[10px] text-text-muted uppercase font-bold tracking-wider block">Offered Package</span>
-                        <span className="font-bold text-accent-green truncate block">{req.interview_details?.offered_package || req.candidate_package || 'N/A'}</span>
+                        <span className="font-bold text-accent-green truncate block">{req.interview_details?.offered_package || 'N/A'}</span>
                       </div>
                       <div>
                         <span className="text-[10px] text-text-muted uppercase font-bold tracking-wider block">Proxy Support</span>

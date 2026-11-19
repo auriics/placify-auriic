@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { subscribeToCollection, handleFirestoreError, OperationType } from '../services/storage';
 import { STAGES } from '../constants';
 import { isStageDisabled, isPaymentsRevenueDisabled } from '../lib/featureFlags';
-import { Search, Filter, X, Package, Phone, Mail, MapPin, Calendar, Users, ChevronRight, MoreVertical, ShieldCheck, Plus, Send, Table, Download } from 'lucide-react';
+import { Search, Filter, X, Package, Phone, Mail, MapPin, Calendar, Users, ChevronRight, MoreVertical, ShieldCheck, Plus, Send, Table, Download, Edit2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Candidate, Stage, User, Application, FollowUp } from '../types';
@@ -12,8 +12,9 @@ import { CandidateSheet } from '../components/CandidateSheet';
 import { TrackJobSheet } from '../components/TrackJobSheet';
 import { BulkImportModal } from '../components/BulkImportModal';
 import { AddCandidateModal } from '../components/AddCandidateModal';
+import { EditCandidateModal } from '../components/EditCandidateModal';
 import { useDebounce } from '../lib/hooks';
-import { canUserAccessCandidate } from '../lib/permissions';
+import { canUserAccessCandidate, canEditCandidateBasicInfo } from '../lib/permissions';
 import { List } from 'react-window';
 import * as XLSX from 'xlsx';
 import { db } from '../firebase';
@@ -27,6 +28,7 @@ type CandidateRowExtraProps = {
   user: any;
   onSelect: (c: Candidate) => void;
   onTrack: (c: Candidate) => void;
+  onEdit: (c: Candidate) => void;
 };
 
 // Memoized Row Component for Virtualized List
@@ -37,7 +39,8 @@ const CandidateRow = React.memo(({
   allUsers,
   user,
   onSelect,
-  onTrack
+  onTrack,
+  onEdit
 }: { 
   index: number, 
   style: React.CSSProperties
@@ -106,23 +109,29 @@ const CandidateRow = React.memo(({
           </span>
         </div>
       </div>
-      <div className="w-40 px-6 py-4 hidden sm:block">
-        <div className="flex items-center gap-2">
-          <Package className="w-4 h-4 text-text-muted" />
-          <div className="truncate">
-            <p className="text-xs font-bold text-text-primary truncate">{candidate.package_name || '—'}</p>
-            {!isPaymentsRevenueDisabled() && <p className="text-[10px] text-text-muted">${(candidate.package_amount || 0).toLocaleString()}</p>}
-          </div>
-        </div>
-      </div>
+
       <div className="w-32 px-6 py-4 hidden xl:block">
         <p className="text-xs text-text-muted flex items-center gap-2">
           <Calendar className="w-3.5 h-3.5" />
           {candidate.updated_at ? new Date(candidate.updated_at).toLocaleDateString() : '—'}
         </p>
       </div>
-      <div className="w-32 px-6 py-4 text-right">
+      <div className="w-48 px-6 py-4 text-right">
         <div className="flex items-center justify-end gap-2">
+          {canEditCandidateBasicInfo(user?.role) && (
+            <button 
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit(candidate);
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-accent-blue/10 hover:bg-accent-blue text-accent-blue hover:text-white text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all whitespace-nowrap cursor-pointer shadow-sm"
+              title="Edit candidate contact details"
+            >
+              <Edit2 className="w-3.5 h-3.5" />
+              Edit
+            </button>
+          )}
           {user?.role !== 'candidate' && user?.role !== 'jpc_candidate' && (
             <button 
               onClick={(e) => {
@@ -161,6 +170,8 @@ export const Candidates: React.FC = () => {
   const [isTrackSheetOpen, setIsTrackSheetOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingCandidate, setEditingCandidate] = useState<Candidate | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   
   useEffect(() => {
@@ -245,13 +256,23 @@ export const Candidates: React.FC = () => {
     setIsTrackSheetOpen(true);
   }, []);
 
+  const handleEdit = useCallback((candidate: Candidate) => {
+    if (!canEditCandidateBasicInfo(user?.role)) {
+      showToast('You do not have permission to edit candidate details', 'error');
+      return;
+    }
+    setEditingCandidate(candidate);
+    setIsEditModalOpen(true);
+  }, [user, showToast]);
+
   const itemData = useMemo<CandidateRowExtraProps>(() => ({
     items: filteredCandidates,
     allUsers,
     user,
     onSelect: handleSelect,
-    onTrack: handleTrack
-  }), [filteredCandidates, allUsers, user, handleSelect, handleTrack]);
+    onTrack: handleTrack,
+    onEdit: handleEdit
+  }), [filteredCandidates, allUsers, user, handleSelect, handleTrack, handleEdit]);
 
   const handleExportLeadsAndSales = async () => {
     setIsExporting(true);
@@ -316,8 +337,7 @@ export const Candidates: React.FC = () => {
           'Assigned Compliance': csUser?.display_name || 'Unassigned',
           'Assigned Recruiter': recruiterUser?.display_name || 'Unassigned',
           'Marketing Team Leader': marketingUser?.display_name || 'Unassigned',
-          'Selected Plan / Package': cleanExcelValue(c.package_name),
-          ...(!isPaymentsRevenueDisabled() ? { 'Total Fee / Amount ($)': c.package_amount || 0 } : {}),
+
           'Agreement Sent': c.flags?.agreement_sent ? 'Yes' : 'No',
           'Agreement Signed': c.flags?.agreement_signed ? 'Yes' : 'No',
           'QC Validation Passed': c.flags?.qc_checklist_done ? 'Yes' : 'No',
@@ -488,16 +508,10 @@ export const Candidates: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 text-xs text-text-muted bg-bg-tertiary/40 rounded-xl p-2.5">
+              <div className="text-xs text-text-muted bg-bg-tertiary/40 rounded-xl p-2.5">
                 <div className="truncate">
                   <span className="text-[10px] font-bold uppercase tracking-wider block text-text-muted">Location</span>
                   <span className="text-text-primary font-medium truncate block">{candidate.location || '—'}</span>
-                </div>
-                <div className="truncate">
-                  <span className="text-[10px] font-bold uppercase tracking-wider block text-text-muted">Package</span>
-                  <span className="text-text-primary font-medium truncate block">
-                    {candidate.package_name || '—'} {(!isPaymentsRevenueDisabled() && candidate.package_amount) ? `(${candidate.package_amount.toLocaleString()})` : ''}
-                  </span>
                 </div>
               </div>
 
@@ -524,6 +538,16 @@ export const Candidates: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {canEditCandidateBasicInfo(user?.role) && (
+                    <button 
+                      type="button"
+                      onClick={() => handleEdit(candidate)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-accent-blue/10 text-accent-blue hover:bg-accent-blue hover:text-white text-xs font-bold rounded-xl transition-all cursor-pointer"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>Edit</span>
+                    </button>
+                  )}
                   {user?.role !== 'candidate' && user?.role !== 'jpc_candidate' && (
                     <button 
                       onClick={() => handleTrack(candidate)}
@@ -578,9 +602,8 @@ export const Candidates: React.FC = () => {
               <div className="w-56 px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-widest hidden lg:block">Contact</div>
               <div className="w-32 px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-widest hidden md:block text-center">Portal</div>
               <div className="w-48 px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-widest">Stage</div>
-              <div className="w-40 px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-widest hidden sm:block">Package</div>
               <div className="w-32 px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-widest hidden xl:block">Last Update</div>
-              <div className="w-32 px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-widest"></div>
+              <div className="w-48 px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-widest text-right">Actions</div>
             </div>
 
             {/* Virtualized List Body */}
@@ -640,6 +663,22 @@ export const Candidates: React.FC = () => {
         onClose={() => setIsAddModalOpen(false)}
         onSuccess={() => {}}
       />
+
+      {isEditModalOpen && editingCandidate && (
+        <EditCandidateModal
+          isOpen={isEditModalOpen}
+          candidate={editingCandidate}
+          onClose={() => {
+            setIsEditModalOpen(false);
+            setEditingCandidate(null);
+          }}
+          onSuccess={(updated) => {
+            setCandidates(prev => prev.map(c => c.id === editingCandidate.id ? { ...c, ...updated } : c));
+            setIsEditModalOpen(false);
+            setEditingCandidate(null);
+          }}
+        />
+      )}
     </div>
   );
 };
