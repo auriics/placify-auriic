@@ -43,11 +43,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           id: fUser.uid,
           username: fUser.email?.split('@')[0] || 'user',
           display_name: fUser.displayName || 'User',
-          role: emailLower === 'paramatwork3076@gmail.com'
-            ? 'jpc_sysadmin'
-            : emailLower === 'darshan.wala@auriic.co'
-            ? 'administrator'
-            : 'jpc_sales',
+          role: emailLower === 'paramatwork3076@gmail.com' ? 'jpc_sysadmin' : 'jpc_sales',
           candidate_id: null,
           email: fUser.email || undefined,
           created_at: new Date().toISOString()
@@ -76,9 +72,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             let userData = userDoc.data() as User;
             if (userData.username === 'mohit.panchal' || (userData.email || '').toLowerCase() === 'mohit.panchal@auriic.co') {
               userData.role = 'jpc_recruiter';
-            }
-            if ((userData.email || '').toLowerCase() === 'darshan.wala@auriic.co' || emailLower === 'darshan.wala@auriic.co') {
-              userData.role = 'administrator';
             }
             setUser(userData);
             try {
@@ -142,11 +135,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 id: fUser.uid,
                 username: fUser.email?.split('@')[0] || 'user',
                 display_name: fUser.displayName || candidateData?.full_name || 'User',
-                role: emailLower === 'paramatwork3076@gmail.com'
-                  ? 'jpc_sysadmin'
-                  : emailLower === 'darshan.wala@auriic.co'
-                  ? 'administrator'
-                  : (candidateData ? 'candidate' : 'jpc_sales'),
+                role: emailLower === 'paramatwork3076@gmail.com' ? 'jpc_sysadmin' : (candidateData ? 'candidate' : 'jpc_sales'),
                 candidate_id: candidateData?.id || null,
                 ...(fUser.email ? { email: fUser.email } : {}),
                 created_at: new Date().toISOString()
@@ -184,9 +173,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             let liveData = docSnap.data() as User;
             if (liveData.username === 'mohit.panchal' || (liveData.email || '').toLowerCase() === 'mohit.panchal@auriic.co') {
               liveData.role = 'jpc_recruiter';
-            }
-            if ((liveData.email || '').toLowerCase() === 'darshan.wala@auriic.co' || (fUser.email || '').toLowerCase() === 'darshan.wala@auriic.co') {
-              liveData.role = 'administrator';
             }
             setUser(liveData);
             try {
