@@ -78,7 +78,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               userData.role = 'jpc_recruiter';
             }
             if ((userData.email || '').toLowerCase() === 'darshan.wala@auriic.co' || emailLower === 'darshan.wala@auriic.co') {
-              userData.role = 'administrator';
+              if (userData.role !== 'administrator') {
+                userData.role = 'administrator';
+                setDoc(doc(db, 'jpc_users', fUser.uid), { role: 'administrator' }, { merge: true }).catch(() => {});
+              }
             }
             setUser(userData);
             try {
