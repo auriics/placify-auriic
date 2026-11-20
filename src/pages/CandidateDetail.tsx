@@ -3196,7 +3196,7 @@ export const CandidateDetail: React.FC = () => {
             <div className="px-6 py-4 border-b border-border-primary flex items-center justify-between">
               <h3 className="font-bold text-text-primary flex items-center gap-2">
                 <Package className="w-5 h-5 text-accent-teal" />
-                Package & Team Assignment
+                Team Assignment
               </h3>
               {canEditPackage && (
                 <button 
