@@ -41,9 +41,13 @@ var isCompletedStageDisabled = () => {
 var isPaymentsRevenueDisabled = () => {
   return parseBool(getEnvVar("DISABLE_PAYMENTS_REVENUE"));
 };
+var isAppTrackingStageDisabled = () => {
+  return parseBool(getEnvVar("DISABLE_APP_TRACKING_STAGE"));
+};
 var isStageDisabled = (stageKey) => {
   if (stageKey === "offer" && isOfferStageDisabled()) return true;
   if (stageKey === "completed" && isCompletedStageDisabled()) return true;
+  if (stageKey === "application_tracking" && isAppTrackingStageDisabled()) return true;
   return false;
 };
 
@@ -1477,7 +1481,13 @@ function canUserAccessCandidate(candidate, user, teamUsers = []) {
     return false;
   };
   if (user.role === "jpc_recruiter") {
-    return userMatches(candidate.assigned_recruiter);
+    if (userMatches(candidate.assigned_recruiter)) return true;
+    if (Array.isArray(candidate.previous_recruiters) && candidate.previous_recruiters.some(
+      (prev) => userMatches(prev.recruiter_id) || userMatches(prev.recruiter_name)
+    )) {
+      return true;
+    }
+    return false;
   }
   const isUnassigned = !candidate.assigned_recruiter && !candidate.assigned_sales && !candidate.assigned_cs && !candidate.assigned_resume && !candidate.assigned_marketing_leader && !candidate.assigned_marketing && !candidate.lead_generated_by;
   if (isUnassigned) return true;

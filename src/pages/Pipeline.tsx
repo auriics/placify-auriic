@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { subscribeToCollection } from '../services/storage';
 import { STAGES, normalizeCandidateStage } from '../constants';
-import { isStageDisabled, isPaymentsRevenueDisabled } from '../lib/featureFlags';
+import { isStageDisabled, isPaymentsRevenueDisabled, isPipelineAppTrackingDisabled } from '../lib/featureFlags';
 import { Search, Filter, X, Package, Phone, Mail, MapPin, Calendar, Users, ArrowRight, MoreVertical, Edit2, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -15,7 +15,10 @@ import { FreeTrialBadge } from '../components/FreeTrialBadge';
 import { ShiftPreferenceBadge } from '../components/ShiftPreferenceBadge';
 
 export const getStageEntries = () => Object.entries(STAGES).filter(
-  ([key]) => key !== 'not_interested' && key !== 'not_eligible' && !isStageDisabled(key)
+  ([key]) => key !== 'not_interested' && 
+             key !== 'not_eligible' && 
+             !isStageDisabled(key) && 
+             !(key === 'application_tracking' && isPipelineAppTrackingDisabled())
 );
 const STAGE_ENTRIES = getStageEntries();
 

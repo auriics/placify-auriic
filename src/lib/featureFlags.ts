@@ -5,6 +5,7 @@
  * - DISABLE_OFFER_STAGE: boolean (true/false)
  * - DISABLE_COMPLETED_STAGE: boolean (true/false)
  * - DISABLE_PAYMENTS_REVENUE: boolean (true/false)
+ * - DISABLE_PIPELINE_APP_TRACKING / DISABLE_APP_TRACKING_STAGE: boolean (true/false)
  * 
  * Works seamlessly across both Vite client-side (import.meta.env)
  * and Node.js server environments (process.env).
@@ -60,10 +61,28 @@ export const isPaymentsRevenueDisabled = (): boolean => {
 };
 
 /**
+ * Checks whether Application Tracking should be hidden from the Pipeline board via .env.
+ * Supported variables:
+ * - DISABLE_PIPELINE_APP_TRACKING: boolean (true/false) - explicitly toggles pipeline visibility
+ * - DISABLE_APP_TRACKING_STAGE: boolean (true/false) - stage-level toggle
+ */
+export const isPipelineAppTrackingDisabled = (): boolean => {
+  return parseBool(getEnvVar('DISABLE_PIPELINE_APP_TRACKING')) || parseBool(getEnvVar('DISABLE_APP_TRACKING_STAGE'));
+};
+
+/**
+ * Checks whether Application Tracking stage is disabled system-wide via .env
+ */
+export const isAppTrackingStageDisabled = (): boolean => {
+  return parseBool(getEnvVar('DISABLE_APP_TRACKING_STAGE'));
+};
+
+/**
  * Checks whether a specific stage is disabled by active feature flags
  */
 export const isStageDisabled = (stageKey: string): boolean => {
   if (stageKey === 'offer' && isOfferStageDisabled()) return true;
   if (stageKey === 'completed' && isCompletedStageDisabled()) return true;
+  if (stageKey === 'application_tracking' && isAppTrackingStageDisabled()) return true;
   return false;
 };

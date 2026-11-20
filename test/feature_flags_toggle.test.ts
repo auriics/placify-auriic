@@ -4,6 +4,8 @@ import {
   isOfferStageDisabled, 
   isCompletedStageDisabled, 
   isPaymentsRevenueDisabled, 
+  isPipelineAppTrackingDisabled,
+  isAppTrackingStageDisabled,
   isStageDisabled 
 } from '../src/lib/featureFlags';
 import { 
@@ -14,6 +16,7 @@ import {
   BASE_TRANSITIONS, 
   BASE_PREVIOUS_STAGES 
 } from '../src/constants';
+import { getStageEntries } from '../src/pages/Pipeline';
 
 test('Feature Flags: ON Mode (Flags set to true)', () => {
   // Set env vars to true
@@ -50,6 +53,13 @@ test('Feature Flags: ON Mode (Flags set to true)', () => {
   // 5. Verify PREVIOUS_STAGES proxy prevents moving back to disabled stages
   assert.equal(PREVIOUS_STAGES['backout'], null, 'backout cannot revert to disabled offer stage');
   assert.equal(PREVIOUS_STAGES['offer'], null, 'disabled offer cannot revert to previous stage');
+
+  // 6. Verify App Tracking pipeline toggle via DISABLE_PIPELINE_APP_TRACKING
+  process.env.DISABLE_PIPELINE_APP_TRACKING = 'true';
+  assert.equal(isPipelineAppTrackingDisabled(), true, 'isPipelineAppTrackingDisabled should be true');
+  const stageEntriesKeys = getStageEntries().map(([key]) => key);
+  assert.equal(stageEntriesKeys.includes('application_tracking'), false, 'Pipeline board must hide App Tracking column');
+  assert.equal(stageEntriesKeys.includes('interviewing'), true, 'Pipeline board must keep interviewing');
 });
 
 test('Feature Flags: OFF Mode (Flags set to false / restored)', () => {
@@ -57,11 +67,15 @@ test('Feature Flags: OFF Mode (Flags set to false / restored)', () => {
   process.env.DISABLE_OFFER_STAGE = 'false';
   process.env.DISABLE_COMPLETED_STAGE = 'false';
   process.env.DISABLE_PAYMENTS_REVENUE = 'false';
+  process.env.DISABLE_PIPELINE_APP_TRACKING = 'false';
+  process.env.DISABLE_APP_TRACKING_STAGE = 'false';
 
   // 1. Verify flag getters
   assert.equal(isOfferStageDisabled(), false, 'isOfferStageDisabled should be false');
   assert.equal(isCompletedStageDisabled(), false, 'isCompletedStageDisabled should be false');
   assert.equal(isPaymentsRevenueDisabled(), false, 'isPaymentsRevenueDisabled should be false');
+  assert.equal(isPipelineAppTrackingDisabled(), false, 'isPipelineAppTrackingDisabled should be false');
+  assert.equal(isAppTrackingStageDisabled(), false, 'isAppTrackingStageDisabled should be false');
 
   // 2. Verify stage disabling helper
   assert.equal(isStageDisabled('offer'), false, 'offer stage must be enabled');
@@ -85,6 +99,10 @@ test('Feature Flags: OFF Mode (Flags set to false / restored)', () => {
   // 5. Verify PREVIOUS_STAGES proxy restores original previous stages
   assert.equal(PREVIOUS_STAGES['offer'], 'interviewing', 'offer reverts to interviewing');
   assert.equal(PREVIOUS_STAGES['completed'], 'marketing_active', 'completed reverts to marketing_active');
+
+  // 6. Verify Pipeline board restores App Tracking when flag is false
+  const stageEntriesKeysRestored = getStageEntries().map(([key]) => key);
+  assert.equal(stageEntriesKeysRestored.includes('application_tracking'), true, 'Pipeline board must restore App Tracking column');
 });
 
 test('Feature Flags: Dynamic Toggle without code changes', () => {
@@ -92,16 +110,22 @@ test('Feature Flags: Dynamic Toggle without code changes', () => {
   process.env.DISABLE_PAYMENTS_REVENUE = 'true';
   process.env.DISABLE_OFFER_STAGE = 'true';
   process.env.DISABLE_COMPLETED_STAGE = 'true';
+  process.env.DISABLE_PIPELINE_APP_TRACKING = 'true';
 
   assert.equal(isPaymentsRevenueDisabled(), true);
+  assert.equal(isPipelineAppTrackingDisabled(), true);
+  assert.equal(getStageEntries().some(([k]) => k === 'application_tracking'), false);
   assert.equal(TRANSITIONS['interviewing'].includes('offer'), false);
 
   // Dynamically turn OFF
   process.env.DISABLE_PAYMENTS_REVENUE = 'false';
   process.env.DISABLE_OFFER_STAGE = 'false';
   process.env.DISABLE_COMPLETED_STAGE = 'false';
+  process.env.DISABLE_PIPELINE_APP_TRACKING = 'false';
 
   assert.equal(isPaymentsRevenueDisabled(), false);
+  assert.equal(isPipelineAppTrackingDisabled(), false);
+  assert.equal(getStageEntries().some(([k]) => k === 'application_tracking'), true);
   assert.equal(TRANSITIONS['interviewing'].includes('offer'), true);
   assert.equal(TRANSITIONS['marketing_active'].includes('completed'), true);
 });
