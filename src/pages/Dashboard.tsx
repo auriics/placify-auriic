@@ -23,7 +23,7 @@ import { ComplianceOfferApprovalModal } from '../components/ComplianceOfferAppro
 import { CelebrationBanner } from '../components/CelebrationBanner';
 import { ProxyLeaveBanner } from '../components/ProxyLeaveBanner';
 import { db, firebaseConfig } from '../firebase';
-import { query, collection, where, limit, doc, getDoc } from 'firebase/firestore';
+import { query, collection, where, limit, doc, getDoc, getCountFromServer } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 import { 
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell 
@@ -57,11 +57,11 @@ export const Dashboard: React.FC = () => {
   const [interviews, setInterviews] = useState<InterviewSupportRequest[]>([]);
   const [targetRequests, setTargetRequests] = useState<TargetReductionRequest[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
+  const [lifetimeAppsCount, setLifetimeAppsCount] = useState<number | null>(null);
   const [featureAnnouncements, setFeatureAnnouncements] = useState<FeatureAnnouncement[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
-  const [currentTime, setCurrentTime] = useState('');
   const [motivationalQuote, setMotivationalQuote] = useState('');
   const [dismissedAnnouncements, setDismissedAnnouncements] = useState<string[]>(JSON.parse(localStorage.getItem('dismissed_announcements') || '[]'));
   const [quotesList, setQuotesList] = useState<string[]>(DEFAULT_QUOTES);
@@ -271,21 +271,6 @@ export const Dashboard: React.FC = () => {
     if (quotesList.length > 0) {
       setMotivationalQuote(quotesList[Math.floor(Math.random() * quotesList.length)]);
     }
-    
-    const updateTime = () => {
-      const timeFormatter = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/New_York',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: true
-      });
-      setCurrentTime(timeFormatter.format(new Date()));
-    };
-
-    updateTime();
-    const interval = setInterval(updateTime, 1000);
-    return () => clearInterval(interval);
   }, [quotesList]);
 
   useEffect(() => {
@@ -321,9 +306,23 @@ export const Dashboard: React.FC = () => {
       setTargetRequests(data);
     });
 
-    const unsubApps = subscribeToCollection<Application>('jpc_applications', (data) => {
-      setApplications(data);
-    });
+    // Only subscribe to current month's applications (for day/week/month stats & target alerts)
+    // instead of downloading the entire historical jpc_applications collection.
+    const nowDate = new Date();
+    const startOfMonthDate = new Date(nowDate.getFullYear(), nowDate.getMonth(), 1);
+    const startOfMonthIso = startOfMonthDate.toISOString().split('T')[0];
+    const appsQuery = query(
+      collection(db, 'jpc_applications'),
+      where('applied_at', '>=', startOfMonthIso)
+    );
+    const unsubApps = subscribeToQuery<Application>(appsQuery, (data) => {
+      setApplications(data.filter((a: any) => a?.crm_brand !== 'aurrum'));
+    }, 'jpc_applications');
+
+    // Fetch lifetime count via server-side aggregation (0 document bytes transferred)
+    getCountFromServer(collection(db, 'jpc_applications'))
+      .then((snap) => setLifetimeAppsCount(snap.data().count))
+      .catch(() => { /* fallback to monthly count if unavailable */ });
 
     const unsubUsers = subscribeToCollection<User>('jpc_users', (data) => {
       setAllUsers(data);
@@ -333,9 +332,11 @@ export const Dashboard: React.FC = () => {
       setFeatureAnnouncements(data.filter(a => a.is_active));
     });
 
-    const unsubOfferRequests = subscribeToCollection<InterviewOfferRequest>('jpc_interview_offer_requests', (data) => {
-      setOfferRequests(data);
-    });
+    const unsubOfferRequests = isOfferStageDisabled()
+      ? () => {}
+      : subscribeToCollection<InterviewOfferRequest>('jpc_interview_offer_requests', (data) => {
+          setOfferRequests(data);
+        });
 
     return () => {
       unsubCandidates();
@@ -515,35 +516,50 @@ export const Dashboard: React.FC = () => {
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - now.getDay());
     startOfWeek.setHours(0, 0, 0, 0);
+    const startOfWeekStr = startOfWeek.toISOString().split('T')[0];
     
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfMonthStr = startOfMonth.toISOString().split('T')[0];
     
-    let filteredApps = applications;
+    let allowedCandidateIds: Set<string> | null = null;
     if (user?.role === 'jpc_recruiter') {
       // Recruiters only see apps for their assigned candidates
-      const myCandidateIds = candidates
-        .filter(c => String(c.assigned_recruiter) === String(user.id))
-        .map(c => c.id);
-      filteredApps = applications.filter(a => myCandidateIds.includes(a.candidate_id));
+      allowedCandidateIds = new Set(
+        candidates
+          .filter(c => String(c.assigned_recruiter) === String(user.id))
+          .map(c => c.id)
+      );
     } else if (user?.role === 'jpc_marketing') {
       // Marketing TLs only see apps for candidates in their cluster or assigned to them as recruiter
-      const myCandidateIds = candidates
-        .filter(c => String(c.assigned_marketing_leader) === String(user.id) || String(c.assigned_recruiter) === String(user.id))
-        .map(c => c.id);
-      filteredApps = applications.filter(a => myCandidateIds.includes(a.candidate_id));
+      allowedCandidateIds = new Set(
+        candidates
+          .filter(c => String(c.assigned_marketing_leader) === String(user.id) || String(c.assigned_recruiter) === String(user.id))
+          .map(c => c.id)
+      );
     }
     
-    const dayApps = filteredApps.filter(a => a.applied_at === todayStr);
-    const weekApps = filteredApps.filter(a => new Date(a.applied_at) >= startOfWeek);
-    const monthApps = filteredApps.filter(a => new Date(a.applied_at) >= startOfMonth);
+    // Single-pass O(N) aggregation without per-row Date allocations
+    let day = 0;
+    let week = 0;
+    let month = 0;
+    let lifetime = 0;
+    for (let i = 0; i < applications.length; i++) {
+      const a = applications[i];
+      if (allowedCandidateIds && !allowedCandidateIds.has(a.candidate_id)) continue;
+      lifetime++;
+      const appliedAt = a.applied_at || '';
+      if (appliedAt === todayStr) day++;
+      if (appliedAt >= startOfWeekStr) week++;
+      if (appliedAt >= startOfMonthStr) month++;
+    }
     
     return {
-      day: dayApps.length,
-      week: weekApps.length,
-      month: monthApps.length,
-      lifetime: filteredApps.length
+      day,
+      week,
+      month,
+      lifetime: (!allowedCandidateIds && lifetimeAppsCount !== null) ? Math.max(lifetimeAppsCount, lifetime) : lifetime
     };
-  }, [applications, user, candidates]);
+  }, [applications, user, candidates, lifetimeAppsCount]);
 
   const activeAnnouncements = useMemo(() => {
     if (!user) return [];
@@ -581,11 +597,21 @@ export const Dashboard: React.FC = () => {
       return isMarketingStage;
     });
 
+    // Pre-index today's application counts by candidate_id in O(N) instead of O(N*M)
+    const todayAppCountByCandidate = new Map<string, number>();
+    for (let i = 0; i < applications.length; i++) {
+      const a = applications[i];
+      if (a.applied_at === todayStr) {
+        todayAppCountByCandidate.set(a.candidate_id, (todayAppCountByCandidate.get(a.candidate_id) || 0) + 1);
+      }
+    }
+
+    const dayIsOngoing = isEasternDayOngoing(todayStr);
     marketingCandidates.forEach(c => {
-      const dayApps = applications.filter(a => a.candidate_id === c.id && a.applied_at === todayStr).length;
+      const dayApps = todayAppCountByCandidate.get(c.id) || 0;
       const target = (c.profiles_count || 1) * (c.custom_daily_target || 40);
       if (dayApps < target) {
-        if (isEasternDayOngoing(todayStr)) {
+        if (dayIsOngoing) {
           return; // Skip alerts during active shift hours (until 6:15 PM ET)
         }
         alerts.push({ candidate: c, count: dayApps, target });

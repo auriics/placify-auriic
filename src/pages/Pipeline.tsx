@@ -27,25 +27,22 @@ export const Pipeline: React.FC = () => {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
   const [entityFilter, setEntityFilter] = useState<'all' | 'sivium' | 'recruiter' | 'normal'>('all');
+  const [columnLimits, setColumnLimits] = useState<Record<string, number>>({});
+  const DEFAULT_COL_LIMIT = 25;
 
   useEffect(() => {
     if (!isAuthReady || !user) return;
     
-    // 1. Fetch relevant candidates based on role
-    let cQuery = query(collection(db, 'jpc_candidates'));
-    
-    if (user.role === 'jpc_recruiter') {
-      cQuery = query(cQuery, where('assigned_recruiter', '==', String(user.id)));
-    } else if (user.role === 'jpc_marketing') {
-      cQuery = query(cQuery, where('assigned_marketing_leader', '==', String(user.id)));
-    }
-
-    const unsub = onSnapshot(cQuery, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Candidate));
-      setCandidates(data.filter(c => !c.deleted_at && c.crm_brand !== 'aurrum' && c.current_stage !== 'not_interested' && c.current_stage !== 'not_eligible'));
-      setIsLoading(false);
-    }, (error) => {
-      console.error('Pipeline candidates fetch error:', error);
+    // Reuse shared warm subscription cache (instant navigation, zero duplicate Firestore reads)
+    const unsub = subscribeToCollection<Candidate>('jpc_candidates', (data) => {
+      const filtered = data.filter(c => {
+        if (c.deleted_at || c.crm_brand === 'aurrum') return false;
+        if (c.current_stage === 'not_interested' || c.current_stage === 'not_eligible') return false;
+        if (user.role === 'jpc_recruiter') return String(c.assigned_recruiter) === String(user.id);
+        if (user.role === 'jpc_marketing') return String(c.assigned_marketing_leader) === String(user.id);
+        return true;
+      });
+      setCandidates(filtered);
       setIsLoading(false);
     });
 
@@ -181,60 +178,70 @@ export const Pipeline: React.FC = () => {
                 </div>
                 
                 <div className="flex-1 p-3 sm:p-4 space-y-3 sm:space-y-4 overflow-y-auto custom-scrollbar max-h-[65vh] sm:max-h-[70vh]">
-                  <AnimatePresence mode="popLayout">
-                    {stageCandidates.map((candidate) => (
-                      <motion.div
-                        key={candidate.id}
-                        layout
-                        initial={{ scale: 0.9, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0.9, opacity: 0 }}
-                        className="bg-bg-secondary p-3.5 sm:p-4 rounded-xl sm:rounded-2xl border border-border-primary shadow-sm hover:shadow-md hover:border-accent-blue transition-all group cursor-pointer relative"
-                        onClick={() => window.location.hash = `#candidate?id=${candidate.id}`}
-                      >
-                        <div className="flex items-start justify-between mb-2 sm:mb-3">
-                          <div className="truncate pr-6">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <h4 className="font-bold text-text-primary text-xs sm:text-sm group-hover:text-accent-blue transition-colors truncate">
-                                {candidate.full_name}
-                              </h4>
-                              <ShiftPreferenceBadge shift={candidate.shift_preference} size="xs" />
-                              {candidate.is_free_trial && (
-                                <FreeTrialBadge 
-                                  startDate={candidate.free_trial_start_date}
-                                  endDate={candidate.free_trial_end_date}
-                                  size="sm"
-                                />
-                              )}
+                  {(() => {
+                    const colLimit = columnLimits[key] || DEFAULT_COL_LIMIT;
+                    const visibleCandidates = stageCandidates.slice(0, colLimit);
+                    const remainingCount = stageCandidates.length - visibleCandidates.length;
+                    return (
+                      <>
+                        {visibleCandidates.map((candidate) => (
+                          <div
+                            key={candidate.id}
+                            className="bg-bg-secondary p-3.5 sm:p-4 rounded-xl sm:rounded-2xl border border-border-primary shadow-sm hover:shadow-md hover:border-accent-blue transition-all group cursor-pointer relative"
+                            onClick={() => window.location.hash = `#candidate?id=${candidate.id}`}
+                          >
+                            <div className="flex items-start justify-between mb-2 sm:mb-3">
+                              <div className="truncate pr-6">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <h4 className="font-bold text-text-primary text-xs sm:text-sm group-hover:text-accent-blue transition-colors truncate">
+                                    {candidate.full_name}
+                                  </h4>
+                                  <ShiftPreferenceBadge shift={candidate.shift_preference} size="xs" />
+                                  {candidate.is_free_trial && (
+                                    <FreeTrialBadge 
+                                      startDate={candidate.free_trial_start_date}
+                                      endDate={candidate.free_trial_end_date}
+                                      size="sm"
+                                    />
+                                  )}
+                                </div>
+                                <p className="text-[10px] font-mono text-text-muted mt-0.5">{candidate.id}</p>
+                              </div>
+                              <div className="absolute right-3 top-3">
+                                <MoreVertical className="w-4 h-4 text-text-muted group-hover:text-text-secondary transition-colors" />
+                              </div>
                             </div>
-                            <p className="text-[10px] font-mono text-text-muted mt-0.5">{candidate.id}</p>
-                          </div>
-                          <div className="absolute right-3 top-3">
-                            <MoreVertical className="w-4 h-4 text-text-muted group-hover:text-text-secondary transition-colors" />
-                          </div>
-                        </div>
-                        
-                        <div className="space-y-1.5 sm:space-y-2">
-                          <div className="flex items-center gap-2 text-xs text-text-secondary">
-                            <Phone className="w-3.5 h-3.5 flex-shrink-0" />
-                            <span className="truncate">{candidate.phone}</span>
-                          </div>
+                            
+                            <div className="space-y-1.5 sm:space-y-2">
+                              <div className="flex items-center gap-2 text-xs text-text-secondary">
+                                <Phone className="w-3.5 h-3.5 flex-shrink-0" />
+                                <span className="truncate">{candidate.phone}</span>
+                              </div>
+                            </div>
 
-                        </div>
-
-                        <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-border-primary flex items-center justify-between">
-                          <div className="flex -space-x-2">
-                            <div className="w-6 h-6 rounded-full bg-bg-tertiary border-2 border-bg-secondary flex items-center justify-center text-[8px] font-bold text-text-muted">
-                              {(candidate.full_name || '?')[0]}
+                            <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-border-primary flex items-center justify-between">
+                              <div className="flex -space-x-2">
+                                <div className="w-6 h-6 rounded-full bg-bg-tertiary border-2 border-bg-secondary flex items-center justify-center text-[8px] font-bold text-text-muted">
+                                  {(candidate.full_name || '?')[0]}
+                                </div>
+                              </div>
+                              <p className="text-[10px] font-bold text-text-muted uppercase">
+                                {new Date(candidate.updated_at).toLocaleDateString()}
+                              </p>
                             </div>
                           </div>
-                          <p className="text-[10px] font-bold text-text-muted uppercase">
-                            {new Date(candidate.updated_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
+                        ))}
+                        {remainingCount > 0 && (
+                          <button
+                            onClick={() => setColumnLimits(prev => ({ ...prev, [key]: colLimit + 25 }))}
+                            className="w-full py-2.5 px-3 bg-bg-tertiary hover:bg-accent-blue/10 border border-border-primary hover:border-accent-blue/40 rounded-xl text-xs font-bold text-text-secondary hover:text-accent-blue transition-all cursor-pointer"
+                          >
+                            Load More ({remainingCount} remaining)
+                          </button>
+                        )}
+                      </>
+                    );
+                  })()}
                   {stageCandidates.length === 0 && (
                     <div className="h-28 sm:h-32 border-2 border-dashed border-border-primary rounded-xl sm:rounded-2xl flex items-center justify-center">
                       <p className="text-xs text-text-muted font-medium">No candidates</p>

@@ -19,38 +19,33 @@ export const FollowUps: React.FC = () => {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
   const [filter, setFilter] = useState<'all' | 'pending' | 'done'>('pending');
+  const [visibleCount, setVisibleCount] = useState(50);
 
   useEffect(() => {
     if (!isAuthReady || !user) return;
 
-    // 1. Fetch Follow-ups (Filter by creator if not manager/admin)
-    let fQuery = query(collection(db, 'jpc_followups'));
-    
-    if (user.role !== 'administrator' && user.role !== 'jpc_sysadmin' && user.role !== 'jpc_manager') {
-      fQuery = query(fQuery, where('created_by', '==', String(user.id)));
-    }
-
-    const unsubFollowUps = onSnapshot(fQuery, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as FollowUp));
-      setFollowUps(data.filter(f => f.crm_brand !== 'aurrum'));
+    // 1. Reuse shared warm subscription cache for follow-ups
+    const unsubFollowUps = subscribeToCollection<FollowUp>('jpc_followups', (data) => {
+      const filtered = data.filter(f => {
+        if (f.crm_brand === 'aurrum') return false;
+        if (user.role !== 'administrator' && user.role !== 'jpc_sysadmin' && user.role !== 'jpc_manager') {
+          return String(f.created_by) === String(user.id);
+        }
+        return true;
+      });
+      setFollowUps(filtered);
       setIsLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'jpc_followups');
     });
 
-    // 2. Fetch candidates assigned to user (or all if manager/admin)
-    let cQuery = query(collection(db, 'jpc_candidates'));
-    if (user.role === 'jpc_recruiter') {
-      cQuery = query(cQuery, where('assigned_recruiter', '==', String(user.id)));
-    } else if (user.role === 'jpc_marketing') {
-      cQuery = query(cQuery, where('assigned_marketing_leader', '==', String(user.id)));
-    }
-
-    const unsubCandidates = onSnapshot(cQuery, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Candidate));
-      setCandidates(data.filter(c => !c.deleted_at && c.crm_brand !== 'aurrum'));
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'jpc_candidates');
+    // 2. Reuse shared warm subscription cache for candidates
+    const unsubCandidates = subscribeToCollection<Candidate>('jpc_candidates', (data) => {
+      const filtered = data.filter(c => {
+        if (c.deleted_at || c.crm_brand === 'aurrum') return false;
+        if (user.role === 'jpc_recruiter') return String(c.assigned_recruiter) === String(user.id);
+        if (user.role === 'jpc_marketing') return String(c.assigned_marketing_leader) === String(user.id);
+        return true;
+      });
+      setCandidates(filtered);
     });
 
     return () => {
@@ -142,25 +137,19 @@ export const FollowUps: React.FC = () => {
 
       {/* Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <AnimatePresence mode="popLayout">
-          {filteredFollowUps.map((f, i) => {
-            const candidate = candidatesMap.get(f.candidate_id);
-            const isOverdue = !f.done && f.followup_date < today;
-            const isToday = !f.done && f.followup_date === today;
+        {filteredFollowUps.slice(0, visibleCount).map((f) => {
+          const candidate = candidatesMap.get(f.candidate_id);
+          const isOverdue = !f.done && f.followup_date < today;
+          const isToday = !f.done && f.followup_date === today;
 
-            return (
-              <motion.div
-                key={f.id}
-                layout
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                transition={{ delay: i * 0.05 }}
-                className={cn(
-                  "bg-bg-secondary rounded-3xl border p-6 flex flex-col shadow-sm hover:shadow-md transition-all group",
-                  isOverdue ? "border-accent-red/30 bg-accent-red/5" : isToday ? "border-accent-amber/30 bg-accent-amber/5" : "border-border-primary"
-                )}
-              >
+          return (
+            <div
+              key={f.id}
+              className={cn(
+                "bg-bg-secondary rounded-3xl border p-6 flex flex-col shadow-sm hover:shadow-md transition-all group",
+                isOverdue ? "border-accent-red/30 bg-accent-red/5" : isToday ? "border-accent-amber/30 bg-accent-amber/5" : "border-border-primary"
+              )}
+            >
                 <div className="flex items-start justify-between mb-4">
                   <div className={cn(
                     "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest",
@@ -222,11 +211,21 @@ export const FollowUps: React.FC = () => {
                     <ArrowRight className="w-4 h-4" />
                   </a>
                 </div>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
+              </div>
+          );
+        })}
       </div>
+
+      {filteredFollowUps.length > visibleCount && (
+        <div className="flex justify-center pt-2">
+          <button
+            onClick={() => setVisibleCount(prev => prev + 50)}
+            className="px-6 py-3 bg-bg-secondary border border-border-primary hover:border-accent-blue rounded-2xl text-sm font-bold text-text-primary hover:text-accent-blue transition-all shadow-sm cursor-pointer"
+          >
+            Load More ({filteredFollowUps.length - visibleCount} remaining)
+          </button>
+        </div>
+      )}
 
       {filteredFollowUps.length === 0 && (
         <div className="py-20 text-center bg-bg-secondary rounded-3xl border border-border-primary border-dashed">

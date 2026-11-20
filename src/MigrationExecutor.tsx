@@ -9,6 +9,8 @@ export const MigrationExecutor = () => {
   
   useEffect(() => {
     if (!user) return;
+    // Legacy one-time migration: only execute if explicitly opted in by an administrator
+    if (localStorage.getItem('run_pratik_migration') !== 'true') return;
     if (localStorage.getItem('pratik_migration_done')) return;
     
     const run = async () => {

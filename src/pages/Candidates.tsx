@@ -159,10 +159,22 @@ export const Candidates: React.FC = () => {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() => sessionStorage.getItem('candidates_search') || '');
   const debouncedSearch = useDebounce(search, 300);
-  const [stageFilter, setStageFilter] = useState('');
-  const [shiftFilter, setShiftFilter] = useState('');
+  const [stageFilter, setStageFilter] = useState(() => sessionStorage.getItem('candidates_stage_filter') || '');
+  const [shiftFilter, setShiftFilter] = useState(() => sessionStorage.getItem('candidates_shift_filter') || '');
+
+  useEffect(() => {
+    sessionStorage.setItem('candidates_search', debouncedSearch);
+  }, [debouncedSearch]);
+
+  useEffect(() => {
+    sessionStorage.setItem('candidates_stage_filter', stageFilter);
+  }, [stageFilter]);
+
+  useEffect(() => {
+    sessionStorage.setItem('candidates_shift_filter', shiftFilter);
+  }, [shiftFilter]);
   
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
@@ -177,32 +189,23 @@ export const Candidates: React.FC = () => {
   useEffect(() => {
     if (!isAuthReady || !user) return;
     
-    // 1. Fetch only relevant candidates based on role to make load small
-    let cQuery = query(collection(db, 'jpc_candidates'));
-    
-    // For recruiters/marketing, strictly only fetch assigned candidates
-    if (user.role === 'jpc_recruiter') {
-      cQuery = query(cQuery, where('assigned_recruiter', '==', String(user.id)));
-    } else if (user.role === 'jpc_marketing') {
-      cQuery = query(cQuery, where('assigned_marketing_leader', '==', String(user.id)));
-    } else if (user.role === 'jpc_sales') {
-      cQuery = query(cQuery, where('assigned_sales', '==', String(user.id)));
-
-    } else if (user.role === 'jpc_lead_gen') {
-      cQuery = query(cQuery, where('lead_generated_by', '==', String(user.id)));
-    }
-
-    const unsub = onSnapshot(cQuery, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Candidate));
-      setCandidates(data.filter(c => !c.deleted_at && c.crm_brand !== 'aurrum'));
+    // Reuse shared warm subscription cache (instant navigation, zero duplicate Firestore reads)
+    const unsub = subscribeToCollection<Candidate>('jpc_candidates', (data) => {
+      const filtered = data.filter(c => {
+        if (c.deleted_at || c.crm_brand === 'aurrum') return false;
+        if (user.role === 'jpc_recruiter') return String(c.assigned_recruiter) === String(user.id);
+        if (user.role === 'jpc_marketing') return String(c.assigned_marketing_leader) === String(user.id);
+        if (user.role === 'jpc_sales') return String(c.assigned_sales) === String(user.id);
+        if (user.role === 'jpc_lead_gen') return String(c.lead_generated_by) === String(user.id);
+        return true;
+      });
+      setCandidates(filtered);
       setIsLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'jpc_candidates');
     });
 
     const unsubUsers = subscribeToCollection<User>('jpc_users', (data) => {
       setAllUsers(data);
-    }, 500);
+    });
 
     return () => {
       unsub();

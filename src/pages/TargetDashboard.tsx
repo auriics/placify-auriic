@@ -2,11 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { 
   subscribeToCollection, 
+  subscribeToQuery,
   saveCandidate, 
   updateTargetReductionRequest, 
   addNotification, 
   logActivity 
 } from '../services/storage';
+import { db } from '../firebase';
+import { collection, query, where } from 'firebase/firestore';
 import { Candidate, Application, TargetReductionRequest, User, InterviewSupportRequest } from '../types';
 import { canUserAccessCandidate } from '../lib/permissions';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
@@ -158,7 +161,17 @@ export const TargetDashboard: React.FC = () => {
     if (!isAuthReady) return;
 
     const unsubCandidates = subscribeToCollection<Candidate>('jpc_candidates', setCandidates);
-    const unsubApps = subscribeToCollection<Application>('jpc_applications', setApplications);
+    // Bound applications query to last 90 days instead of downloading 114,000+ historical docs
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 90);
+    const cutoffIso = cutoff.toISOString().split('T')[0];
+    const appsQuery = query(
+      collection(db, 'jpc_applications'),
+      where('applied_at', '>=', cutoffIso)
+    );
+    const unsubApps = subscribeToQuery<Application>(appsQuery, (data) => {
+      setApplications(data.filter((a: any) => a?.crm_brand !== 'aurrum'));
+    }, 'jpc_applications');
     const unsubTargets = subscribeToCollection<TargetReductionRequest>('jpc_target_reductions', (data) => {
       setTargetRequests(data.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
     });

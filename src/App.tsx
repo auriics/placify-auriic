@@ -131,10 +131,16 @@ const AppContent: React.FC = () => {
         }
       }
       
-      // Only run maintenance tasks for administrators
-      if (user.role === 'administrator' || user.role === 'jpc_sysadmin') {
-        migrateAllChecklists().catch(console.error);
-        autoAssignFaizToCandidates().catch(console.error);
+      // Only run maintenance tasks for administrators, once per session during browser idle time
+      if ((user.role === 'administrator' || user.role === 'jpc_sysadmin') && !sessionStorage.getItem('admin_maintenance_done')) {
+        sessionStorage.setItem('admin_maintenance_done', 'true');
+        const scheduleIdle = (typeof window !== 'undefined' && 'requestIdleCallback' in window)
+          ? (window as any).requestIdleCallback
+          : (fn: () => void) => setTimeout(fn, 2000);
+        scheduleIdle(() => {
+          migrateAllChecklists().catch(console.error);
+          autoAssignFaizToCandidates().catch(console.error);
+        });
       }
     }
   }, [isAuthReady, user]);

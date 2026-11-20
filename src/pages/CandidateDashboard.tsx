@@ -80,6 +80,10 @@ export const CandidateDashboard: React.FC = () => {
 
     const id = user.candidate_id;
 
+    let unsubCS: (() => void) | null = null;
+    let unsubRecruiter: (() => void) | null = null;
+    let unsubRounds: (() => void) | null = null;
+
     const unsubCandidate = onSnapshot(doc(db, 'jpc_candidates', id), (docSnap) => {
       if (docSnap.exists()) {
         const rawData = docSnap.data() as Candidate;
@@ -91,23 +95,27 @@ export const CandidateDashboard: React.FC = () => {
         setCandidate(data);
         setIsLoading(false);
 
-        // Fetch CS and Recruiter details
+        // Fetch CS and Recruiter details (cleaning up prior nested listeners to prevent leaks)
+        if (unsubCS) { unsubCS(); unsubCS = null; }
         if (data.assigned_cs) {
-          onSnapshot(doc(db, 'jpc_users', String(data.assigned_cs)), (userSnap) => {
+          unsubCS = onSnapshot(doc(db, 'jpc_users', String(data.assigned_cs)), (userSnap) => {
             if (userSnap.exists()) setAssignedCS(userSnap.data() as User);
           });
         }
+        if (unsubRecruiter) { unsubRecruiter(); unsubRecruiter = null; }
         if (data.assigned_recruiter) {
-          onSnapshot(doc(db, 'jpc_users', String(data.assigned_recruiter)), (userSnap) => {
+          unsubRecruiter = onSnapshot(doc(db, 'jpc_users', String(data.assigned_recruiter)), (userSnap) => {
             if (userSnap.exists()) setAssignedRecruiter(userSnap.data() as User);
           });
         }
       }
     });
 
-    const unsubPayments = onSnapshot(query(collection(db, 'jpc_payments'), where('candidate_id', '==', id)), (snap) => {
-      setPayments(snap.docs.map(d => d.data() as Payment));
-    });
+    const unsubPayments = isPaymentsRevenueDisabled()
+      ? () => {}
+      : onSnapshot(query(collection(db, 'jpc_payments'), where('candidate_id', '==', id)), (snap) => {
+          setPayments(snap.docs.map(d => d.data() as Payment));
+        });
 
     const unsubApps = onSnapshot(query(collection(db, 'jpc_applications'), where('candidate_id', '==', id), orderBy('applied_at', 'desc'), limit(50)), (snap) => {
       setApplications(snap.docs.map(d => d.data() as Application));
@@ -117,12 +125,13 @@ export const CandidateDashboard: React.FC = () => {
       const requests = snap.docs.map(d => d.data() as InterviewSupportRequest);
       setInterviews(requests);
 
-      // Fetch rounds for these requests
+      // Fetch rounds for these requests (cleaning up prior nested listener to prevent leaks)
+      if (unsubRounds) { unsubRounds(); unsubRounds = null; }
       if (requests.length > 0) {
         const requestIds = requests.map(r => r.id);
         // Firebase 'in' query limit is 30, we likely have fewer requests
         const roundsQuery = query(collection(db, 'jpc_interview_rounds'), where('request_id', 'in', requestIds.slice(0, 30)));
-        onSnapshot(roundsQuery, (roundsSnap) => {
+        unsubRounds = onSnapshot(roundsQuery, (roundsSnap) => {
           setInterviewRounds(roundsSnap.docs.map(d => d.data() as InterviewRound));
         });
       }
@@ -134,6 +143,9 @@ export const CandidateDashboard: React.FC = () => {
 
     return () => {
       unsubCandidate();
+      if (unsubCS) unsubCS();
+      if (unsubRecruiter) unsubRecruiter();
+      if (unsubRounds) unsubRounds();
       unsubPayments();
       unsubApps();
       unsubInterviews();

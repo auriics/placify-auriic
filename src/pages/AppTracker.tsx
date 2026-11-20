@@ -57,6 +57,7 @@ export const AppTracker: React.FC = () => {
     return null;
   });
   const [selectedRecruiterFilter, setSelectedRecruiterFilter] = useState<string>('all');
+  const [visibleAppRows, setVisibleAppRows] = useState<number>(50);
   const [inlineJobLink, setInlineJobLink] = useState('');
   const [isInlineSubmitting, setIsInlineSubmitting] = useState(false);
   
@@ -203,26 +204,31 @@ export const AppTracker: React.FC = () => {
   useEffect(() => {
     if (!isAuthReady || !user) return;
 
-    // Subscribe to non-deleted candidates so history & exports work even across stage/recruiter transitions
-    const cQuery = query(collection(db, 'jpc_candidates'));
+    // Reuse shared warm subscription cache for instant navigation and zero duplicate Firestore reads
     const isAurrumUser = Boolean(user?.role?.startsWith('aurrum_'));
+    let unsubCandidates: () => void;
 
-    const unsubCandidates = onSnapshot(cQuery, (snapshot) => {
-      const data = snapshot.docs
-        .map(doc => ({ ...doc.data(), id: doc.id } as Candidate))
-        .filter(c => !c.deleted_at && (isAurrumUser ? c.crm_brand === 'aurrum' : c.crm_brand !== 'aurrum'));
-      setCandidates(data);
-      setIsLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'jpc_candidates');
-      setIsLoading(false);
-    });
+    if (isAurrumUser) {
+      const cQuery = query(collection(db, 'jpc_candidates'), where('crm_brand', '==', 'aurrum'));
+      unsubCandidates = onSnapshot(cQuery, (snapshot) => {
+        const data = snapshot.docs
+          .map(doc => ({ ...doc.data(), id: doc.id } as Candidate))
+          .filter(c => !c.deleted_at);
+        setCandidates(data);
+        setIsLoading(false);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'jpc_candidates');
+        setIsLoading(false);
+      });
+    } else {
+      unsubCandidates = subscribeToCollection<Candidate>('jpc_candidates', (data) => {
+        setCandidates(data.filter(c => !c.deleted_at && c.crm_brand !== 'aurrum'));
+        setIsLoading(false);
+      });
+    }
 
-    const unsubTeam = onSnapshot(query(collection(db, 'jpc_users')), (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as User));
+    const unsubTeam = subscribeToCollection<User>('jpc_users', (data) => {
       setTeam(data);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'jpc_users');
     });
 
     return () => {
@@ -231,9 +237,10 @@ export const AppTracker: React.FC = () => {
     };
   }, [isAuthReady, user?.id, user?.role]);
 
-  // Reset recruiter sub-filter whenever candidate changes
+  // Reset recruiter sub-filter and row pagination whenever candidate changes
   useEffect(() => {
     setSelectedRecruiterFilter('all');
+    setVisibleAppRows(50);
   }, [filterCandidateId]);
 
   // 2. Fetch applications for the selected candidate across ALL recruiters (current & previous)
@@ -946,7 +953,7 @@ export const AppTracker: React.FC = () => {
                 </tr>
               )}
 
-              {filteredApps.map((app, index) => {
+              {filteredApps.slice(0, visibleAppRows).map((app, index) => {
                 const candidate = candidates.find(c => c.id === app.candidate_id);
                 const recruiterName = resolveRecruiterName(app.recruiter_id, candidate);
                 const isCurrentRecruiter = Boolean(
@@ -1043,6 +1050,18 @@ export const AppTracker: React.FC = () => {
                   </tr>
                 );
               })}
+              {filteredApps.length > visibleAppRows && (
+                <tr>
+                  <td colSpan={8} className="px-6 py-4 text-center border border-border-primary bg-bg-tertiary/30">
+                    <button
+                      onClick={() => setVisibleAppRows(prev => prev + 100)}
+                      className="px-5 py-2 bg-bg-secondary border border-border-primary hover:border-accent-blue rounded-xl text-xs font-bold text-text-primary hover:text-accent-blue transition-all shadow-sm cursor-pointer"
+                    >
+                      Load More ({filteredApps.length - visibleAppRows} remaining)
+                    </button>
+                  </td>
+                </tr>
+              )}
               {filteredApps.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-6 py-12 text-center border border-border-primary">

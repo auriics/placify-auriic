@@ -136,6 +136,7 @@ export async function testConnection() {
 interface SharedEntry {
   unsubFirestore: () => void;
   data: any[];
+  hasLoaded: boolean;
   subscribers: Set<(d: any[]) => void>;
   releaseTimer: ReturnType<typeof setTimeout> | null;
 }
@@ -171,6 +172,7 @@ export const subscribeToCollection = <T>(collectionName: string, callback: (data
     const newEntry: SharedEntry = {
       unsubFirestore: () => {},
       data: [],
+      hasLoaded: false,
       subscribers: new Set(),
       releaseTimer: null,
     };
@@ -191,6 +193,7 @@ export const subscribeToCollection = <T>(collectionName: string, callback: (data
         collectionName,
         normalizedData
       );
+      newEntry.hasLoaded = true;
       // Broadcast to all current subscribers
       newEntry.subscribers.forEach(cb => cb(newEntry.data));
     }, (error) => {
@@ -200,10 +203,12 @@ export const subscribeToCollection = <T>(collectionName: string, callback: (data
           .then(res => res.ok ? res.json() : [])
           .then(data => {
             newEntry.data = data;
+            newEntry.hasLoaded = true;
             newEntry.subscribers.forEach(cb => cb(data));
           })
           .catch(() => {
             newEntry.data = [];
+            newEntry.hasLoaded = true;
             newEntry.subscribers.forEach(cb => cb([]));
           });
         return;
@@ -219,8 +224,8 @@ export const subscribeToCollection = <T>(collectionName: string, callback: (data
       clearTimeout(entry.releaseTimer);
       entry.releaseTimer = null;
     }
-    // Immediately deliver the last known data so the page renders without a flicker
-    if (entry.data.length > 0) {
+    // Immediately deliver the last known data (including empty arrays) so the page renders without a flicker
+    if (entry.hasLoaded) {
       callback(entry.data as T[]);
     }
   }

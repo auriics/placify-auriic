@@ -172,9 +172,11 @@ export const CandidateDetail: React.FC = () => {
       }
     });
 
-    const unsubPayments = onSnapshot(query(collection(db, 'jpc_payments'), where('candidate_id', '==', id)), (snap) => {
-      setPayments(snap.docs.map(d => d.data() as Payment).sort((a, b) => a.part_number - b.part_number));
-    });
+    const unsubPayments = isPaymentsRevenueDisabled()
+      ? () => {}
+      : onSnapshot(query(collection(db, 'jpc_payments'), where('candidate_id', '==', id)), (snap) => {
+          setPayments(snap.docs.map(d => d.data() as Payment).sort((a, b) => a.part_number - b.part_number));
+        });
 
     const unsubPromises = onSnapshot(query(collection(db, 'jpc_promises'), where('candidate_id', '==', id)), (snap) => {
       setPromises(snap.docs.map(d => d.data() as PromiseType).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
@@ -2182,7 +2184,7 @@ export const CandidateDetail: React.FC = () => {
               </button>
             )}
             
-            {(TRANSITIONS[currentStageKey] || []).map(stageKey => {
+            {(TRANSITIONS[currentStageKey] || []).filter(s => s !== 'not_interested' && s !== 'not_eligible').map(stageKey => {
               const isDisabled = false; // CS now has admin-like access
               const isOfferFromInterview = (currentStageKey === 'interviewing' || currentStageKey === 'application_tracking') && stageKey === 'offer';
               const isPendingApproval = isOfferFromInterview && candidate.interview_offer_status === 'pending_approval';
