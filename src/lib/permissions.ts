@@ -81,9 +81,19 @@ export function canUserAccessCandidate(candidate: Candidate, user: User | null, 
   };
 
   // Recruiter: strictly only candidates assigned directly to their own account
-  // (never unassigned candidates, and never other recruiters' candidates under the same team leader)
+  // or previously assigned to them (preserving backout / historical visibility),
+  // never unassigned leads or other recruiters' candidates under the same team leader.
   if (user.role === 'jpc_recruiter') {
-    return userMatches(candidate.assigned_recruiter);
+    if (userMatches(candidate.assigned_recruiter)) return true;
+    if (
+      Array.isArray(candidate.previous_recruiters) &&
+      candidate.previous_recruiters.some(
+        (prev) => userMatches(prev.recruiter_id) || userMatches(prev.recruiter_name)
+      )
+    ) {
+      return true;
+    }
+    return false;
   }
 
   // Check if candidate is unassigned / auto candidate (no explicit assignment set)

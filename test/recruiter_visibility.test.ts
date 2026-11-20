@@ -125,3 +125,21 @@ test('4. Team Leader and Administrator retain full authorized visibility', () =>
   assert.equal(canUserAccessCandidate(candB, adminUser, teamUsers), true, 'Admin must access Recruiter B candidate');
   assert.equal(canUserAccessCandidate(candUnassigned, adminUser, teamUsers), true, 'Admin must access unassigned candidate');
 });
+
+test('5. Backout & Historical Candidates: Recruiter retains visibility for candidates assigned to them before backout/reassignment', () => {
+  const backedOutCand: Candidate = {
+    ...candA,
+    id: 'cand_backout_a',
+    current_stage: 'backout',
+  };
+  assert.equal(canUserAccessCandidate(backedOutCand, recruiterA, teamUsers), true, 'Recruiter A must still see their backed-out candidate');
+  assert.equal(canUserAccessCandidate(backedOutCand, recruiterB, teamUsers), false, 'Recruiter B must NOT see Recruiter A backed-out candidate');
+
+  const historicalCand: Candidate = {
+    ...candB,
+    id: 'cand_hist_a',
+    assigned_recruiter: 'rec_b',
+    previous_recruiters: [{ recruiter_id: 'rec_a', recruiter_name: 'Recruiter A', unassigned_at: new Date().toISOString() }],
+  };
+  assert.equal(canUserAccessCandidate(historicalCand, recruiterA, teamUsers), true, 'Recruiter A must retain historical visibility via previous_recruiters');
+});

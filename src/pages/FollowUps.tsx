@@ -41,7 +41,13 @@ export const FollowUps: React.FC = () => {
     const unsubCandidates = subscribeToCollection<Candidate>('jpc_candidates', (data) => {
       const filtered = data.filter(c => {
         if (c.deleted_at || c.crm_brand === 'aurrum') return false;
-        if (user.role === 'jpc_recruiter') return String(c.assigned_recruiter) === String(user.id);
+        if (user.role === 'jpc_recruiter') {
+          const isAssigned = String(c.assigned_recruiter) === String(user.id);
+          const wasPrev = Array.isArray(c.previous_recruiters) && c.previous_recruiters.some(
+            p => String(p.recruiter_id) === String(user.id)
+          );
+          return isAssigned || wasPrev;
+        }
         if (user.role === 'jpc_marketing') return String(c.assigned_marketing_leader) === String(user.id);
         return true;
       });
