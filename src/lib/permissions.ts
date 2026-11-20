@@ -80,6 +80,12 @@ export function canUserAccessCandidate(candidate: Candidate, user: User | null, 
     return false;
   };
 
+  // Recruiter: strictly only candidates assigned directly to their own account
+  // (never unassigned candidates, and never other recruiters' candidates under the same team leader)
+  if (user.role === 'jpc_recruiter') {
+    return userMatches(candidate.assigned_recruiter);
+  }
+
   // Check if candidate is unassigned / auto candidate (no explicit assignment set)
   const isUnassigned = 
     !candidate.assigned_recruiter && 
@@ -140,16 +146,7 @@ export function canUserAccessCandidate(candidate: Candidate, user: User | null, 
     return false;
   }
 
-  // 6. Recruiter: assigned recruiter or assigned marketing leader or team match
-  if (user.role === 'jpc_recruiter') {
-    if (userMatches(candidate.assigned_recruiter)) return true;
-    if (userMatches(candidate.assigned_marketing_leader)) return true;
-    if (user.leader_id && candidate.assigned_marketing_leader && (
-      String(candidate.assigned_marketing_leader) === String(user.leader_id) ||
-      userMatches(candidate.assigned_marketing_leader)
-    )) return true;
-    return false;
-  }
+  // 6. Recruiter: handled strictly above (assigned_recruiter only)
 
   // 7. Proxy: assigned recruiter or assigned proxy
   if (user.role === 'jpc_proxy') {

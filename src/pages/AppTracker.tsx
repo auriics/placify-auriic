@@ -430,26 +430,13 @@ export const AppTracker: React.FC = () => {
       return true;
     }
 
-    // Previous recruiter association grants read/track sheet access
-    const wasPreviousRecruiter = Array.isArray(c.previous_recruiters) && c.previous_recruiters.some(p => 
-      String(p.recruiter_id) === String(user.id) ||
-      (user.username && String(p.recruiter_id) === String(user.username)) ||
-      (user.name && p.recruiter_name === user.name)
-    );
+    // Recruiters can strictly only access candidates assigned to their own account
+    if (user.role === 'jpc_recruiter') {
+      return canUserAccessCandidate(c, user, team);
+    }
 
     // Standard RBAC check
     if (canUserAccessCandidate(c, user, team)) return true;
-    if (wasPreviousRecruiter) return true;
-
-    // Loose recruiter assignment check (supports id, username, full_name matching)
-    if (user.role === 'jpc_recruiter') {
-      const isAssigned = (
-        String(c.assigned_recruiter) === String(user.id) ||
-        (user.username && String(c.assigned_recruiter) === String(user.username)) ||
-        (user.name && String(c.assigned_recruiter) === String(user.name))
-      );
-      return isAssigned || wasPreviousRecruiter;
-    }
 
     // Loose marketing leader assignment check
     if (user.role === 'jpc_marketing') {

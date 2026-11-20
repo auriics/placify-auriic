@@ -1476,6 +1476,9 @@ function canUserAccessCandidate(candidate, user, teamUsers = []) {
     if (user.display_name && targetStr === String(user.display_name).toLowerCase().trim()) return true;
     return false;
   };
+  if (user.role === "jpc_recruiter") {
+    return userMatches(candidate.assigned_recruiter);
+  }
   const isUnassigned = !candidate.assigned_recruiter && !candidate.assigned_sales && !candidate.assigned_cs && !candidate.assigned_resume && !candidate.assigned_marketing_leader && !candidate.assigned_marketing && !candidate.lead_generated_by;
   if (isUnassigned) return true;
   if (user.role === "jpc_lead_gen") {
@@ -1507,12 +1510,6 @@ function canUserAccessCandidate(candidate, user, teamUsers = []) {
       );
       if (isMyRecruiter) return true;
     }
-    return false;
-  }
-  if (user.role === "jpc_recruiter") {
-    if (userMatches(candidate.assigned_recruiter)) return true;
-    if (userMatches(candidate.assigned_marketing_leader)) return true;
-    if (user.leader_id && candidate.assigned_marketing_leader && (String(candidate.assigned_marketing_leader) === String(user.leader_id) || userMatches(candidate.assigned_marketing_leader))) return true;
     return false;
   }
   if (user.role === "jpc_proxy") {
@@ -4039,6 +4036,11 @@ app.get("/api/candidates/:id", verifyAuth, async (req, res) => {
         });
       }
     }
+    if (user.role === "jpc_recruiter" && !canUserAccessCandidate({ id: existingDoc.id, ...candidateData }, user, [])) {
+      return res.status(403).json({
+        error: "Forbidden: Recruiters can only access candidates assigned to their own account"
+      });
+    }
     res.json({ candidate: { id: existingDoc.id, ...candidateData } });
   } catch (error) {
     res.status(500).json({ error: error.message || "Failed to retrieve candidate" });
@@ -4070,6 +4072,17 @@ app.patch("/api/candidates/:id", verifyAuth, async (req, res) => {
         if (!matchesProfileHandlingAccess2(existingData?.shift_preference, profileAccess)) {
           return res.status(403).json({
             error: "Forbidden: You do not have permission to modify this candidate profile under your Profile Handling Access settings"
+          });
+        }
+      }
+    }
+    if (user.role === "jpc_recruiter") {
+      const existingDoc = await db.collection("jpc_candidates").doc(candidateId).get();
+      if (existingDoc.exists) {
+        const existingData = existingDoc.data();
+        if (!canUserAccessCandidate({ id: existingDoc.id, ...existingData }, user, [])) {
+          return res.status(403).json({
+            error: "Forbidden: Recruiters can only modify candidates assigned to their own account"
           });
         }
       }

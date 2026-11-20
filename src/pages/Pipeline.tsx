@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { subscribeToCollection } from '../services/storage';
 import { STAGES, normalizeCandidateStage } from '../constants';
-import { isStageDisabled } from '../lib/featureFlags';
+import { isStageDisabled, isPaymentsRevenueDisabled } from '../lib/featureFlags';
 import { Search, Filter, X, Package, Phone, Mail, MapPin, Calendar, Users, ArrowRight, MoreVertical, Edit2, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -217,6 +217,12 @@ export const Pipeline: React.FC = () => {
                                 <Phone className="w-3.5 h-3.5 flex-shrink-0" />
                                 <span className="truncate">{candidate.phone}</span>
                               </div>
+                              {!isPaymentsRevenueDisabled() && candidate.package_name && (
+                                <div className="flex items-center gap-2 text-xs text-text-secondary">
+                                  <Package className="w-3.5 h-3.5 flex-shrink-0" />
+                                  <span className="truncate">{candidate.package_name}</span>
+                                </div>
+                              )}
                             </div>
 
                             <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-border-primary flex items-center justify-between">

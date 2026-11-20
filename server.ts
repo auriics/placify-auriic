@@ -17,6 +17,7 @@ import * as XLSX from 'xlsx';
 import { parseResumeLocally } from './src/services/localResumeParser.ts';
 import { isDirectInterviewSupportCandidate, validateInterviewTimeWindow, INTERVIEW_SCHEDULING_WINDOW_MESSAGE } from './src/lib/utils.ts';
 import { performGlobalSearch, SearchCategory } from './src/lib/searchUtils.ts';
+import { canUserAccessCandidate } from './src/lib/permissions.ts';
 export { isDirectInterviewSupportCandidate };
 
 dotenv.config();
@@ -2672,6 +2673,11 @@ app.get('/api/candidates/:id', verifyAuth, async (req, res) => {
         });
       }
     }
+    if (user.role === 'jpc_recruiter' && !canUserAccessCandidate({ id: existingDoc.id, ...candidateData } as any, user, [])) {
+      return res.status(403).json({
+        error: 'Forbidden: Recruiters can only access candidates assigned to their own account'
+      });
+    }
     res.json({ candidate: { id: existingDoc.id, ...candidateData } });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to retrieve candidate' });
@@ -2706,6 +2712,18 @@ app.patch('/api/candidates/:id', verifyAuth, async (req, res) => {
         if (!matchesProfileHandlingAccess(existingData?.shift_preference, profileAccess)) {
           return res.status(403).json({
             error: 'Forbidden: You do not have permission to modify this candidate profile under your Profile Handling Access settings'
+          });
+        }
+      }
+    }
+
+    if (user.role === 'jpc_recruiter') {
+      const existingDoc = await db.collection('jpc_candidates').doc(candidateId).get();
+      if (existingDoc.exists) {
+        const existingData = existingDoc.data();
+        if (!canUserAccessCandidate({ id: existingDoc.id, ...existingData } as any, user, [])) {
+          return res.status(403).json({
+            error: 'Forbidden: Recruiters can only modify candidates assigned to their own account'
           });
         }
       }

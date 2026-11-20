@@ -707,7 +707,10 @@ export const Dashboard: React.FC = () => {
           'Assigned CS Rep': csUser?.display_name || 'Unassigned',
           'Assigned Recruiter': recruiterUser?.display_name || 'Unassigned',
           'Marketing Team Leader': marketingUser?.display_name || 'Unassigned',
-
+          ...(!isPaymentsRevenueDisabled() ? {
+            'Selected Plan / Package': cleanExcelValue(c.package_name),
+            'Total Fee / Amount ($)': c.package_amount || 0
+          } : {}),
           'Agreement Sent': c.flags?.agreement_sent ? 'Yes' : 'No',
           'Agreement Signed': c.flags?.agreement_signed ? 'Yes' : 'No',
           'QC Validation Passed': c.flags?.qc_checklist_done ? 'Yes' : 'No',
