@@ -20,6 +20,7 @@ import { Candidate, InterviewOfferRequest, User } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { isComplianceHead } from '../lib/permissions';
+import { isOfferStageDisabled } from '../lib/featureFlags';
 import { 
   updateInterviewOfferRequest, 
   updateCandidate, 
@@ -57,6 +58,11 @@ export const ComplianceOfferApprovalModal: React.FC<ComplianceOfferApprovalModal
   const canReview = isComplianceHead(user);
 
   const handleApprove = async () => {
+    if (isOfferStageDisabled()) {
+      showToast('Offer stage workflows are currently disabled in system configuration', 'error');
+      return;
+    }
+
     if (!canReview) {
       showToast('Only Compliance Head or Administrators can approve this request', 'error');
       return;

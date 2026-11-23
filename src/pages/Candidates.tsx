@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { subscribeToCollection, handleFirestoreError, OperationType } from '../services/storage';
 import { STAGES } from '../constants';
-import { isStageDisabled, isPaymentsRevenueDisabled } from '../lib/featureFlags';
+import { isStageDisabled, isPaymentsRevenueDisabled, isOfferStageDisabled, isCompletedStageDisabled } from '../lib/featureFlags';
 import { Search, Filter, X, Package, Phone, Mail, MapPin, Calendar, Users, ChevronRight, MoreVertical, ShieldCheck, Plus, Send, Table, Download, Edit2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -103,9 +103,20 @@ const CandidateRow = React.memo(({
       </div>
       <div className="w-48 px-6 py-4">
         <div className="inline-flex items-center gap-2 px-3 py-1 bg-bg-tertiary border border-border-primary rounded-full">
-          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: STAGES[candidate.current_stage]?.color || '#94a3b8' }} />
+          <span 
+            className="w-1.5 h-1.5 rounded-full" 
+            style={{ 
+              backgroundColor: isOfferStageDisabled() && candidate.current_stage === 'offer'
+                ? '#8B5CF6'
+                : (STAGES[candidate.current_stage]?.color || '#94a3b8') 
+            }} 
+          />
           <span className="text-[10px] font-bold text-text-primary uppercase tracking-wider">
-            {STAGES[candidate.current_stage]?.label || candidate.current_stage}
+            {isOfferStageDisabled() && candidate.current_stage === 'offer'
+              ? 'Under Review'
+              : isCompletedStageDisabled() && candidate.current_stage === 'completed'
+                ? 'Placed'
+                : (STAGES[candidate.current_stage]?.label || candidate.current_stage)}
           </span>
         </div>
       </div>

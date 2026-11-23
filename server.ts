@@ -2690,12 +2690,23 @@ app.patch('/api/candidates/:id', verifyAuth, async (req, res) => {
     const user = (req as any).user;
     const updates = { ...req.body };
 
-    if (updates.current_stage === 'offer' && isOfferStageDisabled()) {
-      return res.status(400).json({ error: 'Offer stage is disabled in system configuration' });
+    const existingDoc = await db.collection('jpc_candidates').doc(candidateId).get();
+    const existingData = existingDoc.exists ? existingDoc.data() : null;
+    const existingStage = existingData?.current_stage ? normalizeCandidateStage(existingData.current_stage) : null;
+
+    if (updates.current_stage) {
+      const targetStage = normalizeCandidateStage(updates.current_stage);
+      const isTransitioningToOffer = targetStage === 'offer' && existingStage !== 'offer';
+      if (isTransitioningToOffer && isOfferStageDisabled()) {
+        return res.status(400).json({ error: 'Offer stage is disabled in system configuration' });
+      }
+
+      const isTransitioningToCompleted = targetStage === 'completed' && existingStage !== 'completed';
+      if (isTransitioningToCompleted && isCompletedStageDisabled()) {
+        return res.status(400).json({ error: 'Completed stage is disabled in system configuration' });
+      }
     }
-    if (updates.current_stage === 'completed' && isCompletedStageDisabled()) {
-      return res.status(400).json({ error: 'Completed stage is disabled in system configuration' });
-    }
+
     if (isPaymentsRevenueDisabled()) {
       delete updates.package_amount;
       delete updates.total_paid;
@@ -2705,9 +2716,7 @@ app.patch('/api/candidates/:id', verifyAuth, async (req, res) => {
     const salesKeys = ['assigned_sales', 'sales_person_id', 'assigned_sales_person', 'salesPersonId'];
     const hasSalesChangeAttempt = salesKeys.some(k => updates[k] !== undefined);
     if (user.role === 'jpc_cs') {
-      const existingDoc = await db.collection('jpc_candidates').doc(candidateId).get();
       if (existingDoc.exists) {
-        const existingData = existingDoc.data();
         const profileAccess = user.profile_handling_access || 'Day Shift';
         if (!matchesProfileHandlingAccess(existingData?.shift_preference, profileAccess)) {
           return res.status(403).json({

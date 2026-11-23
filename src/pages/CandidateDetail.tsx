@@ -2078,9 +2078,20 @@ export const CandidateDetail: React.FC = () => {
             )
           )}
           <div className="px-3.5 sm:px-4 py-2 rounded-xl border border-border-primary bg-bg-secondary flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: STAGES[candidate.current_stage]?.color || '#3B82F6' }} />
+            <span 
+              className="w-2 h-2 rounded-full" 
+              style={{ 
+                backgroundColor: isOfferStageDisabled() && candidate.current_stage === 'offer'
+                  ? '#8B5CF6'
+                  : (STAGES[candidate.current_stage]?.color || '#3B82F6') 
+              }} 
+            />
             <span className="text-xs sm:text-sm font-bold text-text-primary uppercase tracking-wider">
-              {STAGES[candidate.current_stage]?.label || candidate.current_stage || 'Lead Generation'}
+              {isOfferStageDisabled() && candidate.current_stage === 'offer'
+                ? 'Under Review'
+                : isCompletedStageDisabled() && candidate.current_stage === 'completed'
+                  ? 'Placed'
+                  : (STAGES[candidate.current_stage]?.label || candidate.current_stage || 'Lead Generation')}
             </span>
           </div>
         </div>
@@ -2102,7 +2113,7 @@ export const CandidateDetail: React.FC = () => {
       )}
 
       {/* Pending Compliance Approval Banner */}
-      {candidate.current_stage === 'interviewing' && candidate.interview_offer_status === 'pending_approval' && (
+      {!isOfferStageDisabled() && candidate.current_stage === 'interviewing' && candidate.interview_offer_status === 'pending_approval' && (
         <div className="bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-transparent border-2 border-amber-500/30 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
           <div className="flex items-center gap-3.5">
             <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
@@ -2147,7 +2158,7 @@ export const CandidateDetail: React.FC = () => {
       )}
 
       {/* Rejection Banner */}
-      {candidate.current_stage === 'interviewing' && candidate.interview_offer_status === 'rejected' && (
+      {!isOfferStageDisabled() && candidate.current_stage === 'interviewing' && candidate.interview_offer_status === 'rejected' && (
         <div className="bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
             <div className="w-10 h-10 rounded-2xl bg-rose-500/20 text-rose-500 flex items-center justify-center shrink-0">

@@ -706,28 +706,45 @@ export const autoAssignFaizToCandidates = async () => {
 
 export const saveCandidate = async (candidate: Candidate, userId: string | null) => {
   try {
-    if (candidate.current_stage === 'offer' && isOfferStageDisabled()) {
-      throw new Error('Offer stage is disabled in system configuration');
-    }
-    if (candidate.current_stage === 'completed' && isCompletedStageDisabled()) {
-      throw new Error('Completed stage is disabled in system configuration');
-    }
     let finalCandidate = { 
       ...candidate,
       current_stage: normalizeCandidateStage(candidate.current_stage),
       flags: normalizeCandidateFlags(candidate.flags),
     };
 
+    // Retrieve existing candidate document to distinguish between stage transitions vs existing profile updates
+    let existingData: any = null;
+    let existingDoc: any = null;
+    try {
+      existingDoc = await getDoc(doc(db, 'jpc_candidates', finalCandidate.id));
+      if (existingDoc.exists()) {
+        existingData = existingDoc.data();
+      }
+    } catch (e) {
+      // Offline fallback
+    }
+
+    const existingStage = existingData?.current_stage ? normalizeCandidateStage(existingData.current_stage) : null;
+
+    // Disallow moving a candidate INTO a disabled stage (or creating a new candidate in a disabled stage)
+    // BUT allow profile updates for existing candidates whose underlying status is already in that stage.
+    const isTransitioningToOffer = finalCandidate.current_stage === 'offer' && existingStage !== 'offer';
+    if (isTransitioningToOffer && isOfferStageDisabled()) {
+      throw new Error('Offer stage is disabled in system configuration');
+    }
+
+    const isTransitioningToCompleted = finalCandidate.current_stage === 'completed' && existingStage !== 'completed';
+    if (isTransitioningToCompleted && isCompletedStageDisabled()) {
+      throw new Error('Completed stage is disabled in system configuration');
+    }
+
     // Prevent Lead Generation from overriding or modifying assigned_sales
     const currentUid = userId || auth.currentUser?.uid;
     if (currentUid) {
       try {
         const userDoc = await getDoc(doc(db, 'jpc_users', String(currentUid)));
-        if (userDoc.exists() && userDoc.data().role === 'jpc_lead_gen') {
-          const existingDoc = await getDoc(doc(db, 'jpc_candidates', finalCandidate.id));
-          if (existingDoc.exists()) {
-            finalCandidate.assigned_sales = existingDoc.data().assigned_sales ?? null;
-          }
+        if (userDoc.exists() && userDoc.data().role === 'jpc_lead_gen' && existingData) {
+          finalCandidate.assigned_sales = existingData.assigned_sales ?? null;
         }
       } catch (checkErr) {
         console.warn('Could not verify user role in saveCandidate:', checkErr);
@@ -753,18 +770,38 @@ export const saveCandidate = async (candidate: Candidate, userId: string | null)
 
 export const updateCandidate = async (id: string, updates: Partial<Candidate>) => {
   try {
-    if (updates.current_stage === 'offer' && isOfferStageDisabled()) {
-      throw new Error('Offer stage is disabled in system configuration');
-    }
-    if (updates.current_stage === 'completed' && isCompletedStageDisabled()) {
-      throw new Error('Completed stage is disabled in system configuration');
-    }
     let finalUpdates = { ...updates };
     if (finalUpdates.flags) {
       finalUpdates.flags = normalizeCandidateFlags(finalUpdates.flags);
     }
     if (finalUpdates.current_stage) {
       finalUpdates.current_stage = normalizeCandidateStage(finalUpdates.current_stage);
+    }
+
+    let existingDoc: any = null;
+    let currentData: any = null;
+    try {
+      existingDoc = await getDoc(doc(db, 'jpc_candidates', id));
+      if (existingDoc.exists()) {
+        currentData = existingDoc.data();
+      }
+    } catch (e) {
+      // Offline fallback
+    }
+
+    const existingStage = currentData?.current_stage ? normalizeCandidateStage(currentData.current_stage) : null;
+
+    // Only validate stage transitions if current_stage is explicitly being updated
+    if (finalUpdates.current_stage) {
+      const isTransitioningToOffer = finalUpdates.current_stage === 'offer' && existingStage !== 'offer';
+      if (isTransitioningToOffer && isOfferStageDisabled()) {
+        throw new Error('Offer stage is disabled in system configuration');
+      }
+
+      const isTransitioningToCompleted = finalUpdates.current_stage === 'completed' && existingStage !== 'completed';
+      if (isTransitioningToCompleted && isCompletedStageDisabled()) {
+        throw new Error('Completed stage is disabled in system configuration');
+      }
     }
 
     // Prevent Lead Generation from altering assigned_sales
@@ -780,19 +817,9 @@ export const updateCandidate = async (id: string, updates: Partial<Candidate>) =
       }
     }
 
-    let currentStage = updates.current_stage;
-    let assignedCs = updates.assigned_cs;
-    let crmBrand = updates.crm_brand;
-    
-    if (currentStage === undefined || assignedCs === undefined || crmBrand === undefined) {
-      const docSnap = await getDoc(doc(db, 'jpc_candidates', id));
-      if (docSnap.exists()) {
-        const currentData = docSnap.data() as Candidate;
-        if (currentStage === undefined) currentStage = currentData.current_stage;
-        if (assignedCs === undefined) assignedCs = currentData.assigned_cs;
-        if (crmBrand === undefined) crmBrand = currentData.crm_brand;
-      }
-    }
+    let currentStage = finalUpdates.current_stage ?? currentData?.current_stage;
+    let assignedCs = finalUpdates.assigned_cs ?? currentData?.assigned_cs;
+    let crmBrand = finalUpdates.crm_brand ?? currentData?.crm_brand;
     
     if (
       crmBrand !== 'aurrum' &&
