@@ -23,7 +23,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { canUserAccessCandidate, canDeleteInterviewRequest } from '../lib/permissions';
 import { STAGES, TRANSITIONS, LEAD_SOURCES, ROLE_PERMISSIONS, PREVIOUS_STAGES, DEFAULT_CANDIDATE_FLAGS, normalizeCandidateFlags, normalizeCandidateStage } from '../constants';
-import { isStageDisabled, isOfferStageDisabled, isCompletedStageDisabled, isPaymentsRevenueDisabled } from '../lib/featureFlags';
+import { isStageDisabled, isOfferStageDisabled, isCompletedStageDisabled, isPaymentsRevenueDisabled, isAurrumRestrictedForUser } from '../lib/featureFlags';
 import { 
   ArrowLeft, 
   Edit2, 
@@ -104,7 +104,7 @@ export const CandidateDetail: React.FC = () => {
   const canManagePayments = !isCandidate && !isLeadGen;
   const canManageFollowUps = !isCandidate && !isLeadGen;
   const canManageRemarks = !isCandidate && !isLeadGen;
-  const canManageAgreement = user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person' || user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager';
+  const canManageAgreement = !isPaymentsRevenueDisabled() && (user?.role === 'jpc_cs' || user?.role === 'jpc_compliance_person' || user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager');
   const canDelete = user?.role === 'administrator' || user?.role === 'jpc_sysadmin';
   const canEditFreeTrial = canManageFreeTrial(user);
 
@@ -160,6 +160,13 @@ export const CandidateDetail: React.FC = () => {
           flags: normalizeCandidateFlags(rawData.flags),
         };
         
+        // Brand access restriction
+        if (data.crm_brand === 'aurrum' && isAurrumRestrictedForUser(user)) {
+          showToast('Access denied. You do not have permission to view this candidate.', 'error');
+          window.location.hash = '#candidates';
+          return;
+        }
+
         // Role-based access check
         if (!canUserAccessCandidate(data, user, allUsers)) {
           showToast('Access denied. You do not have permission to view this candidate.', 'error');
@@ -1107,6 +1114,10 @@ export const CandidateDetail: React.FC = () => {
   };
 
   const handleAgreementUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isPaymentsRevenueDisabled()) {
+      showToast('Candidate Agreement upload is disabled in system configuration', 'error');
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file || !candidate) return;
 

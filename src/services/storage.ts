@@ -738,6 +738,14 @@ export const saveCandidate = async (candidate: Candidate, userId: string | null)
       throw new Error('Completed stage is disabled in system configuration');
     }
 
+    // Disallow uploading new/updated Candidate Agreement when payments/revenue is disabled
+    const isNewAgreementInSave = (finalCandidate.agreement_url && finalCandidate.agreement_url !== existingData?.agreement_url) ||
+      (finalCandidate.agreement_filename && finalCandidate.agreement_filename !== existingData?.agreement_filename) ||
+      (finalCandidate.agreement_base64 && finalCandidate.agreement_base64 !== existingData?.agreement_base64);
+    if (isNewAgreementInSave && isPaymentsRevenueDisabled()) {
+      throw new Error('Candidate Agreement upload is disabled in system configuration');
+    }
+
     // Prevent Lead Generation from overriding or modifying assigned_sales
     const currentUid = userId || auth.currentUser?.uid;
     if (currentUid) {
@@ -802,6 +810,14 @@ export const updateCandidate = async (id: string, updates: Partial<Candidate>) =
       if (isTransitioningToCompleted && isCompletedStageDisabled()) {
         throw new Error('Completed stage is disabled in system configuration');
       }
+    }
+
+    // Disallow uploading new/updated Candidate Agreement when payments/revenue is disabled
+    const isNewAgreementInUpdate = (finalUpdates.agreement_url && finalUpdates.agreement_url !== currentData?.agreement_url) ||
+      (finalUpdates.agreement_filename && finalUpdates.agreement_filename !== currentData?.agreement_filename) ||
+      (finalUpdates.agreement_base64 && finalUpdates.agreement_base64 !== currentData?.agreement_base64);
+    if (isNewAgreementInUpdate && isPaymentsRevenueDisabled()) {
+      throw new Error('Candidate Agreement upload is disabled in system configuration');
     }
 
     // Prevent Lead Generation from altering assigned_sales

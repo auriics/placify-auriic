@@ -41,8 +41,20 @@ var isCompletedStageDisabled = () => {
 var isPaymentsRevenueDisabled = () => {
   return parseBool(getEnvVar("DISABLE_PAYMENTS_REVENUE"));
 };
+var isPipelineAppTrackingDisabled = () => {
+  return parseBool(getEnvVar("DISABLE_PIPELINE_APP_TRACKING")) || parseBool(getEnvVar("DISABLE_APP_TRACKING_STAGE"));
+};
 var isAppTrackingStageDisabled = () => {
   return parseBool(getEnvVar("DISABLE_APP_TRACKING_STAGE"));
+};
+var isAurrumDisabledForRaj = () => {
+  return parseBool(getEnvVar("DISABLE_AURRUM_CAREERS_FOR_RAJ"));
+};
+var isAurrumRestrictedForUser = (userOrEmail) => {
+  if (!isAurrumDisabledForRaj()) return false;
+  if (!userOrEmail) return false;
+  const email = typeof userOrEmail === "string" ? userOrEmail : userOrEmail.email || userOrEmail.username || "";
+  return email.toLowerCase().trim() === "raj.lal@auriic.co";
 };
 var isStageDisabled = (stageKey) => {
   if (stageKey === "offer" && isOfferStageDisabled()) return true;
@@ -1441,6 +1453,9 @@ function validateInterviewTimeWindow(startTimeStr, endTimeStr, durationMinutes, 
   };
 }
 
+// src/types.ts
+var isAurrumRole = (role) => role === "aurrum_admin" || role === "aurrum_sales" || role === "aurrum_team";
+
 // src/lib/permissions.ts
 function matchesProfileHandlingAccess(candidateShift, profileAccess) {
   const normalizedAccess = (profileAccess || "Day Shift").trim().toLowerCase();
@@ -1458,6 +1473,9 @@ function matchesProfileHandlingAccess(candidateShift, profileAccess) {
 }
 function canUserAccessCandidate(candidate, user, teamUsers = []) {
   if (!user) return true;
+  if (candidate.crm_brand === "aurrum" && isAurrumRestrictedForUser(user)) {
+    return false;
+  }
   if (user.role === "administrator" || user.role === "jpc_sysadmin" || user.role === "jpc_manager" || user.role === "aurrum_admin" || user.role === "aurrum_sales" || user.role === "aurrum_team") {
     return true;
   }
@@ -1658,13 +1676,17 @@ function performGlobalSearch({
   if (!cleanQuery) {
     return { results: [], counts };
   }
-  const isAurrum = Boolean(isAurrumRoute || user?.role?.startsWith("aurrum_"));
+  const isAurrumRestricted = isAurrumRestrictedForUser(user);
+  const isAurrum = !isAurrumRestricted && Boolean(isAurrumRoute || user?.role?.startsWith("aurrum_"));
   const authorizedCandidateMap = /* @__PURE__ */ new Map();
   const matchedCandidates = [];
   for (const cand of candidates) {
     if (!cand || cand.deleted_at) continue;
     if (cand.id === "test_edit_cand_1795118728093" || cand.phone === "+1 (555) 019-2834") continue;
     const candIsAurrum = cand.crm_brand === "aurrum";
+    if (candIsAurrum && isAurrumRestricted) {
+      continue;
+    }
     if (isAurrum !== candIsAurrum && user?.role !== "administrator" && user?.role !== "jpc_sysadmin" && user?.role !== "jpc_manager") {
       continue;
     }
@@ -1716,6 +1738,9 @@ function performGlobalSearch({
     if (app2.candidate_id && !authorizedCandidateMap.has(app2.candidate_id) && user?.role !== "administrator" && user?.role !== "jpc_sysadmin" && user?.role !== "jpc_manager") {
       continue;
     }
+    if (app2.crm_brand === "aurrum" && isAurrumRestricted) {
+      continue;
+    }
     if (isAurrum !== (app2.crm_brand === "aurrum") && user?.role !== "administrator" && user?.role !== "jpc_sysadmin") {
       continue;
     }
@@ -1751,6 +1776,11 @@ function performGlobalSearch({
   const matchedInterviews = [];
   for (const interview of interviews) {
     if (!interview) continue;
+    if (isAurrumRestricted) {
+      if (interview.crm_brand === "aurrum") continue;
+      const c = candidates.find((cand2) => cand2.id === interview.candidate_id);
+      if (c?.crm_brand === "aurrum") continue;
+    }
     if (interview.candidate_id && !authorizedCandidateMap.has(interview.candidate_id) && user?.role !== "administrator" && user?.role !== "jpc_sysadmin" && user?.role !== "jpc_manager") {
       continue;
     }
@@ -1823,6 +1853,9 @@ function performGlobalSearch({
     if (f.candidate_id && !authorizedCandidateMap.has(f.candidate_id) && user?.role !== "administrator" && user?.role !== "jpc_sysadmin" && user?.role !== "jpc_manager") {
       continue;
     }
+    if (f.crm_brand === "aurrum" && isAurrumRestricted) {
+      continue;
+    }
     if (isAurrum !== (f.crm_brand === "aurrum") && user?.role !== "administrator" && user?.role !== "jpc_sysadmin") {
       continue;
     }
@@ -1856,6 +1889,7 @@ function performGlobalSearch({
   if (!isCandidateRole && team.length > 0) {
     for (const member of team) {
       if (!member) continue;
+      if (isAurrumRestricted && isAurrumRole(member.role)) continue;
       const nameMatch = matchesTokens(member.display_name, queryTokens);
       const userMatch = (member.username || "").toLowerCase().includes(cleanQuery.toLowerCase());
       const emailMatch = (member.email || "").toLowerCase().includes(cleanQuery.toLowerCase());
@@ -2456,7 +2490,9 @@ app.get("/api/feature-flags", (req, res) => {
   res.json({
     DISABLE_OFFER_STAGE: isOfferStageDisabled(),
     DISABLE_COMPLETED_STAGE: isCompletedStageDisabled(),
-    DISABLE_PAYMENTS_REVENUE: isPaymentsRevenueDisabled()
+    DISABLE_PAYMENTS_REVENUE: isPaymentsRevenueDisabled(),
+    DISABLE_PIPELINE_APP_TRACKING: isPipelineAppTrackingDisabled(),
+    DISABLE_AURRUM_CAREERS_FOR_RAJ: isAurrumDisabledForRaj()
   });
 });
 app.set("trust proxy", true);
@@ -4038,6 +4074,9 @@ app.get("/api/candidates/:id", verifyAuth, async (req, res) => {
       return res.status(404).json({ error: "Candidate not found" });
     }
     const candidateData = existingDoc.data();
+    if (candidateData?.crm_brand === "aurrum" && isAurrumRestrictedForUser(user)) {
+      return res.status(404).json({ error: "Candidate not found" });
+    }
     if (user.role === "jpc_cs") {
       const profileAccess = user.profile_handling_access || "Day Shift";
       if (!matchesProfileHandlingAccess2(candidateData?.shift_preference, profileAccess)) {
@@ -4063,6 +4102,9 @@ app.patch("/api/candidates/:id", verifyAuth, async (req, res) => {
     const updates = { ...req.body };
     const existingDoc = await db.collection("jpc_candidates").doc(candidateId).get();
     const existingData = existingDoc.exists ? existingDoc.data() : null;
+    if (existingData?.crm_brand === "aurrum" && isAurrumRestrictedForUser(user)) {
+      return res.status(403).json({ error: "Forbidden: Access denied to Aurrum Careers candidate profile" });
+    }
     const existingStage = existingData?.current_stage ? normalizeCandidateStage(existingData.current_stage) : null;
     if (updates.current_stage) {
       const targetStage = normalizeCandidateStage(updates.current_stage);
@@ -4079,6 +4121,10 @@ app.patch("/api/candidates/:id", verifyAuth, async (req, res) => {
       delete updates.package_amount;
       delete updates.total_paid;
       delete updates.balance_remaining;
+      const isNewAgreement = updates.agreement_url && updates.agreement_url !== existingData?.agreement_url || updates.agreement_filename && updates.agreement_filename !== existingData?.agreement_filename || updates.agreement_base64 && updates.agreement_base64 !== existingData?.agreement_base64;
+      if (isNewAgreement) {
+        return res.status(400).json({ error: "Candidate Agreement upload is disabled in system configuration" });
+      }
     }
     const salesKeys = ["assigned_sales", "sales_person_id", "assigned_sales_person", "salesPersonId"];
     const hasSalesChangeAttempt = salesKeys.some((k) => updates[k] !== void 0);
@@ -4142,8 +4188,14 @@ app.patch(["/api/candidates/:id/basic-info", "/candidates/:id/basic-info"], veri
         error: "Forbidden: You do not have permission to edit candidate contact information"
       });
     }
+    const existingDoc = await db.collection("jpc_candidates").doc(candidateId).get();
+    if (existingDoc.exists) {
+      const existingData = existingDoc.data();
+      if (existingData?.crm_brand === "aurrum" && isAurrumRestrictedForUser(user)) {
+        return res.status(403).json({ error: "Forbidden: Access denied to Aurrum Careers candidate profile" });
+      }
+    }
     if (user.role === "jpc_cs") {
-      const existingDoc = await db.collection("jpc_candidates").doc(candidateId).get();
       if (existingDoc.exists) {
         const existingData = existingDoc.data();
         const profileAccess = user.profile_handling_access || "Day Shift";

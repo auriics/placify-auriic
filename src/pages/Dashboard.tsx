@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { subscribeToCollection, subscribeToQuery, markNotificationAsRead, markAllNotificationsAsRead } from '../services/storage';
 import { STAGES } from '../constants';
-import { isCompletedStageDisabled, isOfferStageDisabled, isPaymentsRevenueDisabled, isStageDisabled } from '../lib/featureFlags';
+import { isCompletedStageDisabled, isOfferStageDisabled, isPaymentsRevenueDisabled, isStageDisabled, isAurrumRestrictedForUser } from '../lib/featureFlags';
 import { TimeZoneClocks } from '../components/TimeZoneClocks';
 import { 
   Users, CheckCircle2, Clock, UserX, ArrowRight, LayoutGrid, Phone, Calendar, 
@@ -14,7 +14,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, getEasternDate, isEasternDayOngoing } from '../lib/utils';
 import { isComplianceHead, canUserAccessCandidate } from '../lib/permissions';
-import { Candidate, FollowUp, Notification, ResumeChangeRequest, InterviewSupportRequest, Application, TargetReductionRequest, FeatureAnnouncement, User, InterviewOfferRequest } from '../types';
+import { Candidate, FollowUp, Notification, ResumeChangeRequest, InterviewSupportRequest, Application, TargetReductionRequest, FeatureAnnouncement, User, InterviewOfferRequest, isAurrumRole } from '../types';
 import { CandidateSheet } from '../components/CandidateSheet';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
 import { ThoughtsConfigModal, DEFAULT_QUOTES } from '../components/ThoughtsConfigModal';
@@ -291,7 +291,13 @@ export const Dashboard: React.FC = () => {
         collection(db, 'jpc_notifications'),
         where('recipient_id', '==', String(user.id))
       );
-      unsubNotifications = subscribeToQuery<Notification>(q, setNotifications, 'jpc_notifications');
+      unsubNotifications = subscribeToQuery<Notification>(q, (data) => {
+        let filtered = data;
+        if (isAurrumRestrictedForUser(user)) {
+          filtered = filtered.filter((n: any) => n?.crm_brand !== 'aurrum' && !n?.message?.toLowerCase().includes('aurrum'));
+        }
+        setNotifications(filtered);
+      }, 'jpc_notifications');
     }
 
     const unsubResumeRequests = subscribeToCollection<ResumeChangeRequest>('jpc_resume_requests', (data) => {
@@ -299,7 +305,11 @@ export const Dashboard: React.FC = () => {
     });
 
     const unsubInterviews = subscribeToCollection<InterviewSupportRequest>('jpc_interview_requests', (data) => {
-      setInterviews(data);
+      let filtered = data;
+      if (isAurrumRestrictedForUser(user)) {
+        filtered = filtered.filter((i: any) => i?.crm_brand !== 'aurrum');
+      }
+      setInterviews(filtered);
     });
 
     const unsubTargetRequests = subscribeToCollection<TargetReductionRequest>('jpc_target_reductions', (data) => {
@@ -325,7 +335,11 @@ export const Dashboard: React.FC = () => {
       .catch(() => { /* fallback to monthly count if unavailable */ });
 
     const unsubUsers = subscribeToCollection<User>('jpc_users', (data) => {
-      setAllUsers(data);
+      let filtered = data;
+      if (isAurrumRestrictedForUser(user)) {
+        filtered = filtered.filter(u => !isAurrumRole(u.role));
+      }
+      setAllUsers(filtered);
     });
 
     const unsubAnnouncements = subscribeToCollection<FeatureAnnouncement>('jpc_feature_announcements', (data) => {

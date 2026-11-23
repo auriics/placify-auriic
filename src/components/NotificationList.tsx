@@ -6,6 +6,7 @@ import { subscribeToQuery, markNotificationAsRead, markAllNotificationsAsRead, a
 import { Notification as AppNotification, InterviewNotification } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
+import { isAurrumRestrictedForUser } from '../lib/featureFlags';
 
 // Global audio context to avoid being blocked by autoplay policies
 let audioCtx: AudioContext | null = null;
@@ -105,12 +106,19 @@ export const NotificationList: React.FC = () => {
   }, [isOpen]);
 
   const allNotifications = useMemo(() => {
-    const combined = [
+    let combined = [
       ...notifications.map(n => ({ ...n, id: n.id, text: n.message, date: n.created_at, isRead: n.read, collection: 'jpc_notifications' })),
       ...interviewNotifications.map(n => ({ ...n, id: n.id, text: n.message, date: n.created_at, isRead: n.is_read, collection: 'jpc_interview_notifications' }))
     ];
+    if (isAurrumRestrictedForUser(user)) {
+      combined = combined.filter(n => {
+        if ((n as any).crm_brand === 'aurrum') return false;
+        if (n.text && n.text.toLowerCase().includes('aurrum')) return false;
+        return true;
+      });
+    }
     return combined.sort((a, b) => b.date.localeCompare(a.date));
-  }, [notifications, interviewNotifications]);
+  }, [notifications, interviewNotifications, user]);
 
   useEffect(() => {
     // Unlock audio on first global user interaction

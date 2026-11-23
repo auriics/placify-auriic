@@ -7,7 +7,7 @@ import multer from 'multer';
 import axios from 'axios';
 import FormData from 'form-data';
 import dotenv from 'dotenv';
-import { isOfferStageDisabled, isCompletedStageDisabled, isPaymentsRevenueDisabled } from './src/lib/featureFlags';
+import { isOfferStageDisabled, isCompletedStageDisabled, isPaymentsRevenueDisabled, isPipelineAppTrackingDisabled, isAurrumDisabledForRaj, isAurrumRestrictedForUser } from './src/lib/featureFlags';
 import cron from 'node-cron';
 import admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -735,7 +735,9 @@ app.get('/api/feature-flags', (req, res) => {
   res.json({
     DISABLE_OFFER_STAGE: isOfferStageDisabled(),
     DISABLE_COMPLETED_STAGE: isCompletedStageDisabled(),
-    DISABLE_PAYMENTS_REVENUE: isPaymentsRevenueDisabled()
+    DISABLE_PAYMENTS_REVENUE: isPaymentsRevenueDisabled(),
+    DISABLE_PIPELINE_APP_TRACKING: isPipelineAppTrackingDisabled(),
+    DISABLE_AURRUM_CAREERS_FOR_RAJ: isAurrumDisabledForRaj()
   });
 });
 app.set('trust proxy', true);
@@ -2665,6 +2667,9 @@ app.get('/api/candidates/:id', verifyAuth, async (req, res) => {
       return res.status(404).json({ error: 'Candidate not found' });
     }
     const candidateData = existingDoc.data();
+    if (candidateData?.crm_brand === 'aurrum' && isAurrumRestrictedForUser(user)) {
+      return res.status(404).json({ error: 'Candidate not found' });
+    }
     if (user.role === 'jpc_cs') {
       const profileAccess = user.profile_handling_access || 'Day Shift';
       if (!matchesProfileHandlingAccess(candidateData?.shift_preference, profileAccess)) {
@@ -2692,6 +2697,9 @@ app.patch('/api/candidates/:id', verifyAuth, async (req, res) => {
 
     const existingDoc = await db.collection('jpc_candidates').doc(candidateId).get();
     const existingData = existingDoc.exists ? existingDoc.data() : null;
+    if (existingData?.crm_brand === 'aurrum' && isAurrumRestrictedForUser(user)) {
+      return res.status(403).json({ error: 'Forbidden: Access denied to Aurrum Careers candidate profile' });
+    }
     const existingStage = existingData?.current_stage ? normalizeCandidateStage(existingData.current_stage) : null;
 
     if (updates.current_stage) {
@@ -2711,6 +2719,13 @@ app.patch('/api/candidates/:id', verifyAuth, async (req, res) => {
       delete updates.package_amount;
       delete updates.total_paid;
       delete updates.balance_remaining;
+
+      const isNewAgreement = (updates.agreement_url && updates.agreement_url !== existingData?.agreement_url) ||
+        (updates.agreement_filename && updates.agreement_filename !== existingData?.agreement_filename) ||
+        (updates.agreement_base64 && updates.agreement_base64 !== existingData?.agreement_base64);
+      if (isNewAgreement) {
+        return res.status(400).json({ error: 'Candidate Agreement upload is disabled in system configuration' });
+      }
     }
 
     const salesKeys = ['assigned_sales', 'sales_person_id', 'assigned_sales_person', 'salesPersonId'];
@@ -2786,8 +2801,15 @@ app.patch(['/api/candidates/:id/basic-info', '/candidates/:id/basic-info'], veri
       });
     }
 
+    const existingDoc = await db.collection('jpc_candidates').doc(candidateId).get();
+    if (existingDoc.exists) {
+      const existingData = existingDoc.data();
+      if (existingData?.crm_brand === 'aurrum' && isAurrumRestrictedForUser(user)) {
+        return res.status(403).json({ error: 'Forbidden: Access denied to Aurrum Careers candidate profile' });
+      }
+    }
+
     if (user.role === 'jpc_cs') {
-      const existingDoc = await db.collection('jpc_candidates').doc(candidateId).get();
       if (existingDoc.exists) {
         const existingData = existingDoc.data();
         const profileAccess = user.profile_handling_access || 'Day Shift';

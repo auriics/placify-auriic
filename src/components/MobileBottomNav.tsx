@@ -1,4 +1,4 @@
-import { isPaymentsRevenueDisabled } from '../lib/featureFlags';
+import { isPaymentsRevenueDisabled, isAurrumRestrictedForUser } from '../lib/featureFlags';
 import React, { useState, useEffect } from 'react';
 import { 
   LayoutDashboard, 
@@ -44,7 +44,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   if (!user) return null;
 
   const isCandidate = user.role === 'candidate' || user.role === 'jpc_candidate';
-  const isAurrum = isAurrumRole(user.role);
+  const isAurrum = !isAurrumRestrictedForUser(user) && isAurrumRole(user.role);
 
   const navItems: { label: string; hash: string; icon: any; badge?: number }[] = isCandidate
     ? [

@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { isAurrumRestrictedForUser } from '../../lib/featureFlags';
+import { isAurrumRole } from '../../types';
 import { GoogleAuthProvider, linkWithPopup, signInWithPopup } from 'firebase/auth';
 import { auth, db } from '../../firebase';
 import { doc, updateDoc, getDoc, getDocs, addDoc, query, where, collection, deleteDoc } from 'firebase/firestore';
@@ -72,7 +74,10 @@ export const ProxyDashboard: React.FC = () => {
   const [requests, setRequests] = useState<InterviewSupportRequest[]>([]);
   const [regularCandidates, setRegularCandidates] = useState<Candidate[]>([]);
   const [aurrumCandidates, setAurrumCandidates] = useState<Candidate[]>([]);
-  const candidates = useMemo(() => [...regularCandidates, ...aurrumCandidates], [regularCandidates, aurrumCandidates]);
+  const candidates = useMemo(() => {
+    if (isAurrumRestrictedForUser(user)) return regularCandidates;
+    return [...regularCandidates, ...aurrumCandidates];
+  }, [regularCandidates, aurrumCandidates, user]);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [viewDate, setViewDate] = useState(new Date());
@@ -101,8 +106,8 @@ export const ProxyDashboard: React.FC = () => {
   }, [user]);
 
   const proxyList = useMemo(() => {
-    return team.filter(u => isProxyUser(u));
-  }, [team]);
+    return team.filter(u => isProxyUser(u) && (!isAurrumRestrictedForUser(user) || !isAurrumRole(u.role)));
+  }, [team, user]);
 
   const activeProxyId = useMemo(() => {
     if (!user) return '';
@@ -122,13 +127,20 @@ export const ProxyDashboard: React.FC = () => {
 
   const filteredRounds = useMemo(() => {
     return rounds.filter(r => {
+      if (isAurrumRestrictedForUser(user)) {
+        if ((r as any)?.crm_brand === 'aurrum') return false;
+        const req = requests.find(rq => rq.id === r.request_id);
+        if ((req as any)?.crm_brand === 'aurrum') return false;
+        const cand = candidates.find(c => c.id === req?.candidate_id);
+        if (cand?.crm_brand === 'aurrum') return false;
+      }
       // Filter strictly for the active proxy's assignments to prevent double-display and cross-syncing
       if (activeProxyId) {
         return String(r.proxy_user_id) === String(activeProxyId);
       }
       return false;
     });
-  }, [rounds, activeProxyId]);
+  }, [rounds, activeProxyId, user, requests, candidates]);
 
   useEffect(() => {
     if (!isAuthReady || !user) return;
@@ -147,13 +159,21 @@ export const ProxyDashboard: React.FC = () => {
 
     // Subscribe to candidates
     const unsubCandidates = subscribeToCollection<Candidate>('jpc_candidates', setRegularCandidates);
-    const unsubAurrumCandidates = subscribeToAurrumCandidates(setAurrumCandidates);
+    const unsubAurrumCandidates = !isAurrumRestrictedForUser(user)
+      ? subscribeToAurrumCandidates(setAurrumCandidates)
+      : () => {};
 
     // Subscribe to team users
-    const unsubTeam = subscribeToCollection<User>('jpc_users', setTeam);
+    const unsubTeam = subscribeToCollection<User>('jpc_users', (data) => {
+      const filtered = isAurrumRestrictedForUser(user) ? data.filter(u => !isAurrumRole(u.role)) : data;
+      setTeam(filtered);
+    });
 
     // Subscribe to calendar events
-    const unsubCalendar = subscribeToCollection<any>('jpc_calendar_events', setCalendarEvents);
+    const unsubCalendar = subscribeToCollection<any>('jpc_calendar_events', (data) => {
+      const filtered = isAurrumRestrictedForUser(user) ? data.filter(e => (e as any)?.crm_brand !== 'aurrum') : data;
+      setCalendarEvents(filtered);
+    });
 
     const timer = setTimeout(() => setIsLoading(false), 800);
 

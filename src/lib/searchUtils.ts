@@ -5,10 +5,12 @@ import {
   InterviewSupportRequest, 
   ResumeChangeRequest, 
   FollowUp,
-  Stage
+  Stage,
+  isAurrumRole
 } from '../types';
 import { canUserAccessCandidate, matchesProfileHandlingAccess } from './permissions';
 import { STAGES } from '../constants';
+import { isAurrumRestrictedForUser } from './featureFlags';
 
 export type SearchCategory = 'all' | 'candidates' | 'applications' | 'interviews' | 'logbooks' | 'followups' | 'team';
 
@@ -137,7 +139,8 @@ export function performGlobalSearch({
     return { results: [], counts };
   }
 
-  const isAurrum = Boolean(isAurrumRoute || user?.role?.startsWith('aurrum_'));
+  const isAurrumRestricted = isAurrumRestrictedForUser(user);
+  const isAurrum = !isAurrumRestricted && Boolean(isAurrumRoute || user?.role?.startsWith('aurrum_'));
 
   // 1. Build authorized candidate map (respects RBAC, shift preference, and brand separation)
   const authorizedCandidateMap = new Map<string, Candidate>();
@@ -150,6 +153,9 @@ export function performGlobalSearch({
 
     // Brand filtering
     const candIsAurrum = cand.crm_brand === 'aurrum';
+    if (candIsAurrum && isAurrumRestricted) {
+      continue;
+    }
     if (isAurrum !== candIsAurrum && user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager') {
       continue;
     }
@@ -216,6 +222,9 @@ export function performGlobalSearch({
     }
 
     // Brand filtering
+    if (app.crm_brand === 'aurrum' && isAurrumRestricted) {
+      continue;
+    }
     if (isAurrum !== (app.crm_brand === 'aurrum') && user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin') {
       continue;
     }
@@ -257,6 +266,11 @@ export function performGlobalSearch({
   const matchedInterviews: GlobalSearchResultItem[] = [];
   for (const interview of interviews) {
     if (!interview) continue;
+    if (isAurrumRestricted) {
+      if ((interview as any).crm_brand === 'aurrum') continue;
+      const c = candidates.find(cand => cand.id === interview.candidate_id);
+      if (c?.crm_brand === 'aurrum') continue;
+    }
     if (interview.candidate_id && !authorizedCandidateMap.has(interview.candidate_id) && user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager') {
       continue;
     }
@@ -343,6 +357,9 @@ export function performGlobalSearch({
     }
 
     // Brand filtering
+    if (f.crm_brand === 'aurrum' && isAurrumRestricted) {
+      continue;
+    }
     if (isAurrum !== (f.crm_brand === 'aurrum') && user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin') {
       continue;
     }
@@ -383,6 +400,7 @@ export function performGlobalSearch({
   if (!isCandidateRole && team.length > 0) {
     for (const member of team) {
       if (!member) continue;
+      if (isAurrumRestricted && isAurrumRole(member.role)) continue;
       const nameMatch = matchesTokens(member.display_name, queryTokens);
       const userMatch = (member.username || '').toLowerCase().includes(cleanQuery.toLowerCase());
       const emailMatch = (member.email || '').toLowerCase().includes(cleanQuery.toLowerCase());

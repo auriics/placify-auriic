@@ -1,4 +1,5 @@
-import { isOfferStageDisabled, isCompletedStageDisabled } from '../../lib/featureFlags';
+import { isOfferStageDisabled, isCompletedStageDisabled, isAurrumRestrictedForUser } from '../../lib/featureFlags';
+import { isAurrumRole } from '../../types';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
@@ -116,7 +117,10 @@ export const InterviewSupportDashboard: React.FC = () => {
   const [feedbacks, setFeedbacks] = useState<InterviewFeedback[]>([]);
   const [regularCandidates, setRegularCandidates] = useState<Candidate[]>([]);
   const [aurrumCandidates, setAurrumCandidates] = useState<Candidate[]>([]);
-  const candidates = useMemo(() => [...regularCandidates, ...aurrumCandidates], [regularCandidates, aurrumCandidates]);
+  const candidates = useMemo(() => {
+    if (isAurrumRestrictedForUser(user)) return regularCandidates;
+    return [...regularCandidates, ...aurrumCandidates];
+  }, [regularCandidates, aurrumCandidates, user]);
   const [team, setTeam] = useState<User[]>([]);
   const [availabilities, setAvailabilities] = useState<ProxyAvailability[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
@@ -141,11 +145,21 @@ export const InterviewSupportDashboard: React.FC = () => {
     const unsubRounds = subscribeToCollection<InterviewRound>('jpc_interview_rounds', setRounds);
     const unsubFeedback = subscribeToCollection<InterviewFeedback>('jpc_interview_feedback', setFeedbacks);
     const unsubCandidates = subscribeToCollection<Candidate>('jpc_candidates', setRegularCandidates);
-    const unsubAurrumCandidates = subscribeToAurrumCandidates(setAurrumCandidates);
+    const unsubAurrumCandidates = !isAurrumRestrictedForUser(user)
+      ? subscribeToAurrumCandidates(setAurrumCandidates)
+      : () => {};
     const unsubAvailabilities = subscribeToCollection<ProxyAvailability>('jpc_proxy_availability', setAvailabilities);
-    const unsubCalendarEvents = subscribeToCollection<any>('jpc_calendar_events', setCalendarEvents);
+    const unsubCalendarEvents = subscribeToCollection<any>('jpc_calendar_events', (data) => {
+      const filtered = isAurrumRestrictedForUser(user)
+        ? data.filter(e => (e as any)?.crm_brand !== 'aurrum')
+        : data;
+      setCalendarEvents(filtered);
+    });
     const unsubTeam = subscribeToCollection<User>('jpc_users', (data) => {
-      setTeam(data);
+      const filtered = isAurrumRestrictedForUser(user)
+        ? data.filter(u => !isAurrumRole(u.role))
+        : data;
+      setTeam(filtered);
       setIsLoading(false);
     });
 
@@ -159,28 +173,40 @@ export const InterviewSupportDashboard: React.FC = () => {
       unsubCalendarEvents();
       unsubTeam();
     };
-  }, [isAuthReady]);
+  }, [isAuthReady, user]);
   
   const visibleRequests = useMemo(() => {
     if (!user) return [];
+    let baseRequests = requests;
+    if (isAurrumRestrictedForUser(user)) {
+      baseRequests = baseRequests.filter(req => {
+        if ((req as any).crm_brand === 'aurrum') return false;
+        const c = candidates.find(cand => cand.id === req.candidate_id);
+        if (c?.crm_brand === 'aurrum') return false;
+        return true;
+      });
+    }
     if (user.role === 'administrator' || user.role === 'jpc_sysadmin' || user.role === 'jpc_manager' || user.role === 'jpc_marketing' || user.role === 'jpc_proxy') {
-      return requests;
+      return baseRequests;
     }
     if (user.role === 'jpc_cs') {
-      return requests.filter(req => {
+      return baseRequests.filter(req => {
         const c = candidates.find(cand => cand.id === req.candidate_id) || aurrumCandidates.find(cand => cand.id === req.candidate_id);
         return !c || canUserAccessCandidate(c, user, team);
       });
     }
     if (user.role === 'jpc_recruiter') {
-      return requests.filter(req => String(req.recruiter_id) === String(user.id) || String(req.created_by) === String(user.id));
+      return baseRequests.filter(req => String(req.recruiter_id) === String(user.id) || String(req.created_by) === String(user.id));
     }
     return [];
   }, [requests, rounds, user, candidates, aurrumCandidates, team]);
 
   const visibleRounds = useMemo(() => {
     const visibleRequestIds = new Set(visibleRequests.map(r => r.id));
-    return rounds.filter(r => visibleRequestIds.has(r.request_id) || (r.proxy_user_id && String(r.proxy_user_id) === String(user?.id)));
+    return rounds.filter(r => {
+      if (isAurrumRestrictedForUser(user) && (r as any).crm_brand === 'aurrum') return false;
+      return visibleRequestIds.has(r.request_id) || (r.proxy_user_id && String(r.proxy_user_id) === String(user?.id));
+    });
   }, [rounds, visibleRequests, user]);
 
   const filteredData = useMemo(() => {

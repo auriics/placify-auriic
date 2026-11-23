@@ -1,4 +1,4 @@
-import { isPaymentsRevenueDisabled } from '../lib/featureFlags';
+import { isPaymentsRevenueDisabled, isAurrumRestrictedForUser } from '../lib/featureFlags';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -224,18 +224,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentHash, isOpen, setIsOpen
   ];
 
   const canAccessAurrum =
-    isAurrumOnlyUser ||
+    !isAurrumRestrictedForUser(user) &&
+    (isAurrumOnlyUser ||
     user?.role === 'administrator' ||
     user?.role === 'jpc_sysadmin' ||
     user?.role === 'jpc_manager' ||
     user?.role === 'jpc_cs' ||
-    isProxyUser(user);
+    isProxyUser(user));
 
   const canManageAurrumTeam =
-    user?.role === 'aurrum_admin' ||
+    !isAurrumRestrictedForUser(user) &&
+    (user?.role === 'aurrum_admin' ||
     user?.role === 'administrator' ||
     user?.role === 'jpc_sysadmin' ||
-    user?.role === 'jpc_manager';
+    user?.role === 'jpc_manager');
 
   const aurrumNavItems = [
     { label: 'Aurrum Dashboard', hash: '#aurrum-dashboard', icon: LayoutDashboard, visible: canAccessAurrum },

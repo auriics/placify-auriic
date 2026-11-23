@@ -1,4 +1,4 @@
-﻿import { isPaymentsRevenueDisabled } from './lib/featureFlags';
+﻿import { isPaymentsRevenueDisabled, isAurrumRestrictedForUser } from './lib/featureFlags';
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -110,7 +110,12 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     if (isAuthReady && user) {
-      if (user.role === 'candidate' && user.candidate_id) {
+      if (isAurrumRestrictedForUser(user)) {
+        const current = window.location.hash.split('?')[0];
+        if (current.startsWith('#aurrum-')) {
+          window.location.hash = '#dashboard';
+        }
+      } else if (user.role === 'candidate' && user.candidate_id) {
         const targetHash = `#candidate?id=${user.candidate_id}`;
         if (window.location.hash !== targetHash) {
           window.location.hash = targetHash;
@@ -158,7 +163,7 @@ const AppContent: React.FC = () => {
 
 
   const isBookingPage = currentHash.startsWith('#book-interview');
-  const isAurrumRoute = currentHash.startsWith('#aurrum-') || isAurrumRole(user?.role);
+  const isAurrumRoute = !isAurrumRestrictedForUser(user) && (currentHash.startsWith('#aurrum-') || isAurrumRole(user?.role));
 
   if (!user && !isBookingPage) {
     return (
@@ -260,16 +265,22 @@ const AppContent: React.FC = () => {
         if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'jpc_cs' && user?.role !== 'jpc_compliance_person' && !isProxyUser(user)) return <Dashboard />;
         return <ProxyDashboard />;
       case '#aurrum-dashboard':
+        if (isAurrumRestrictedForUser(user)) return <Dashboard />;
         return <AurrumDashboard />;
       case '#aurrum-candidates':
+        if (isAurrumRestrictedForUser(user)) return <Dashboard />;
         return <AurrumCandidates />;
       case '#aurrum-candidate':
+        if (isAurrumRestrictedForUser(user)) return <Dashboard />;
         return <AurrumCandidateDetail />;
       case '#aurrum-sales':
+        if (isAurrumRestrictedForUser(user)) return <Dashboard />;
         return <AurrumSales />;
       case '#aurrum-interviews':
+        if (isAurrumRestrictedForUser(user)) return <Dashboard />;
         return <AurrumInterviewSupport />;
       case '#aurrum-team':
+        if (isAurrumRestrictedForUser(user)) return <Dashboard />;
         if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'aurrum_admin') return <AurrumDashboard />;
         return <AurrumTeam />;
       default:

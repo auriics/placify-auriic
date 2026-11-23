@@ -6,6 +6,7 @@
  * - DISABLE_COMPLETED_STAGE: boolean (true/false)
  * - DISABLE_PAYMENTS_REVENUE: boolean (true/false)
  * - DISABLE_PIPELINE_APP_TRACKING / DISABLE_APP_TRACKING_STAGE: boolean (true/false)
+ * - DISABLE_AURRUM_CAREERS_FOR_RAJ: boolean (true/false)
  * 
  * Works seamlessly across both Vite client-side (import.meta.env)
  * and Node.js server environments (process.env).
@@ -75,6 +76,28 @@ export const isPipelineAppTrackingDisabled = (): boolean => {
  */
 export const isAppTrackingStageDisabled = (): boolean => {
   return parseBool(getEnvVar('DISABLE_APP_TRACKING_STAGE'));
+};
+
+/**
+ * Checks whether Aurrum Careers is disabled for Raj Lal (raj.lal@auriic.co) via .env
+ */
+export const isAurrumDisabledForRaj = (): boolean => {
+  return parseBool(getEnvVar('DISABLE_AURRUM_CAREERS_FOR_RAJ'));
+};
+
+/**
+ * Checks whether Aurrum Careers functionality should be restricted for a specific user
+ * (Active only when DISABLE_AURRUM_CAREERS_FOR_RAJ=true and the user account is raj.lal@auriic.co)
+ */
+export const isAurrumRestrictedForUser = (
+  userOrEmail?: string | { email?: string | null; username?: string | null } | null
+): boolean => {
+  if (!isAurrumDisabledForRaj()) return false;
+  if (!userOrEmail) return false;
+  const email = typeof userOrEmail === 'string'
+    ? userOrEmail
+    : (userOrEmail.email || userOrEmail.username || '');
+  return email.toLowerCase().trim() === 'raj.lal@auriic.co';
 };
 
 /**

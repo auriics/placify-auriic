@@ -24,6 +24,7 @@ import { sharedSelectStyles } from '../lib/selectStyles';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, getEasternDate, formatDisplayDate } from '../lib/utils';
 import { canUserAccessCandidate } from '../lib/permissions';
+import { isAurrumRestrictedForUser } from '../lib/featureFlags';
 import { normalizeStage } from '../constants';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
 import { useDebounce } from '../lib/hooks';
@@ -205,7 +206,7 @@ export const AppTracker: React.FC = () => {
     if (!isAuthReady || !user) return;
 
     // Reuse shared warm subscription cache for instant navigation and zero duplicate Firestore reads
-    const isAurrumUser = Boolean(user?.role?.startsWith('aurrum_'));
+    const isAurrumUser = !isAurrumRestrictedForUser(user) && Boolean(user?.role?.startsWith('aurrum_'));
     let unsubCandidates: () => void;
 
     if (isAurrumUser) {

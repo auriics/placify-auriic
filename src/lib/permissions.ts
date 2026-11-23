@@ -1,4 +1,5 @@
 import { Candidate, User, ShiftPreference, ProfileHandlingAccess } from '../types';
+import { isAurrumRestrictedForUser } from './featureFlags';
 
 /**
  * Evaluates whether a candidate's shift_preference satisfies a Compliance Head's
@@ -40,6 +41,11 @@ export function matchesProfileHandlingAccess(
 
 export function canUserAccessCandidate(candidate: Candidate, user: User | null, teamUsers: User[] = []): boolean {
   if (!user) return true;
+
+  // Account-specific restriction for Raj Lal (raj.lal@auriic.co)
+  if (candidate.crm_brand === 'aurrum' && isAurrumRestrictedForUser(user)) {
+    return false;
+  }
 
   // Administrators, System Admins, Managers, and Aurrum Careers roles have access to Aurrum candidates
   if (
@@ -337,6 +343,11 @@ export function canDeleteInterviewRequest(
   }
 ): boolean {
   if (!user) return false;
+
+  // Account-specific restriction for Raj Lal (raj.lal@auriic.co)
+  if (candidate?.crm_brand === 'aurrum' && isAurrumRestrictedForUser(user)) {
+    return false;
+  }
 
   // 1. Management Roles & Proxy (Full delete access per existing system permissions)
   if (
