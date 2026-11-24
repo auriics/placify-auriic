@@ -3,6 +3,7 @@ import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ToastProvider } from './contexts/ToastContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Sidebar } from './components/Sidebar';
 import { isProxyUser } from './services/interviewService';
 import { canViewHolidayCalendar } from './lib/permissions';
@@ -413,9 +414,11 @@ const AppContent: React.FC = () => {
         )}
 
         <div className={`p-3 sm:p-6 md:p-10 pb-24 md:pb-10 max-w-7xl mx-auto w-full flex-1 min-w-0 overflow-x-hidden ${isReceiptPage ? 'p-0 md:p-0 max-w-none pb-0 md:pb-0' : ''}`}>
-          <Suspense fallback={<PageLoader />}>
-            {renderPage()}
-          </Suspense>
+          <ErrorBoundary>
+            <Suspense fallback={<PageLoader />}>
+              {renderPage()}
+            </Suspense>
+          </ErrorBoundary>
         </div>
       </main>
 

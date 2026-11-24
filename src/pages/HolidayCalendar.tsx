@@ -144,16 +144,20 @@ export const HolidayCalendar: React.FC = () => {
       evaluation: ReturnType<typeof checkDateOfficeClosure>;
     }> = [];
 
+    const formatDateStr = (d: Date): string => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
     // Previous month padding
-    const prevMonthLastDay = new Date(currentYear, currentMonth, 0).getDate();
     for (let i = startingDayOfWeek - 1; i >= 0; i--) {
-      const d = prevMonthLastDay - i;
-      const m = currentMonth === 0 ? 12 : currentMonth;
-      const y = currentMonth === 0 ? currentYear - 1 : currentYear;
-      const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const dateObj = new Date(currentYear, currentMonth, -i);
+      const dateStr = formatDateStr(dateObj);
       days.push({
         dateStr,
-        dayNumber: d,
+        dayNumber: dateObj.getDate(),
         isCurrentMonth: false,
         evaluation: checkDateOfficeClosure(dateStr, closures, weeklyConfig)
       });
@@ -161,7 +165,8 @@ export const HolidayCalendar: React.FC = () => {
 
     // Current month days
     for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const dateObj = new Date(currentYear, currentMonth, d);
+      const dateStr = formatDateStr(dateObj);
       days.push({
         dateStr,
         dayNumber: d,
@@ -174,12 +179,11 @@ export const HolidayCalendar: React.FC = () => {
     const totalSlots = Math.ceil(days.length / 7) * 7;
     const remainingSlots = totalSlots - days.length;
     for (let d = 1; d <= remainingSlots; d++) {
-      const m = currentMonth === 11 ? 1 : currentMonth + 2;
-      const y = currentMonth === 11 ? currentYear + 1 : currentYear;
-      const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const dateObj = new Date(currentYear, currentMonth + 1, d);
+      const dateStr = formatDateStr(dateObj);
       days.push({
         dateStr,
-        dayNumber: d,
+        dayNumber: dateObj.getDate(),
         isCurrentMonth: false,
         evaluation: checkDateOfficeClosure(dateStr, closures, weeklyConfig)
       });

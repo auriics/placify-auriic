@@ -8,7 +8,8 @@ import {
   DEFAULT_WEEKLY_OFF_MESSAGE,
   DEFAULT_HOLIDAY_CLOSURE_MESSAGE,
   isDateOfficeClosedSync,
-  setCachedOfficeClosuresForTesting
+  setCachedOfficeClosuresForTesting,
+  subscribeToOfficeClosures
 } from '../src/services/holidayService';
 import {
   canManageHolidayCalendar,
@@ -485,3 +486,53 @@ test('18. RBAC: canViewHolidayCalendar allows staff and recruiters but excludes 
   assert.equal(canViewHolidayCalendar(CANDIDATE_USER), false);
   assert.equal(canViewHolidayCalendar(null), false);
 });
+
+test('19. Real-time updates: subscribeToOfficeClosures triggers synchronously and receives instant notifications without refresh', () => {
+  let receivedClosures: OfficeClosure[] = [];
+  const unsub = subscribeToOfficeClosures((closures) => {
+    receivedClosures = closures;
+  });
+
+  const testClosure: OfficeClosure = {
+    id: 'realtime_test',
+    title: 'Real-Time Update Office Holiday',
+    event_type: 'company_holiday',
+    start_date: '2026-11-27',
+    end_date: '2026-11-27',
+    is_active: true,
+    created_at: '2026-11-24T12:00:00Z',
+    updated_at: '2026-11-24T12:00:00Z'
+  };
+
+  setCachedOfficeClosuresForTesting([testClosure]);
+  assert.equal(receivedClosures.length, 1);
+  assert.equal(receivedClosures[0].title, 'Real-Time Update Office Holiday');
+
+  // Verify sync evaluation immediately reflects update without page reload
+  const evalResult = isDateOfficeClosedSync('2026-11-27');
+  assert.equal(evalResult.isClosed, true);
+  assert.equal(evalResult.title, 'Real-Time Update Office Holiday');
+
+  unsub();
+  setCachedOfficeClosuresForTesting([]);
+});
+
+test('20. Robust date parsing: checkDateOfficeClosure handles null, empty, or malformed closure objects safely without crashing', () => {
+  // Empty date
+  assert.equal(checkDateOfficeClosure('').isClosed, false);
+  // Malformed date
+  assert.equal(checkDateOfficeClosure('invalid-date').isClosed, false);
+  // Malformed closure list with nulls or missing fields
+  const malformedClosures = [
+    null as any,
+    undefined as any,
+    { id: 'broken1' } as any,
+    { id: 'broken2', start_date: undefined } as any,
+    { id: 'valid', title: 'Safe Holiday', start_date: '2026-12-25', end_date: '2026-12-25', is_active: true } as OfficeClosure
+  ];
+
+  const evalResult = checkDateOfficeClosure('2026-12-25', malformedClosures, { weekly_off_days: [] });
+  assert.equal(evalResult.isClosed, true);
+  assert.equal(evalResult.title, 'Safe Holiday');
+});
+

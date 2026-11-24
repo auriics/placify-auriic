@@ -12,6 +12,7 @@ import {
   onSnapshot 
 } from 'firebase/firestore';
 import { OfficeClosure, WeeklyOffConfig, HolidayAuditLog, User } from '../types';
+import { isProxyUser } from './interviewService';
 import { 
   ensureGoogleTokenValid, 
   refreshAccessToken, 
@@ -73,7 +74,7 @@ export function checkDateOfficeClosure(
   closures: OfficeClosure[] = [],
   weeklyOffConfig?: WeeklyOffConfig | null
 ): DateClosureEvaluation {
-  if (!dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') {
     return { isClosed: false };
   }
 
@@ -82,11 +83,11 @@ export function checkDateOfficeClosure(
     return { isClosed: false };
   }
 
-  // Active closures covering this target date
-  const activeClosures = closures.filter(c => {
-    if (c.is_active === false) return false;
-    const start = c.start_date.split('T')[0].trim();
-    const end = (c.end_date || c.start_date).split('T')[0].trim();
+  // Active closures covering this target date with defensive null-safety
+  const activeClosures = (closures || []).filter(c => {
+    if (!c || c.is_active === false || !c.start_date) return false;
+    const start = String(c.start_date).split('T')[0].trim();
+    const end = String(c.end_date || c.start_date).split('T')[0].trim();
     return cleanDate >= start && cleanDate <= end;
   });
 
@@ -147,6 +148,42 @@ let cachedWeeklyOffConfig: WeeklyOffConfig = {
 };
 let isInitialized = false;
 
+type ClosureSubscriber = (closures: OfficeClosure[]) => void;
+type WeeklyConfigSubscriber = (config: WeeklyOffConfig) => void;
+
+const closureSubscribers = new Set<ClosureSubscriber>();
+const weeklyConfigSubscribers = new Set<WeeklyConfigSubscriber>();
+
+export function notifyClosureSubscribers(closures?: OfficeClosure[]) {
+  if (closures) {
+    cachedClosures = [...closures];
+  }
+  const current = [...cachedClosures];
+  closureSubscribers.forEach(cb => {
+    try { cb(current); } catch (e) { console.error('[holidayService] Closure subscriber error:', e); }
+  });
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(new CustomEvent('jpc_office_closures_updated', { detail: current }));
+    } catch {}
+  }
+}
+
+export function notifyWeeklyConfigSubscribers(config?: WeeklyOffConfig) {
+  if (config) {
+    cachedWeeklyOffConfig = { ...config };
+  }
+  const current = { ...cachedWeeklyOffConfig };
+  weeklyConfigSubscribers.forEach(cb => {
+    try { cb(current); } catch (e) { console.error('[holidayService] Weekly config subscriber error:', e); }
+  });
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(new CustomEvent('jpc_weekly_config_updated', { detail: current }));
+    } catch {}
+  }
+}
+
 export const getCachedOfficeClosures = (): OfficeClosure[] => [...cachedClosures];
 export const getCachedWeeklyOffConfig = (): WeeklyOffConfig => ({ ...cachedWeeklyOffConfig });
 
@@ -155,6 +192,8 @@ export function setCachedOfficeClosuresForTesting(closures: OfficeClosure[], con
   if (config) {
     cachedWeeklyOffConfig = { ...config };
   }
+  notifyClosureSubscribers();
+  if (config) notifyWeeklyConfigSubscribers();
 }
 
 /**
@@ -171,45 +210,122 @@ export function isDateOfficeClosedSync(dateStr: string): DateClosureEvaluation {
 export const subscribeToOfficeClosures = (
   callback: (closures: OfficeClosure[]) => void
 ): (() => void) => {
-  const q = collection(db, 'jpc_office_closures');
-  return onSnapshot(q, (snapshot) => {
-    const list: OfficeClosure[] = snapshot.docs.map(d => ({
-      id: d.id,
-      ...d.data()
-    } as OfficeClosure));
-    cachedClosures = list;
-    isInitialized = true;
-    callback(list);
-  }, (err) => {
-    console.warn('[holidayService] Snapshot error on jpc_office_closures:', err);
-    callback(cachedClosures);
-  });
+  closureSubscribers.add(callback);
+
+  // Immediately invoke with current memory cache
+  try {
+    callback([...cachedClosures]);
+  } catch {}
+
+  // Fetch in background to ensure fresh data without blocking UI
+  if (!isRunningTests) {
+    getOfficeClosures().then(fresh => {
+      notifyClosureSubscribers(fresh);
+    }).catch(() => {});
+  }
+
+  let unsubFirestore: (() => void) | null = null;
+  if (!isRunningTests) {
+    try {
+      const q = collection(db, 'jpc_office_closures');
+      unsubFirestore = onSnapshot(q, (snapshot) => {
+        const list: OfficeClosure[] = snapshot.docs.map(d => ({
+          id: d.id,
+          ...d.data()
+        } as OfficeClosure));
+        isInitialized = true;
+        notifyClosureSubscribers(list);
+      }, (err) => {
+        console.warn('[holidayService] Snapshot warning on jpc_office_closures:', err);
+        getOfficeClosures().then(fresh => notifyClosureSubscribers(fresh)).catch(() => {});
+      });
+    } catch (err) {
+      console.warn('[holidayService] Could not establish Firestore snapshot for closures:', err);
+    }
+  }
+
+  const handleCustomEvent = (e: any) => {
+    if (e?.detail) {
+      try { callback(e.detail); } catch {}
+    }
+  };
+  if (typeof window !== 'undefined') {
+    window.addEventListener('jpc_office_closures_updated', handleCustomEvent);
+  }
+
+  return () => {
+    closureSubscribers.delete(callback);
+    if (unsubFirestore) {
+      try { unsubFirestore(); } catch {}
+    }
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('jpc_office_closures_updated', handleCustomEvent);
+    }
+  };
 };
 
 export const subscribeToWeeklyOffConfig = (
   callback: (config: WeeklyOffConfig) => void
 ): (() => void) => {
-  const ref = doc(db, 'jpc_settings', 'weekly_off_config');
-  return onSnapshot(ref, (snap) => {
-    if (snap.exists()) {
-      const data = snap.data() as WeeklyOffConfig;
-      cachedWeeklyOffConfig = {
-        weekly_off_days: Array.isArray(data.weekly_off_days) ? data.weekly_off_days : [...DEFAULT_WEEKLY_OFF_DAYS],
-        custom_message: data.custom_message || DEFAULT_WEEKLY_OFF_MESSAGE,
-        updated_by: data.updated_by,
-        updated_at: data.updated_at
-      };
-    } else {
-      cachedWeeklyOffConfig = {
-        weekly_off_days: [...DEFAULT_WEEKLY_OFF_DAYS],
-        custom_message: DEFAULT_WEEKLY_OFF_MESSAGE
-      };
+  weeklyConfigSubscribers.add(callback);
+
+  try {
+    callback({ ...cachedWeeklyOffConfig });
+  } catch {}
+
+  if (!isRunningTests) {
+    getWeeklyOffConfig().then(fresh => {
+      notifyWeeklyConfigSubscribers(fresh);
+    }).catch(() => {});
+  }
+
+  let unsubFirestore: (() => void) | null = null;
+  if (!isRunningTests) {
+    try {
+      const ref = doc(db, 'jpc_settings', 'weekly_off_config');
+      unsubFirestore = onSnapshot(ref, (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as WeeklyOffConfig;
+          const config: WeeklyOffConfig = {
+            weekly_off_days: Array.isArray(data.weekly_off_days) ? data.weekly_off_days : [...DEFAULT_WEEKLY_OFF_DAYS],
+            custom_message: data.custom_message || DEFAULT_WEEKLY_OFF_MESSAGE,
+            updated_by: data.updated_by,
+            updated_at: data.updated_at
+          };
+          notifyWeeklyConfigSubscribers(config);
+        } else {
+          notifyWeeklyConfigSubscribers({
+            weekly_off_days: [...DEFAULT_WEEKLY_OFF_DAYS],
+            custom_message: DEFAULT_WEEKLY_OFF_MESSAGE
+          });
+        }
+      }, (err) => {
+        console.warn('[holidayService] Snapshot warning on weekly_off_config:', err);
+        getWeeklyOffConfig().then(fresh => notifyWeeklyConfigSubscribers(fresh)).catch(() => {});
+      });
+    } catch (err) {
+      console.warn('[holidayService] Could not establish Firestore snapshot for weekly config:', err);
     }
-    callback(cachedWeeklyOffConfig);
-  }, (err) => {
-    console.warn('[holidayService] Snapshot error on weekly_off_config:', err);
-    callback(cachedWeeklyOffConfig);
-  });
+  }
+
+  const handleCustomEvent = (e: any) => {
+    if (e?.detail) {
+      try { callback(e.detail); } catch {}
+    }
+  };
+  if (typeof window !== 'undefined') {
+    window.addEventListener('jpc_weekly_config_updated', handleCustomEvent);
+  }
+
+  return () => {
+    weeklyConfigSubscribers.delete(callback);
+    if (unsubFirestore) {
+      try { unsubFirestore(); } catch {}
+    }
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('jpc_weekly_config_updated', handleCustomEvent);
+    }
+  };
 };
 
 export const subscribeToHolidayAuditLogs = (
@@ -231,7 +347,10 @@ export const subscribeToHolidayAuditLogs = (
 
 // Helper to call backend API with graceful fallback
 const callApiFallback = async (url: string, options: RequestInit): Promise<any> => {
-  const resp = await fetch(url, options);
+  const fullUrl = (typeof window === 'undefined' && url.startsWith('/'))
+    ? ((process.env.VITE_BACKEND_URL || 'http://localhost:3000') + url)
+    : url;
+  const resp = await fetch(fullUrl, options);
   if (!resp.ok) {
     const errBody = await resp.json().catch(() => ({}));
     throw new Error(errBody.error || `Server responded with ${resp.status}`);
@@ -352,6 +471,7 @@ export const saveOfficeClosure = async (
   } else {
     cachedClosures.push(finalRecord);
   }
+  notifyClosureSubscribers();
 
   // 2. Audit Log (client write is non-fatal since backend API also logs)
   try {
@@ -454,6 +574,7 @@ export const updateOfficeClosure = async (
   if (idx >= 0) {
     cachedClosures[idx] = updatedRecord;
   }
+  notifyClosureSubscribers();
 
   // 1. Audit Log
   try {
@@ -558,6 +679,7 @@ export const deleteOfficeClosure = async (
 
   // Update cache
   cachedClosures = cachedClosures.filter(c => c.id !== id);
+  notifyClosureSubscribers();
 
   // 1. Audit Log
   if (existing) {
@@ -642,6 +764,7 @@ export const saveWeeklyOffConfig = async (
   }
 
   cachedWeeklyOffConfig = { ...updatedConfig };
+  notifyWeeklyConfigSubscribers();
 
   // Audit Log
   try {
@@ -692,6 +815,29 @@ export const getHolidayAuditLogs = async (limitCount: number = 100): Promise<Hol
 // =========================================================================
 
 /**
+ * Finds all connected proxy and admin users who should have office closures synced to their Google Calendar.
+ * Specifically ensures that BOTH proxies (all active proxies) with Google Calendar connected receive the closure events.
+ */
+export async function findAllConnectedProxyAndAdminUsers(): Promise<User[]> {
+  try {
+    const usersSnap = await getDocs(collection(db, 'jpc_users'));
+    const allUsers = usersSnap.docs.map(d => ({ id: d.id, ...d.data() } as User));
+    
+    // Find all proxies with Google Calendar connected
+    const connectedProxies = allUsers.filter(u => isProxyUser(u) && u.google_calendar_connected);
+    if (connectedProxies.length > 0) {
+      return connectedProxies;
+    }
+
+    // Fallback: any user with google calendar connected
+    return allUsers.filter(u => u.google_calendar_connected);
+  } catch (err) {
+    console.warn('[holidayService] Could not lookup connected Google Calendar users:', err);
+    return [];
+  }
+}
+
+/**
  * Finds an eligible connected Google Calendar user (the acting user if connected,
  * or any connected Administrator / Proxy).
  */
@@ -700,46 +846,36 @@ export async function findConnectedGoogleCalendarUser(preferredUser?: User | nul
     return preferredUser;
   }
 
-  try {
-    const usersSnap = await getDocs(collection(db, 'jpc_users'));
-    const allUsers = usersSnap.docs.map(d => ({ id: d.id, ...d.data() } as User));
-    
-    // First try an admin or manager with Google Calendar connected
-    const adminUser = allUsers.find(u => 
-      u.google_calendar_connected && 
-      ['administrator', 'jpc_sysadmin', 'jpc_manager'].includes(u.role)
-    );
-    if (adminUser) return adminUser;
-
-    // Next try any proxy with Google Calendar connected
-    const proxyUser = allUsers.find(u => u.google_calendar_connected);
-    return proxyUser || null;
-  } catch (err) {
-    console.warn('[holidayService] Could not lookup connected Google Calendar users:', err);
-    return null;
-  }
+  const allConnected = await findAllConnectedProxyAndAdminUsers();
+  return allConnected[0] || null;
 }
 
 /**
- * Synchronizes an Office Closure / Holiday to Google Calendar.
+ * Synchronizes an Office Closure / Holiday to Google Calendar for BOTH proxies
+ * (and any connected administrative calendar).
  */
 export async function syncClosureToGoogleCalendar(
   closure: OfficeClosure,
-  actingUser: User
+  actingUser?: User | null
 ): Promise<{ success: boolean; eventId?: string; error?: string }> {
-  const gUser = await findConnectedGoogleCalendarUser(actingUser);
-  if (!gUser) {
+  let targetUsers = await findAllConnectedProxyAndAdminUsers();
+  
+  if (targetUsers.length === 0 && actingUser?.google_calendar_connected && actingUser.id) {
+    targetUsers = [actingUser];
+  }
+
+  if (targetUsers.length === 0) {
     await updateDoc(doc(db, 'jpc_office_closures', closure.id), {
       google_calendar_sync_status: 'pending',
-      sync_error: 'No connected Google Calendar account found.'
+      sync_error: 'No connected Google Calendar proxy accounts found.'
     }).catch(() => {});
-    return { success: false, error: 'No connected Google Calendar account found.' };
+    return { success: false, error: 'No connected Google Calendar proxy accounts found.' };
   }
 
   const gcalEndDate = getNextDayDateString(closure.end_date);
   const prefix = closure.is_working_day_override ? '🟢 OPEN (OVERRIDE): ' : '🔴 CLOSED: ';
   const summary = `${prefix}${closure.title}`;
-  const description = `${closure.description || ''}\n\nRecruiter Notice: ${closure.custom_message}\n\nSynchronized from Placify CRM Centralised Holiday Calendar.`;
+  const description = `${closure.description || ''}\n\nRecruiter Notice: ${closure.custom_message}\n\nOffice Closure & Proxy Day Off synchronized from Placify CRM Centralised Holiday Calendar.`;
 
   const payload = {
     summary,
@@ -751,56 +887,82 @@ export async function syncClosureToGoogleCalendar(
     transparency: closure.is_working_day_override ? 'transparent' : 'opaque'
   };
 
-  try {
-    let eventId = closure.google_calendar_event_id;
-    if (eventId) {
-      // Update existing Google Calendar event
-      const updated = await updateGoogleCalendarEvent(String(gUser.id), eventId, payload);
-      if (!updated) {
-        // If update failed (e.g. event was deleted in GCal), create fresh
-        const newEvent = await createGoogleCalendarEvent(String(gUser.id), payload);
-        eventId = newEvent?.id || null;
-      }
-    } else {
-      // Create new event
-      const created = await createGoogleCalendarEvent(String(gUser.id), payload);
-      eventId = created?.id || null;
-    }
-
-    const now = new Date().toISOString();
-    await updateDoc(doc(db, 'jpc_office_closures', closure.id), {
-      google_calendar_event_id: eventId,
-      google_calendar_sync_status: eventId ? 'synced' : 'failed',
-      last_synced_at: now,
-      sync_error: eventId ? null : 'Failed to obtain Google event ID'
-    });
-
-    return { success: !!eventId, eventId: eventId || undefined };
-  } catch (err: any) {
-    console.error('[holidayService] GCal sync error for closure:', err);
-    await updateDoc(doc(db, 'jpc_office_closures', closure.id), {
-      google_calendar_sync_status: 'failed',
-      sync_error: err?.message || 'Google Calendar sync failed'
-    }).catch(() => {});
-    return { success: false, error: err?.message };
+  const existingEventsMap: Record<string, string> = { ...(closure.google_calendar_events || {}) };
+  if (closure.google_calendar_event_id && targetUsers[0]) {
+    existingEventsMap[String(targetUsers[0].id)] = closure.google_calendar_event_id;
   }
+
+  let anySuccess = false;
+  let primaryEventId: string | null = null;
+  const updatedEventsMap: Record<string, string> = { ...existingEventsMap };
+
+  // Sync to EACH connected proxy (both proxies!)
+  for (const gUser of targetUsers) {
+    const userId = String(gUser.id);
+    const existingEvId = updatedEventsMap[userId];
+    try {
+      let eventId = existingEvId;
+      if (eventId) {
+        const updated = await updateGoogleCalendarEvent(userId, eventId, payload);
+        if (!updated || updated === 'NOT_FOUND') {
+          const newEvent = await createGoogleCalendarEvent(userId, payload);
+          eventId = newEvent || undefined;
+        }
+      } else {
+        const created = await createGoogleCalendarEvent(userId, payload);
+        eventId = created || undefined;
+      }
+
+      if (eventId) {
+        updatedEventsMap[userId] = eventId;
+        anySuccess = true;
+        if (!primaryEventId) primaryEventId = eventId;
+      }
+    } catch (userSyncErr) {
+      console.warn(`[holidayService] Failed to sync closure to proxy ${gUser.display_name} (${userId}):`, userSyncErr);
+    }
+  }
+
+  const now = new Date().toISOString();
+  await updateDoc(doc(db, 'jpc_office_closures', closure.id), {
+    google_calendar_event_id: primaryEventId || closure.google_calendar_event_id || null,
+    google_calendar_events: updatedEventsMap,
+    google_calendar_sync_status: anySuccess ? 'synced' : 'failed',
+    last_synced_at: now,
+    sync_error: anySuccess ? null : 'Failed to obtain Google event ID for connected proxies'
+  }).catch(() => {});
+
+  return { success: anySuccess, eventId: primaryEventId || undefined };
 }
 
 /**
- * Deletes an Office Closure event from Google Calendar.
+ * Deletes an Office Closure event from Google Calendar for ALL proxies.
  */
 export async function deleteClosureFromGoogleCalendar(
   closure: OfficeClosure,
-  actingUser: User
+  actingUser?: User | null
 ): Promise<void> {
-  if (!closure.google_calendar_event_id) return;
-  const gUser = await findConnectedGoogleCalendarUser(actingUser);
-  if (!gUser) return;
+  const eventsMap = closure.google_calendar_events || {};
+  const targetUsers = await findAllConnectedProxyAndAdminUsers();
 
-  try {
-    await deleteGoogleCalendarEvent(String(gUser.id), closure.google_calendar_event_id);
-  } catch (err) {
-    console.warn('[holidayService] Could not delete GCal event for closure:', err);
+  // 1. Delete for each user mapped in google_calendar_events
+  for (const [userId, eventId] of Object.entries(eventsMap)) {
+    if (userId && eventId) {
+      try {
+        await deleteGoogleCalendarEvent(userId, eventId);
+      } catch (err) {
+        console.warn(`[holidayService] Could not delete GCal event for proxy ${userId}:`, err);
+      }
+    }
+  }
+
+  // 2. Also check primary legacy event ID across connected users
+  if (closure.google_calendar_event_id) {
+    for (const u of targetUsers) {
+      try {
+        await deleteGoogleCalendarEvent(String(u.id), closure.google_calendar_event_id);
+      } catch {}
+    }
   }
 }
 

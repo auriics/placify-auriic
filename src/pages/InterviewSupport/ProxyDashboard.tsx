@@ -648,28 +648,65 @@ export const ProxyDashboard: React.FC = () => {
 
       {/* Prominent Banner when Office is Closed (Weekend, Public Holiday, or Higher Authority Day Off) */}
       {closureInfo.isClosed && (
-        <div className="p-5 sm:p-6 bg-rose-500/15 border-2 border-rose-500/35 rounded-3xl flex items-start sm:items-center gap-4 shadow-sm">
-          <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center shrink-0">
-            <AlertCircle className="w-6 h-6" />
-          </div>
-          <div className="flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-base sm:text-lg font-black text-rose-500 uppercase tracking-tight">
-                OFFICE CLOSED – {closureInfo.title || 'SCHEDULED DAY OFF'}
-              </h3>
-              <span className="px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-md shadow-sm">
-                NON-WORKING DAY
-              </span>
-              <span className="px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-md">
-                PROXIES ON DAY OFF
-              </span>
+        <div className="space-y-4">
+          <div className="p-5 sm:p-6 bg-rose-500/15 border-2 border-rose-500/35 rounded-3xl flex items-start sm:items-center gap-4 shadow-sm">
+            <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center shrink-0">
+              <AlertCircle className="w-6 h-6" />
             </div>
-            <p className="text-xs sm:text-sm font-bold text-rose-400 mt-1">
-              {closureInfo.message}
-            </p>
-            <p className="text-[11px] text-text-secondary mt-0.5">
-              Notice: Interviews cannot be scheduled or conducted on this date. All proxy availability slots for this date are marked as Day Off.
-            </p>
+            <div className="flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-base sm:text-lg font-black text-rose-500 uppercase tracking-tight">
+                  OFFICE CLOSED – {closureInfo.title || 'SCHEDULED DAY OFF'}
+                </h3>
+                <span className="px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-md shadow-sm">
+                  NON-WORKING DAY
+                </span>
+                <span className="px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-md">
+                  ALL PROXIES ON DAY OFF ({proxyList.length}/{proxyList.length})
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm font-bold text-rose-400 mt-1">
+                {closureInfo.message}
+              </p>
+              <p className="text-[11px] text-text-secondary mt-0.5">
+                Notice: Interviews cannot be scheduled or conducted on this date. All proxy availability slots for this date are marked as Day Off.
+              </p>
+            </div>
+          </div>
+
+          {/* Dual/Multi Proxy Status Cards - Shows BOTH Proxies as Day Off / On Leave */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {proxyList.map((p) => (
+              <div 
+                key={p.id}
+                className="p-4 bg-rose-500/10 border-2 border-rose-500/30 rounded-2xl flex items-center justify-between gap-3 shadow-sm"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center font-black text-sm shrink-0">
+                    {p.display_name?.charAt(0) || 'P'}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-black text-text-primary truncate">{p.display_name}</span>
+                      <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-md flex items-center gap-1 shadow-sm shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                        DAY OFF / ON LEAVE
+                      </span>
+                    </div>
+                    <p className="text-[11px] font-bold text-rose-400 truncate mt-0.5">
+                      Office Closure: {closureInfo.title || 'Non-Working Day'}
+                    </p>
+                    <p className="text-[10px] text-text-muted mt-0.5 flex items-center gap-1">
+                      <CalendarIcon className="w-3 h-3 text-rose-400 shrink-0" />
+                      Google Calendar: Day Off Synced
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-rose-400 bg-rose-500/10 px-2.5 py-1 rounded-lg border border-rose-500/20 shrink-0">
+                  OFF
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       )}

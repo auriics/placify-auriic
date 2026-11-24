@@ -608,6 +608,7 @@ export interface OfficeClosure {
   is_active: boolean;
   is_working_day_override?: boolean; // If true, explicitly makes this day an open/working day, overriding weekly off or holidays!
   google_calendar_event_id?: string | null;
+  google_calendar_events?: Record<string, string>; // Maps userId -> google calendar event ID for multi-proxy sync
   google_calendar_sync_status?: 'synced' | 'pending' | 'failed' | 'not_synced';
   last_synced_at?: string | null;
   sync_error?: string | null;
