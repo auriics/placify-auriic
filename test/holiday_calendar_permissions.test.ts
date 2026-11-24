@@ -181,3 +181,63 @@ test('4.1 Office closure evaluations continue functioning for bookings', () => {
   const evalDec24 = checkDateOfficeClosure('2026-12-24', closures as any);
   assert.equal(evalDec24.isClosed, false);
 });
+
+// =========================================================================
+// 5. ACTION BUTTON VISIBILITY (SYNC CALENDAR & AUDIT HISTORY)
+// =========================================================================
+test('5.1 Sync Calendar & Audit History buttons strictly hidden from lower authorities', () => {
+  const isSyncCalendarVisible = (user: User | null) => canManageHolidayCalendar(user);
+  const isAuditHistoryVisible = (user: User | null) => canManageHolidayCalendar(user);
+
+  const lowerRoles: Role[] = [
+    'jpc_recruiter',
+    'jpc_sales',
+    'aurrum_sales',
+    'jpc_lead_gen',
+    'jpc_marketing',
+    'jpc_marketing_support',
+    'jpc_resume',
+    'candidate',
+    'jpc_candidate'
+  ];
+
+  for (const role of lowerRoles) {
+    const user = makeUser(role);
+    assert.equal(isSyncCalendarVisible(user), false, `Sync Calendar button must be hidden for ${role}`);
+    assert.equal(isAuditHistoryVisible(user), false, `Audit History button must be hidden for ${role}`);
+  }
+
+  // Unauthorised proxy without explicit can_manage_calendar
+  const unauthorizedProxy = makeUser('jpc_proxy');
+  assert.equal(isSyncCalendarVisible(unauthorizedProxy), false);
+  assert.equal(isAuditHistoryVisible(unauthorizedProxy), false);
+
+  // Unauthenticated
+  assert.equal(isSyncCalendarVisible(null), false);
+  assert.equal(isAuditHistoryVisible(null), false);
+});
+
+test('5.2 Sync Calendar & Audit History buttons visible to Higher Authorities only', () => {
+  const isSyncCalendarVisible = (user: User | null) => canManageHolidayCalendar(user);
+  const isAuditHistoryVisible = (user: User | null) => canManageHolidayCalendar(user);
+
+  const higherRoles: Role[] = [
+    'administrator',
+    'jpc_sysadmin',
+    'jpc_manager',
+    'jpc_cs',
+    'jpc_compliance_person',
+    'aurrum_admin'
+  ];
+
+  for (const role of higherRoles) {
+    const user = makeUser(role);
+    assert.equal(isSyncCalendarVisible(user), true, `Sync Calendar button must be visible for ${role}`);
+    assert.equal(isAuditHistoryVisible(user), true, `Audit History button must be visible for ${role}`);
+  }
+
+  // Authorized proxy with can_manage_calendar
+  const authProxy = makeUser('jpc_proxy', { can_manage_calendar: true });
+  assert.equal(isSyncCalendarVisible(authProxy), true);
+  assert.equal(isAuditHistoryVisible(authProxy), true);
+});

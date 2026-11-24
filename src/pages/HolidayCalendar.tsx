@@ -129,7 +129,7 @@ export const HolidayCalendar: React.FC = () => {
       setTempWeeklyOffDays([...config.weekly_off_days]);
       setTempWeeklyMessage(config.custom_message || DEFAULT_WEEKLY_OFF_MESSAGE);
     });
-    const unsubLogs = subscribeToHolidayAuditLogs(setAuditLogs);
+    const unsubLogs = isManager ? subscribeToHolidayAuditLogs(setAuditLogs) : () => {};
     const unsubUsers = subscribeToCollection<User>('jpc_users', setAllUsers);
 
     return () => {
@@ -585,24 +585,28 @@ export const HolidayCalendar: React.FC = () => {
             </button>
           )}
 
-          <button
-            onClick={handleSyncGoogleCalendar}
-            disabled={isSyncing}
-            className="flex items-center gap-2 px-4 py-3.5 bg-bg-tertiary text-text-primary border border-border-primary rounded-2xl font-bold text-xs hover:bg-bg-tertiary/80 transition-all disabled:opacity-50"
-            title="Synchronize all closures to team Google Calendars"
-          >
-            <RefreshCw className={cn("w-4 h-4 text-accent-green", isSyncing && "animate-spin")} />
-            <span className="hidden sm:inline">Sync Calendar</span>
-          </button>
+          {isManager && (
+            <button
+              onClick={handleSyncGoogleCalendar}
+              disabled={isSyncing}
+              className="flex items-center gap-2 px-4 py-3.5 bg-bg-tertiary text-text-primary border border-border-primary rounded-2xl font-bold text-xs hover:bg-bg-tertiary/80 transition-all disabled:opacity-50"
+              title="Synchronize all closures to team Google Calendars"
+            >
+              <RefreshCw className={cn("w-4 h-4 text-accent-green", isSyncing && "animate-spin")} />
+              <span className="hidden sm:inline">Sync Calendar</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => setIsAuditLogsOpen(true)}
-            className="flex items-center gap-2 px-4 py-3.5 bg-bg-tertiary text-text-primary border border-border-primary rounded-2xl font-bold text-xs hover:bg-bg-tertiary/80 transition-all"
-            title="View Audit Logs"
-          >
-            <History className="w-4 h-4 text-text-muted" />
-            <span className="hidden sm:inline">Audit History</span>
-          </button>
+          {isManager && (
+            <button
+              onClick={() => setIsAuditLogsOpen(true)}
+              className="flex items-center gap-2 px-4 py-3.5 bg-bg-tertiary text-text-primary border border-border-primary rounded-2xl font-bold text-xs hover:bg-bg-tertiary/80 transition-all"
+              title="View Audit Logs"
+            >
+              <History className="w-4 h-4 text-text-muted" />
+              <span className="hidden sm:inline">Audit History</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1229,7 +1233,7 @@ export const HolidayCalendar: React.FC = () => {
 
       {/* Audit Logs Modal */}
       <AnimatePresence>
-        {isAuditLogsOpen && (
+        {isAuditLogsOpen && isManager && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-center justify-center p-3 sm:p-4">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
