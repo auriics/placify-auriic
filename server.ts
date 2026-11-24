@@ -1875,48 +1875,51 @@ app.post(['/api/holidays', '/holidays'], async (req, res) => {
   }
 });
 
-app.patch(['/api/holidays/:id', '/holidays/:id'], async (req, res) => {
-  try {
-    const id = req.params.id;
-    const updates = req.body;
-    const now = new Date().toISOString();
+app.all(['/api/holidays/:id', '/holidays/:id'], async (req, res, next) => {
+  if (req.method === 'PATCH' || req.method === 'PUT') {
+    try {
+      const id = req.params.id;
+      const updates = req.body;
+      const now = new Date().toISOString();
 
-    const ref = db.collection('jpc_office_closures').doc(id);
-    const existing = await ref.get();
-    if (!existing.exists) {
-      return res.status(404).json({ error: 'Holiday not found' });
+      const ref = db.collection('jpc_office_closures').doc(id);
+      const existing = await ref.get();
+      if (!existing.exists) {
+        return res.status(404).json({ error: 'Holiday not found' });
+      }
+
+      const finalUpdates: any = {
+        ...updates,
+        updated_at: now
+      };
+      if (updates.start_date) finalUpdates.start_date = updates.start_date.split('T')[0].trim();
+      if (updates.end_date) finalUpdates.end_date = updates.end_date.split('T')[0].trim();
+
+      await ref.set(finalUpdates, { merge: true });
+
+      // Audit log
+      const auditId = 'audit_' + Math.random().toString(36).slice(2, 11);
+      await db.collection('jpc_holiday_audit_logs').doc(auditId).set({
+        id: auditId,
+        action: updates.is_working_day_override !== undefined ? 'override' : 'update',
+        entity_type: 'closure',
+        entity_id: id,
+        acting_user_id: updates.updated_by || 'system',
+        acting_user_name: updates.updated_by_name || 'Management',
+        previous_value: existing.data(),
+        new_value: { ...existing.data(), ...finalUpdates },
+        source_system: 'api',
+        timestamp: now,
+        details: `Updated closure: ${existing.data()?.title}`
+      }).catch(() => {});
+
+      return res.json({ id, ...existing.data(), ...finalUpdates });
+    } catch (error: any) {
+      console.error(`Error updating holiday ${req.params.id}:`, error);
+      return res.status(500).json({ error: error.message });
     }
-
-    const finalUpdates = {
-      ...updates,
-      updated_at: now
-    };
-    if (updates.start_date) finalUpdates.start_date = updates.start_date.split('T')[0].trim();
-    if (updates.end_date) finalUpdates.end_date = updates.end_date.split('T')[0].trim();
-
-    await ref.set(finalUpdates, { merge: true });
-
-    // Audit log
-    const auditId = 'audit_' + Math.random().toString(36).slice(2, 11);
-    await db.collection('jpc_holiday_audit_logs').doc(auditId).set({
-      id: auditId,
-      action: updates.is_working_day_override !== undefined ? 'override' : 'update',
-      entity_type: 'closure',
-      entity_id: id,
-      acting_user_id: updates.updated_by || 'system',
-      acting_user_name: updates.updated_by_name || 'Management',
-      previous_value: existing.data(),
-      new_value: { ...existing.data(), ...finalUpdates },
-      source_system: 'api',
-      timestamp: now,
-      details: `Updated closure: ${existing.data()?.title}`
-    }).catch(() => {});
-
-    res.json({ id, ...existing.data(), ...finalUpdates });
-  } catch (error: any) {
-    console.error(`Error updating holiday ${req.params.id}:`, error);
-    res.status(500).json({ error: error.message });
   }
+  next();
 });
 
 app.delete(['/api/holidays/:id', '/holidays/:id'], async (req, res) => {

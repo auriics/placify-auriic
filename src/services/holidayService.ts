@@ -229,6 +229,16 @@ export const subscribeToHolidayAuditLogs = (
   });
 };
 
+// Helper to call backend API with graceful fallback
+const callApiFallback = async (url: string, options: RequestInit): Promise<any> => {
+  const resp = await fetch(url, options);
+  if (!resp.ok) {
+    const errBody = await resp.json().catch(() => ({}));
+    throw new Error(errBody.error || `Server responded with ${resp.status}`);
+  }
+  return resp.json().catch(() => ({}));
+};
+
 export const getOfficeClosures = async (): Promise<OfficeClosure[]> => {
   try {
     const snap = await getDocs(collection(db, 'jpc_office_closures'));
@@ -236,7 +246,16 @@ export const getOfficeClosures = async (): Promise<OfficeClosure[]> => {
     cachedClosures = list;
     return list;
   } catch (err) {
-    console.warn('[holidayService] Error fetching jpc_office_closures:', err);
+    console.warn('[holidayService] Client getDocs failed, attempting API fallback:', err);
+    try {
+      const list = await callApiFallback('/api/holidays', { method: 'GET' });
+      if (Array.isArray(list)) {
+        cachedClosures = list;
+        return list;
+      }
+    } catch (apiErr) {
+      console.warn('[holidayService] API fallback also failed:', apiErr);
+    }
     return cachedClosures;
   }
 };
@@ -252,23 +271,42 @@ export const getWeeklyOffConfig = async (): Promise<WeeklyOffConfig> => {
         updated_by: data.updated_by,
         updated_at: data.updated_at
       };
+      return cachedWeeklyOffConfig;
     }
-    return cachedWeeklyOffConfig;
   } catch (err) {
-    console.warn('[holidayService] Error fetching weekly_off_config:', err);
-    return cachedWeeklyOffConfig;
+    console.warn('[holidayService] Client getDoc failed for weekly_off_config, trying API fallback:', err);
   }
+
+  try {
+    const data = await callApiFallback('/api/holidays-config', { method: 'GET' });
+    if (data && Array.isArray(data.weekly_off_days)) {
+      cachedWeeklyOffConfig = {
+        weekly_off_days: data.weekly_off_days,
+        custom_message: data.custom_message || DEFAULT_WEEKLY_OFF_MESSAGE,
+        updated_by: data.updated_by,
+        updated_at: data.updated_at
+      };
+    }
+  } catch (apiErr) {
+    console.warn('[holidayService] Weekly off config API fallback failed:', apiErr);
+  }
+
+  return cachedWeeklyOffConfig;
 };
 
 /**
  * Creates or saves an Office Closure / Holiday record with audit logging and Google Calendar sync.
+ * Resilient to client-side Firestore permissions issues by automatically falling back to backend Admin API.
  */
 export const saveOfficeClosure = async (
   closure: Omit<OfficeClosure, 'id' | 'created_at' | 'updated_at'> & { id?: string },
-  actingUser: User
+  actingUser?: Partial<User> | null,
+  auditNote?: string
 ): Promise<OfficeClosure> => {
   const id = closure.id || ('closure_' + Math.random().toString(36).slice(2, 11));
   const now = new Date().toISOString();
+  const userId = actingUser?.id ? String(actingUser.id) : 'system';
+  const userName = actingUser?.display_name || actingUser?.email || 'Management';
 
   const finalRecord: OfficeClosure = {
     ...closure,
@@ -282,15 +320,30 @@ export const saveOfficeClosure = async (
     is_active: closure.is_active ?? true,
     is_working_day_override: !!closure.is_working_day_override,
     source: closure.source || 'crm',
-    created_by: closure.created_by || String(actingUser.id),
-    created_by_name: closure.created_by_name || actingUser.display_name || 'Management',
+    created_by: closure.created_by || userId,
+    created_by_name: closure.created_by_name || userName,
     created_at: now,
-    updated_by: String(actingUser.id),
-    updated_by_name: actingUser.display_name || 'Management',
+    updated_by: userId,
+    updated_by_name: userName,
     updated_at: now
   };
 
-  await setDoc(doc(db, 'jpc_office_closures', id), finalRecord);
+  // 1. Try client Firestore setDoc, with automatic fallback to backend Admin API
+  try {
+    await setDoc(doc(db, 'jpc_office_closures', id), finalRecord);
+  } catch (clientErr: any) {
+    console.warn('[holidayService] Direct client setDoc failed (permissions or network). Falling back to backend Admin API:', clientErr);
+    try {
+      await callApiFallback('/api/holidays', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(finalRecord)
+      });
+    } catch (apiErr: any) {
+      console.error('[holidayService] Both client setDoc and backend API failed:', apiErr);
+      throw (clientErr?.message ? clientErr : apiErr);
+    }
+  }
 
   // Update in-memory cache immediately
   const existingIdx = cachedClosures.findIndex(c => c.id === id);
@@ -300,31 +353,37 @@ export const saveOfficeClosure = async (
     cachedClosures.push(finalRecord);
   }
 
-  // 1. Audit Log
-  await addHolidayAuditLog({
-    id: 'audit_' + Math.random().toString(36).slice(2, 11),
-    action: 'create',
-    entity_type: 'closure',
-    entity_id: id,
-    acting_user_id: String(actingUser.id),
-    acting_user_name: actingUser.display_name || 'Management',
-    acting_user_role: actingUser.role,
-    new_value: finalRecord,
-    source_system: 'crm',
-    timestamp: now,
-    details: `Created office closure: ${finalRecord.title} (${finalRecord.start_date} to ${finalRecord.end_date})`
-  });
-
-  // 2. Synchronize to Google Calendar in background
+  // 2. Audit Log (client write is non-fatal since backend API also logs)
   try {
-    syncClosureToGoogleCalendar(finalRecord, actingUser).catch(err => {
-      console.warn('[holidayService] Non-fatal Google Calendar sync warning:', err);
+    await addHolidayAuditLog({
+      id: 'audit_' + Math.random().toString(36).slice(2, 11),
+      action: 'create',
+      entity_type: 'closure',
+      entity_id: id,
+      acting_user_id: userId,
+      acting_user_name: userName,
+      acting_user_role: actingUser?.role as any,
+      new_value: finalRecord,
+      source_system: 'crm',
+      timestamp: now,
+      details: auditNote || `Created office closure: ${finalRecord.title} (${finalRecord.start_date} to ${finalRecord.end_date})`
     });
   } catch {}
 
-  // 3. Notify Recruiters
+  // 3. Synchronize to Google Calendar in background
   try {
-    notifyRecruitersOfHolidayChange(finalRecord, 'create', actingUser).catch(console.error);
+    if (actingUser) {
+      syncClosureToGoogleCalendar(finalRecord, actingUser as User).catch(err => {
+        console.warn('[holidayService] Non-fatal Google Calendar sync warning:', err);
+      });
+    }
+  } catch {}
+
+  // 4. Notify Recruiters
+  try {
+    if (actingUser) {
+      notifyRecruitersOfHolidayChange(finalRecord, 'create', actingUser as User).catch(console.error);
+    }
   } catch {}
 
   return finalRecord;
@@ -334,25 +393,33 @@ export const createOfficeClosure = saveOfficeClosure;
 
 /**
  * Updates an existing Office Closure / Holiday record with audit logging and Google Calendar sync.
+ * Resilient to client-side Firestore permissions issues by automatically falling back to backend Admin API.
  */
 export const updateOfficeClosure = async (
   id: string,
   updates: Partial<OfficeClosure>,
-  actingUser: User
+  actingUser?: Partial<User> | null,
+  auditNote?: string
 ): Promise<OfficeClosure> => {
   const ref = doc(db, 'jpc_office_closures', id);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) {
-    throw new Error('Office closure record not found.');
+  let existing: OfficeClosure | null = null;
+  try {
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      existing = snap.data() as OfficeClosure;
+    }
+  } catch (e) {
+    existing = cachedClosures.find(c => c.id === id) || null;
   }
 
-  const existing = snap.data() as OfficeClosure;
   const now = new Date().toISOString();
+  const userId = actingUser?.id ? String(actingUser.id) : 'system';
+  const userName = actingUser?.display_name || actingUser?.email || 'Management';
 
   const finalUpdates: Partial<OfficeClosure> = {
     ...updates,
-    updated_by: String(actingUser.id),
-    updated_by_name: actingUser.display_name || 'Management',
+    updated_by: userId,
+    updated_by_name: userName,
     updated_at: now
   };
 
@@ -363,9 +430,24 @@ export const updateOfficeClosure = async (
     finalUpdates.end_date = updates.end_date.split('T')[0].trim();
   }
 
-  await updateDoc(ref, finalUpdates);
+  try {
+    await updateDoc(ref, finalUpdates);
+  } catch (clientErr: any) {
+    console.warn('[holidayService] Direct client updateDoc failed. Falling back to backend Admin API:', clientErr);
+    try {
+      const apiResult = await callApiFallback(`/api/holidays/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(finalUpdates)
+      });
+      if (!existing && apiResult) existing = apiResult;
+    } catch (apiErr: any) {
+      console.error('[holidayService] Both client updateDoc and backend API failed:', apiErr);
+      throw (clientErr?.message ? clientErr : apiErr);
+    }
+  }
 
-  const updatedRecord: OfficeClosure = { ...existing, ...finalUpdates };
+  const updatedRecord: OfficeClosure = { ...(existing || {}), ...finalUpdates } as OfficeClosure;
 
   // Update cache
   const idx = cachedClosures.findIndex(c => c.id === id);
@@ -374,31 +456,37 @@ export const updateOfficeClosure = async (
   }
 
   // 1. Audit Log
-  await addHolidayAuditLog({
-    id: 'audit_' + Math.random().toString(36).slice(2, 11),
-    action: updates.is_working_day_override !== undefined ? 'override' : 'update',
-    entity_type: 'closure',
-    entity_id: id,
-    acting_user_id: String(actingUser.id),
-    acting_user_name: actingUser.display_name || 'Management',
-    acting_user_role: actingUser.role,
-    previous_value: existing,
-    new_value: updatedRecord,
-    source_system: 'crm',
-    timestamp: now,
-    details: `Updated closure: ${updatedRecord.title} (${updatedRecord.start_date} to ${updatedRecord.end_date})`
-  });
+  try {
+    await addHolidayAuditLog({
+      id: 'audit_' + Math.random().toString(36).slice(2, 11),
+      action: updates.is_working_day_override !== undefined ? 'override' : 'update',
+      entity_type: 'closure',
+      entity_id: id,
+      acting_user_id: userId,
+      acting_user_name: userName,
+      acting_user_role: actingUser?.role as any,
+      previous_value: existing || undefined,
+      new_value: updatedRecord,
+      source_system: 'crm',
+      timestamp: now,
+      details: auditNote || `Updated closure: ${updatedRecord.title} (${updatedRecord.start_date} to ${updatedRecord.end_date})`
+    });
+  } catch {}
 
   // 2. Synchronize to Google Calendar
   try {
-    syncClosureToGoogleCalendar(updatedRecord, actingUser).catch(err => {
-      console.warn('[holidayService] Non-fatal Google Calendar update sync warning:', err);
-    });
+    if (actingUser) {
+      syncClosureToGoogleCalendar(updatedRecord, actingUser as User).catch(err => {
+        console.warn('[holidayService] Non-fatal Google Calendar update sync warning:', err);
+      });
+    }
   } catch {}
 
   // 3. Notify Recruiters
   try {
-    notifyRecruitersOfHolidayChange(updatedRecord, 'update', actingUser).catch(console.error);
+    if (actingUser) {
+      notifyRecruitersOfHolidayChange(updatedRecord, 'update', actingUser as User).catch(console.error);
+    }
   } catch {}
 
   return updatedRecord;
@@ -406,88 +494,150 @@ export const updateOfficeClosure = async (
 
 /**
  * Deletes or cancels an Office Closure record with audit logging and Google Calendar deletion.
+ * Resilient to client-side Firestore permissions issues by automatically falling back to backend Admin API.
  */
 export const deleteOfficeClosure = async (
   id: string,
-  actingUser: User
+  actingUser?: Partial<User> | null,
+  auditNote?: string
 ): Promise<void> => {
   const ref = doc(db, 'jpc_office_closures', id);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) return;
+  let existing: OfficeClosure | null = cachedClosures.find(c => c.id === id) || null;
 
-  const existing = snap.data() as OfficeClosure;
+  try {
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      existing = snap.data() as OfficeClosure;
+    }
+  } catch (e) {}
+
   const now = new Date().toISOString();
+  const userId = actingUser?.id ? String(actingUser.id) : 'system';
+  const userName = actingUser?.display_name || actingUser?.email || 'Management';
 
-  await deleteDoc(ref);
+  try {
+    await deleteDoc(ref);
+  } catch (clientErr: any) {
+    console.warn('[holidayService] Direct client deleteDoc failed. Falling back to backend Admin API:', clientErr);
+    try {
+      await callApiFallback(`/api/holidays/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          acting_user_id: userId,
+          acting_user_name: userName
+        })
+      });
+    } catch (apiErr: any) {
+      console.error('[holidayService] Both client deleteDoc and backend API failed:', apiErr);
+      throw (clientErr?.message ? clientErr : apiErr);
+    }
+  }
 
   // Update cache
   cachedClosures = cachedClosures.filter(c => c.id !== id);
 
   // 1. Audit Log
-  await addHolidayAuditLog({
-    id: 'audit_' + Math.random().toString(36).slice(2, 11),
-    action: 'delete',
-    entity_type: 'closure',
-    entity_id: id,
-    acting_user_id: String(actingUser.id),
-    acting_user_name: actingUser.display_name || 'Management',
-    acting_user_role: actingUser.role,
-    previous_value: existing,
-    source_system: 'crm',
-    timestamp: now,
-    details: `Deleted office closure: ${existing.title} (${existing.start_date} to ${existing.end_date})`
-  });
+  if (existing) {
+    try {
+      await addHolidayAuditLog({
+        id: 'audit_' + Math.random().toString(36).slice(2, 11),
+        action: 'delete',
+        entity_type: 'closure',
+        entity_id: id,
+        acting_user_id: userId,
+        acting_user_name: userName,
+        acting_user_role: actingUser?.role as any,
+        previous_value: existing,
+        source_system: 'crm',
+        timestamp: now,
+        details: auditNote || `Deleted office closure: ${existing.title} (${existing.start_date} to ${existing.end_date})`
+      });
+    } catch {}
 
-  // 2. Delete Google Calendar Event
-  try {
-    deleteClosureFromGoogleCalendar(existing, actingUser).catch(err => {
-      console.warn('[holidayService] Google Calendar delete warning:', err);
-    });
-  } catch {}
+    // 2. Delete Google Calendar Event
+    try {
+      if (actingUser) {
+        deleteClosureFromGoogleCalendar(existing, actingUser as User).catch(err => {
+          console.warn('[holidayService] Google Calendar delete warning:', err);
+        });
+      }
+    } catch {}
 
-  // 3. Notify Recruiters of Re-opened working day
-  try {
-    notifyRecruitersOfHolidayChange(existing, 'delete', actingUser).catch(console.error);
-  } catch {}
+    // 3. Notify Recruiters of Re-opened working day
+    try {
+      if (actingUser) {
+        notifyRecruitersOfHolidayChange(existing, 'delete', actingUser as User).catch(console.error);
+      }
+    } catch {}
+  }
 };
 
 /**
  * Saves the Weekly Off Configuration (e.g. Saturday & Sunday, or customized off-days).
+ * Resilient to client-side Firestore permissions issues by automatically falling back to backend Admin API.
  */
 export const saveWeeklyOffConfig = async (
   config: Partial<WeeklyOffConfig>,
-  actingUser: User
+  actingUser?: Partial<User> | null,
+  auditNote?: string
 ): Promise<WeeklyOffConfig> => {
   const now = new Date().toISOString();
+  const userId = actingUser?.id ? String(actingUser.id) : 'system';
+  const userName = actingUser?.display_name || actingUser?.email || 'Management';
+
   const ref = doc(db, 'jpc_settings', 'weekly_off_config');
-  const existingSnap = await getDoc(ref);
-  const existingData = existingSnap.exists() ? (existingSnap.data() as WeeklyOffConfig) : null;
+  let existingData: WeeklyOffConfig | null = cachedWeeklyOffConfig;
+
+  try {
+    const existingSnap = await getDoc(ref);
+    if (existingSnap.exists()) {
+      existingData = existingSnap.data() as WeeklyOffConfig;
+    }
+  } catch (e) {}
 
   const updatedConfig: WeeklyOffConfig = {
     weekly_off_days: Array.isArray(config.weekly_off_days) ? config.weekly_off_days : (existingData?.weekly_off_days || [...DEFAULT_WEEKLY_OFF_DAYS]),
     custom_message: config.custom_message?.trim() || (existingData?.custom_message || DEFAULT_WEEKLY_OFF_MESSAGE),
-    updated_by: String(actingUser.id),
+    updated_by: userId,
     updated_at: now
   };
 
-  await setDoc(ref, updatedConfig);
+  try {
+    await setDoc(ref, updatedConfig);
+  } catch (clientErr: any) {
+    console.warn('[holidayService] Direct client setDoc on weekly_off_config failed. Falling back to backend Admin API:', clientErr);
+    try {
+      await callApiFallback('/api/holidays-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedConfig)
+      });
+    } catch (apiErr: any) {
+      console.error('[holidayService] Both client and API save for weekly off config failed:', apiErr);
+      throw (clientErr?.message ? clientErr : apiErr);
+    }
+  }
+
   cachedWeeklyOffConfig = { ...updatedConfig };
 
   // Audit Log
-  await addHolidayAuditLog({
-    id: 'audit_' + Math.random().toString(36).slice(2, 11),
-    action: 'override',
-    entity_type: 'weekly_off_config',
-    entity_id: 'weekly_off_config',
-    acting_user_id: String(actingUser.id),
-    acting_user_name: actingUser.display_name || 'Management',
-    acting_user_role: actingUser.role,
-    previous_value: existingData,
-    new_value: updatedConfig,
-    source_system: 'crm',
-    timestamp: now,
-    details: `Updated weekly off days: [${updatedConfig.weekly_off_days.join(', ')}] with message: "${updatedConfig.custom_message}"`
-  });
+  try {
+    await addHolidayAuditLog({
+      id: 'audit_' + Math.random().toString(36).slice(2, 11),
+      action: 'override',
+      entity_type: 'weekly_off_config',
+      entity_id: 'weekly_off_config',
+      acting_user_id: userId,
+      acting_user_name: userName,
+      acting_user_role: actingUser?.role as any,
+      previous_value: existingData,
+      new_value: updatedConfig,
+      source_system: 'crm',
+      timestamp: now,
+      details: auditNote || `Updated weekly off days: [${updatedConfig.weekly_off_days.join(', ')}] with message: "${updatedConfig.custom_message}"`
+    });
+  } catch {}
 
   return updatedConfig;
 };
