@@ -606,6 +606,8 @@ export interface OfficeClosure {
   custom_message: string;
   location?: string; // 'all' or specific location
   is_active: boolean;
+  status?: 'closed' | 'open'; // Working Day (open) vs Office Closure (closed) status
+  is_override?: boolean;
   is_working_day_override?: boolean; // If true, explicitly makes this day an open/working day, overriding weekly off or holidays!
   google_calendar_event_id?: string | null;
   google_calendar_events?: Record<string, string>; // Maps userId -> google calendar event ID for multi-proxy sync

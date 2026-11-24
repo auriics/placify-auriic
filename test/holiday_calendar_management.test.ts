@@ -9,12 +9,18 @@ import {
   DEFAULT_HOLIDAY_CLOSURE_MESSAGE,
   isDateOfficeClosedSync,
   setCachedOfficeClosuresForTesting,
-  subscribeToOfficeClosures
+  subscribeToOfficeClosures,
+  toggleDateWorkingStatus,
+  clearHolidayForDate,
+  clearAllOfficeClosures,
+  clearOfficeClosure,
+  shiftDateString
 } from '../src/services/holidayService';
 import {
   canManageHolidayCalendar,
   canViewHolidayCalendar,
-  canOverrideWorkingDay
+  canOverrideWorkingDay,
+  canClearAllHolidays
 } from '../src/lib/permissions';
 import { OfficeClosure, WeeklyOffConfig, User } from '../src/types';
 import { findBestProxyForWindow } from '../src/services/interviewService';
@@ -535,4 +541,194 @@ test('20. Robust date parsing: checkDateOfficeClosure handles null, empty, or ma
   assert.equal(evalResult.isClosed, true);
   assert.equal(evalResult.title, 'Safe Holiday');
 });
+
+test('21. Working Day Toggle: Switching Office Closed to Office Open restores booking availability immediately', async () => {
+  // Saturday date (default closed)
+  const satDate = '2026-11-28';
+  setCachedOfficeClosuresForTesting([], { weekly_off_days: [0, 6] });
+  assert.equal(checkDateOfficeClosure(satDate, undefined, { weekly_off_days: [0, 6] }).isClosed, true);
+
+  // Toggle to Office Open
+  const res = await toggleDateWorkingStatus(satDate, 'open', ADMIN_USER);
+  assert.equal(res.success, true);
+  assert.equal(res.newStatus, 'open');
+
+  // Verify sync evaluation is now OPEN and bookings are restored
+  const postEval = isDateOfficeClosedSync(satDate);
+  assert.equal(postEval.isClosed, false);
+  assert.equal(postEval.status, 'open');
+
+  // Reset
+  setCachedOfficeClosuresForTesting([]);
+});
+
+test('22. Working Day Toggle: Switching Office Open to Office Closed immediately blocks bookings', async () => {
+  // Wednesday date (default working day)
+  const wedDate = '2026-12-02';
+  setCachedOfficeClosuresForTesting([], { weekly_off_days: [0, 6] });
+  assert.equal(isDateOfficeClosedSync(wedDate).isClosed, false);
+
+  // Toggle to Office Closed
+  const res = await toggleDateWorkingStatus(wedDate, 'closed', ADMIN_USER);
+  assert.equal(res.success, true);
+  assert.equal(res.newStatus, 'closed');
+
+  // Verify sync evaluation is now CLOSED and bookings are blocked
+  const postEval = isDateOfficeClosedSync(wedDate);
+  assert.equal(postEval.isClosed, true);
+  assert.equal(postEval.status, 'closed');
+
+  // Reset
+  setCachedOfficeClosuresForTesting([]);
+});
+
+test('23. Clear Holiday: Clearing a specific single-date holiday removes restriction and restores default weekly schedule', async () => {
+  // Wednesday holiday
+  const holDate = '2026-12-09';
+  const closure: OfficeClosure = {
+    id: 'hol_single_1',
+    title: 'Special Closure Day',
+    event_type: 'special_closure',
+    status: 'closed',
+    start_date: holDate,
+    end_date: holDate,
+    is_active: true,
+    created_at: '2026-11-24T00:00:00Z',
+    updated_at: '2026-11-24T00:00:00Z'
+  };
+
+  setCachedOfficeClosuresForTesting([closure], { weekly_off_days: [0, 6] });
+  assert.equal(isDateOfficeClosedSync(holDate).isClosed, true);
+
+  // Clear the holiday
+  const clearRes = await clearHolidayForDate(holDate, ADMIN_USER);
+  assert.equal(clearRes.success, true);
+
+  // Wednesday returns to default schedule (working day = open)
+  const postEval = isDateOfficeClosedSync(holDate);
+  assert.equal(postEval.isClosed, false);
+
+  // Reset
+  setCachedOfficeClosuresForTesting([]);
+});
+
+test('24. Clear Holiday: Clearing one date from a multi-day holiday splits/shifts range and restores availability for that date', async () => {
+  // 3-day closure: 2026-12-15 to 2026-12-17
+  const multiClosure: OfficeClosure = {
+    id: 'multi_closure_1',
+    title: 'Winter Maintenance Period',
+    event_type: 'company_holiday',
+    status: 'closed',
+    start_date: '2026-12-15',
+    end_date: '2026-12-17',
+    is_active: true,
+    created_at: '2026-11-24T00:00:00Z',
+    updated_at: '2026-11-24T00:00:00Z'
+  };
+
+  setCachedOfficeClosuresForTesting([multiClosure], { weekly_off_days: [0, 6] });
+  assert.equal(isDateOfficeClosedSync('2026-12-15').isClosed, true);
+  assert.equal(isDateOfficeClosedSync('2026-12-16').isClosed, true);
+  assert.equal(isDateOfficeClosedSync('2026-12-17').isClosed, true);
+
+  // Clear middle date: 2026-12-16
+  const clearRes = await clearHolidayForDate('2026-12-16', ADMIN_USER, false);
+  assert.equal(clearRes.success, true);
+
+  // 2026-12-16 should now be OPEN (normal Wednesday working day)
+  assert.equal(isDateOfficeClosedSync('2026-12-16').isClosed, false);
+  // 2026-12-15 and 2026-12-17 must remain CLOSED
+  assert.equal(isDateOfficeClosedSync('2026-12-15').isClosed, true);
+  assert.equal(isDateOfficeClosedSync('2026-12-17').isClosed, true);
+
+  // Reset
+  setCachedOfficeClosuresForTesting([]);
+});
+
+test('25. Clear Holiday: Clearing entire holiday range removes all dates in the range', async () => {
+  const multiClosure: OfficeClosure = {
+    id: 'multi_closure_2',
+    title: 'Long Holiday',
+    event_type: 'public_holiday',
+    status: 'closed',
+    start_date: '2026-12-22',
+    end_date: '2026-12-24',
+    is_active: true,
+    created_at: '2026-11-24T00:00:00Z',
+    updated_at: '2026-11-24T00:00:00Z'
+  };
+
+  setCachedOfficeClosuresForTesting([multiClosure], { weekly_off_days: [0, 6] });
+  assert.equal(isDateOfficeClosedSync('2026-12-23').isClosed, true);
+
+  // Clear entire range
+  const clearRes = await clearHolidayForDate('2026-12-23', ADMIN_USER, true);
+  assert.equal(clearRes.success, true);
+  assert.equal(clearRes.clearedRange, true);
+
+  // All 3 days now return to default weekday schedule (open)
+  assert.equal(isDateOfficeClosedSync('2026-12-22').isClosed, false);
+  assert.equal(isDateOfficeClosedSync('2026-12-23').isClosed, false);
+  assert.equal(isDateOfficeClosedSync('2026-12-24').isClosed, false);
+
+  // Reset
+  setCachedOfficeClosuresForTesting([]);
+});
+
+test('26. Clear All Holidays: Removes all manual entries while preserving default Saturday & Sunday weekly offs', async () => {
+  const manualClosures: OfficeClosure[] = [
+    {
+      id: 'c1',
+      title: 'Manual Closure 1',
+      event_type: 'public_holiday',
+      start_date: '2026-12-01',
+      end_date: '2026-12-01',
+      is_active: true,
+      created_at: '2026-11-24T00:00:00Z',
+      updated_at: '2026-11-24T00:00:00Z'
+    },
+    {
+      id: 'c2',
+      title: 'Manual Closure 2',
+      event_type: 'company_holiday',
+      start_date: '2026-12-08',
+      end_date: '2026-12-08',
+      is_active: true,
+      created_at: '2026-11-24T00:00:00Z',
+      updated_at: '2026-11-24T00:00:00Z'
+    }
+  ];
+
+  setCachedOfficeClosuresForTesting(manualClosures, { weekly_off_days: [0, 6] });
+  assert.equal(isDateOfficeClosedSync('2026-12-01').isClosed, true);
+  assert.equal(isDateOfficeClosedSync('2026-12-08').isClosed, true);
+
+  // Clear All
+  const clearAllRes = await clearAllOfficeClosures(ADMIN_USER);
+  assert.equal(clearAllRes.success, true);
+
+  // Manual closures are cleared
+  assert.equal(isDateOfficeClosedSync('2026-12-01').isClosed, false);
+  assert.equal(isDateOfficeClosedSync('2026-12-08').isClosed, false);
+
+  // CRITICAL: Default Saturday and Sunday weekly off schedule remains 100% active!
+  assert.equal(isDateOfficeClosedSync('2026-12-05').isClosed, true); // Saturday
+  assert.equal(isDateOfficeClosedSync('2026-12-06').isClosed, true); // Sunday
+
+  // Reset
+  setCachedOfficeClosuresForTesting([]);
+});
+
+test('27. RBAC: canClearAllHolidays permits only Higher Authorities and Admins', () => {
+  assert.equal(canClearAllHolidays(ADMIN_USER), true);
+  assert.equal(canClearAllHolidays(MANAGER_USER), true);
+
+  // Unauthorized users cannot clear all holidays
+  assert.equal(canClearAllHolidays(PROXY_WITH_CALENDAR_MANAGEMENT), false);
+  assert.equal(canClearAllHolidays(PROXY_WITHOUT_CALENDAR_MANAGEMENT), false);
+  assert.equal(canClearAllHolidays(RECRUITER_USER), false);
+  assert.equal(canClearAllHolidays(CANDIDATE_USER), false);
+  assert.equal(canClearAllHolidays(null), false);
+});
+
 

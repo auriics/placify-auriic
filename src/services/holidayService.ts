@@ -29,7 +29,8 @@ export const DEFAULT_HOLIDAY_CLOSURE_MESSAGE = 'This is a non-working day. Our o
 
 export interface DateClosureEvaluation {
   isClosed: boolean;
-  reason?: 'override_working' | 'override_closure' | 'holiday' | 'weekly_off';
+  status: 'closed' | 'open';
+  reason?: 'override_working' | 'override_closure' | 'holiday' | 'weekly_off' | 'open' | 'closed' | 'working_day';
   title?: string;
   message?: string;
   closure?: OfficeClosure;
@@ -63,11 +64,10 @@ export function formatOfficeClosureMessage(title?: string, customMessage?: strin
  * Pure evaluation function that determines whether an interview date (YYYY-MM-DD or ISO string)
  * is an office closure according to the rule hierarchy:
  * 
- * 1. Explicit Higher Authority / Administrator date override (is_working_day_override: true) -> OPEN.
- * 2. Explicit Higher Authority date closure override (is_working_day_override: false) -> CLOSED.
- * 3. Approved custom holiday or special office closure -> CLOSED.
- * 4. Configured recurring weekly off-day -> CLOSED.
- * 5. Normal working day -> OPEN.
+ * 1. Explicit Office Open record (status: 'open' or is_working_day_override: true) -> OPEN.
+ * 2. Explicit Office Closed record (status: 'closed' or custom holiday) -> CLOSED.
+ * 3. Configured recurring weekly off-day (default Saturday/Sunday) -> CLOSED.
+ * 4. Normal working day -> OPEN.
  */
 export function checkDateOfficeClosure(
   dateStr: string,
@@ -75,12 +75,12 @@ export function checkDateOfficeClosure(
   weeklyOffConfig?: WeeklyOffConfig | null
 ): DateClosureEvaluation {
   if (!dateStr || typeof dateStr !== 'string') {
-    return { isClosed: false };
+    return { isClosed: false, status: 'open', reason: 'working_day' };
   }
 
   const cleanDate = dateStr.split('T')[0].trim();
   if (cleanDate.length !== 10) {
-    return { isClosed: false };
+    return { isClosed: false, status: 'open', reason: 'working_day' };
   }
 
   // Active closures covering this target date with defensive null-safety
@@ -91,32 +91,34 @@ export function checkDateOfficeClosure(
     return cleanDate >= start && cleanDate <= end;
   });
 
-  // 1. HIGHER AUTHORITY WORKING DAY OVERRIDE (Explicitly re-opens a holiday or weekly off)
-  const workingDayOverride = activeClosures.find(c => c.is_working_day_override === true);
-  if (workingDayOverride) {
+  // 1. EXPLICIT OFFICE OPEN (Restores normal interview booking availability)
+  const openEntry = activeClosures.find(c => c.status === 'open' || c.is_working_day_override === true);
+  if (openEntry) {
     return {
       isClosed: false,
+      status: 'open',
       reason: 'override_working',
-      title: workingDayOverride.title,
-      message: workingDayOverride.custom_message || 'Working day override applied by Higher Authority.',
-      closure: workingDayOverride
+      title: openEntry.title || 'Office Open',
+      message: openEntry.custom_message || 'Office is open for interview bookings.',
+      closure: openEntry
     };
   }
 
-  // 2. EXPLICIT HOLIDAYS OR SPECIAL OFFICE CLOSURES
-  const holidayClosure = activeClosures.find(c => !c.is_working_day_override);
-  if (holidayClosure) {
-    const formattedMsg = formatOfficeClosureMessage(holidayClosure.title, holidayClosure.custom_message);
+  // 2. EXPLICIT OFFICE CLOSED (Holiday or special closure)
+  const closedEntry = activeClosures.find(c => c.status === 'closed' || (c.status === undefined && !c.is_working_day_override));
+  if (closedEntry) {
+    const formattedMsg = formatOfficeClosureMessage(closedEntry.title, closedEntry.custom_message);
     return {
       isClosed: true,
-      reason: holidayClosure.event_type === 'special_closure' ? 'override_closure' : 'holiday',
-      title: holidayClosure.title,
+      status: 'closed',
+      reason: closedEntry.event_type === 'special_closure' ? 'override_closure' : 'holiday',
+      title: closedEntry.title || 'Office Closed',
       message: formattedMsg,
-      closure: holidayClosure
+      closure: closedEntry
     };
   }
 
-  // 3. RECURRING WEEKLY OFF-DAYS
+  // 3. RECURRING WEEKLY OFF-DAYS (Default: Saturday & Sunday)
   const weeklyOffDays = weeklyOffConfig?.weekly_off_days ?? DEFAULT_WEEKLY_OFF_DAYS;
   const dow = getDayOfWeekEST(cleanDate);
 
@@ -126,6 +128,7 @@ export function checkDateOfficeClosure(
     const weeklyMsg = weeklyOffConfig?.custom_message?.trim() || DEFAULT_WEEKLY_OFF_MESSAGE;
     return {
       isClosed: true,
+      status: 'closed',
       reason: 'weekly_off',
       title: `Weekly Off – ${dayName}`,
       message: weeklyMsg
@@ -133,7 +136,7 @@ export function checkDateOfficeClosure(
   }
 
   // 4. NORMAL WORKING DAY
-  return { isClosed: false };
+  return { isClosed: false, status: 'open', reason: 'working_day' };
 }
 
 // =========================================================================
@@ -359,6 +362,9 @@ const callApiFallback = async (url: string, options: RequestInit): Promise<any> 
 };
 
 export const getOfficeClosures = async (): Promise<OfficeClosure[]> => {
+  if (isRunningTests) {
+    return cachedClosures;
+  }
   try {
     const snap = await getDocs(collection(db, 'jpc_office_closures'));
     const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as OfficeClosure));
@@ -380,6 +386,9 @@ export const getOfficeClosures = async (): Promise<OfficeClosure[]> => {
 };
 
 export const getWeeklyOffConfig = async (): Promise<WeeklyOffConfig> => {
+  if (isRunningTests) {
+    return cachedWeeklyOffConfig;
+  }
   try {
     const snap = await getDoc(doc(db, 'jpc_settings', 'weekly_off_config'));
     if (snap.exists()) {
@@ -437,7 +446,9 @@ export const saveOfficeClosure = async (
     is_all_day: closure.is_all_day ?? true,
     custom_message: closure.custom_message?.trim() || formatOfficeClosureMessage(closure.title, ''),
     is_active: closure.is_active ?? true,
-    is_working_day_override: !!closure.is_working_day_override,
+    status: closure.status || (closure.is_working_day_override ? 'open' : 'closed'),
+    is_working_day_override: closure.status ? (closure.status === 'open') : !!closure.is_working_day_override,
+    is_override: closure.is_override ?? (closure.status === 'open' || !!closure.is_working_day_override),
     source: closure.source || 'crm',
     created_by: closure.created_by || userId,
     created_by_name: closure.created_by_name || userName,
@@ -448,19 +459,21 @@ export const saveOfficeClosure = async (
   };
 
   // 1. Try client Firestore setDoc, with automatic fallback to backend Admin API
-  try {
-    await setDoc(doc(db, 'jpc_office_closures', id), finalRecord);
-  } catch (clientErr: any) {
-    console.warn('[holidayService] Direct client setDoc failed (permissions or network). Falling back to backend Admin API:', clientErr);
+  if (!isRunningTests) {
     try {
-      await callApiFallback('/api/holidays', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(finalRecord)
-      });
-    } catch (apiErr: any) {
-      console.error('[holidayService] Both client setDoc and backend API failed:', apiErr);
-      throw (clientErr?.message ? clientErr : apiErr);
+      await setDoc(doc(db, 'jpc_office_closures', id), finalRecord);
+    } catch (clientErr: any) {
+      console.warn('[holidayService] Direct client setDoc failed (permissions or network). Falling back to backend Admin API:', clientErr);
+      try {
+        await callApiFallback('/api/holidays', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(finalRecord)
+        });
+      } catch (apiErr: any) {
+        console.error('[holidayService] Both client setDoc and backend API failed:', apiErr);
+        throw (clientErr?.message ? clientErr : apiErr);
+      }
     }
   }
 
@@ -549,21 +562,29 @@ export const updateOfficeClosure = async (
   if (updates.end_date) {
     finalUpdates.end_date = updates.end_date.split('T')[0].trim();
   }
+  if (updates.status !== undefined) {
+    finalUpdates.status = updates.status;
+    finalUpdates.is_working_day_override = updates.status === 'open';
+  } else if (updates.is_working_day_override !== undefined) {
+    finalUpdates.status = updates.is_working_day_override ? 'open' : 'closed';
+  }
 
-  try {
-    await updateDoc(ref, finalUpdates);
-  } catch (clientErr: any) {
-    console.warn('[holidayService] Direct client updateDoc failed. Falling back to backend Admin API:', clientErr);
+  if (!isRunningTests) {
     try {
-      const apiResult = await callApiFallback(`/api/holidays/${encodeURIComponent(id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(finalUpdates)
-      });
-      if (!existing && apiResult) existing = apiResult;
-    } catch (apiErr: any) {
-      console.error('[holidayService] Both client updateDoc and backend API failed:', apiErr);
-      throw (clientErr?.message ? clientErr : apiErr);
+      await updateDoc(ref, finalUpdates);
+    } catch (clientErr: any) {
+      console.warn('[holidayService] Direct client updateDoc failed. Falling back to backend Admin API:', clientErr);
+      try {
+        const apiResult = await callApiFallback(`/api/holidays/${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(finalUpdates)
+        });
+        if (!existing && apiResult) existing = apiResult;
+      } catch (apiErr: any) {
+        console.error('[holidayService] Both client updateDoc and backend API failed:', apiErr);
+        throw (clientErr?.message ? clientErr : apiErr);
+      }
     }
   }
 
@@ -638,41 +659,45 @@ export const deleteOfficeClosure = async (
 
   let deleteSucceeded = false;
 
-  // 1. Try direct Firestore delete
-  try {
-    await deleteDoc(ref);
+  if (isRunningTests) {
     deleteSucceeded = true;
-  } catch (clientErr: any) {
-    console.warn('[holidayService] Direct client deleteDoc failed. Attempting soft-delete and backend API fallback:', clientErr);
-    
-    // 2. Try soft-delete directly on client so rule evaluation ignores it (is_active: false)
+  } else {
+    // 1. Try direct Firestore delete
     try {
-      await updateDoc(ref, {
-        is_active: false,
-        updated_at: now,
-        updated_by: userId,
-        updated_by_name: userName
-      });
+      await deleteDoc(ref);
       deleteSucceeded = true;
-    } catch (softErr) {
-      // If client update also failed, fallback to backend Admin API
-    }
+    } catch (clientErr: any) {
+      console.warn('[holidayService] Direct client deleteDoc failed. Attempting soft-delete and backend API fallback:', clientErr);
+      
+      // 2. Try soft-delete directly on client so rule evaluation ignores it (is_active: false)
+      try {
+        await updateDoc(ref, {
+          is_active: false,
+          updated_at: now,
+          updated_by: userId,
+          updated_by_name: userName
+        });
+        deleteSucceeded = true;
+      } catch (softErr) {
+        // If client update also failed, fallback to backend Admin API
+      }
 
-    // 3. Call backend Admin API fallback
-    try {
-      await callApiFallback(`/api/holidays/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          acting_user_id: userId,
-          acting_user_name: userName
-        })
-      });
-      deleteSucceeded = true;
-    } catch (apiErr: any) {
-      console.warn('[holidayService] Backend API delete warning:', apiErr);
-      if (!deleteSucceeded) {
-        throw new Error(apiErr?.message || clientErr?.message || 'Failed to delete office closure due to permissions.');
+      // 3. Call backend Admin API fallback
+      try {
+        await callApiFallback(`/api/holidays/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            acting_user_id: userId,
+            acting_user_name: userName
+          })
+        });
+        deleteSucceeded = true;
+      } catch (apiErr: any) {
+        console.warn('[holidayService] Backend API delete warning:', apiErr);
+        if (!deleteSucceeded) {
+          throw new Error(apiErr?.message || clientErr?.message || 'Failed to delete office closure due to permissions.');
+        }
       }
     }
   }
@@ -792,6 +817,9 @@ export const saveWeeklyOffConfig = async (
 // =========================================================================
 
 export const addHolidayAuditLog = async (log: HolidayAuditLog): Promise<void> => {
+  if (isRunningTests) {
+    return;
+  }
   try {
     await setDoc(doc(db, 'jpc_holiday_audit_logs', log.id), log);
   } catch (err) {
@@ -819,6 +847,9 @@ export const getHolidayAuditLogs = async (limitCount: number = 100): Promise<Hol
  * Specifically ensures that BOTH proxies (all active proxies) with Google Calendar connected receive the closure events.
  */
 export async function findAllConnectedProxyAndAdminUsers(): Promise<User[]> {
+  if (isRunningTests) {
+    return [];
+  }
   try {
     const usersSnap = await getDocs(collection(db, 'jpc_users'));
     const allUsers = usersSnap.docs.map(d => ({ id: d.id, ...d.data() } as User));
@@ -873,9 +904,10 @@ export async function syncClosureToGoogleCalendar(
   }
 
   const gcalEndDate = getNextDayDateString(closure.end_date);
-  const prefix = closure.is_working_day_override ? '🟢 OPEN (OVERRIDE): ' : '🔴 CLOSED: ';
+  const isOpen = closure.status === 'open' || !!closure.is_working_day_override;
+  const prefix = isOpen ? '🟢 OFFICE OPEN: ' : '🔴 OFFICE CLOSED: ';
   const summary = `${prefix}${closure.title}`;
-  const description = `${closure.description || ''}\n\nRecruiter Notice: ${closure.custom_message}\n\nOffice Closure & Proxy Day Off synchronized from Placify CRM Centralised Holiday Calendar.`;
+  const description = `${closure.description || ''}\n\nRecruiter Notice: ${closure.custom_message}\n\nOffice Calendar synchronized from Placify CRM.`;
 
   const payload = {
     summary,
@@ -883,8 +915,8 @@ export async function syncClosureToGoogleCalendar(
     startTime: closure.start_date,
     endTime: gcalEndDate,
     isAllDay: true,
-    colorId: closure.is_working_day_override ? '10' : '11', // 10 = Green, 11 = Tomato Red
-    transparency: closure.is_working_day_override ? 'transparent' : 'opaque'
+    colorId: isOpen ? '10' : '11', // 10 = Green, 11 = Tomato Red
+    transparency: isOpen ? 'transparent' : 'opaque'
   };
 
   const existingEventsMap: Record<string, string> = { ...(closure.google_calendar_events || {}) };
@@ -1078,6 +1110,9 @@ export async function notifyRecruitersOfHolidayChange(
   action: 'create' | 'update' | 'delete',
   actingUser: User
 ): Promise<void> {
+  if (isRunningTests) {
+    return;
+  }
   try {
     const usersSnap = await getDocs(collection(db, 'jpc_users'));
     const recruiters = usersSnap.docs
@@ -1112,4 +1147,252 @@ export async function notifyRecruitersOfHolidayChange(
   } catch (err) {
     console.warn('[holidayService] Error dispatching recruiter holiday notifications:', err);
   }
+}
+
+// =========================================================================
+// WORKING DAY / OFFICE CLOSURE TOGGLE & CLEAR MANAGEMENT
+// =========================================================================
+
+/**
+ * Shifts a YYYY-MM-DD date string by a given number of days.
+ */
+export function shiftDateString(dateStr: string, days: number): string {
+  const clean = dateStr.split('T')[0].trim();
+  const [y, m, d] = clean.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  const year = dt.getFullYear();
+  const month = String(dt.getMonth() + 1).padStart(2, '0');
+  const day = String(dt.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Toggles a date between Office Open and Office Closed.
+ * If targetStatus is not specified, inverts the current status.
+ * Ensures bidirectional switching, immediate cache update, audit logging, and Google Calendar sync.
+ */
+export async function toggleDateWorkingStatus(
+  dateStr: string,
+  desiredStatus?: 'open' | 'closed',
+  actingUser?: Partial<User> | null,
+  customNote?: string
+): Promise<{ success: boolean; newStatus: 'open' | 'closed'; message: string }> {
+  const cleanDate = dateStr.split('T')[0].trim();
+  const currentEval = checkDateOfficeClosure(cleanDate, cachedClosures, cachedWeeklyOffConfig);
+  const newStatus: 'open' | 'closed' = desiredStatus ?? (currentEval.isClosed ? 'open' : 'closed');
+
+  const userId = actingUser?.id ? String(actingUser.id) : 'system';
+  const userName = actingUser?.display_name || actingUser?.email || 'Management';
+
+  // 1. If switching to OPEN
+  if (newStatus === 'open') {
+    // If there is an existing manual single-day closed entry for this date
+    if (currentEval.closure && currentEval.closure.start_date === currentEval.closure.end_date && currentEval.closure.start_date === cleanDate) {
+      const dow = getDayOfWeekEST(cleanDate);
+      const isWeekend = (cachedWeeklyOffConfig.weekly_off_days || DEFAULT_WEEKLY_OFF_DAYS).includes(dow);
+      if (!isWeekend) {
+        // Weekday: deleting the closure makes it open by default
+        await deleteOfficeClosure(currentEval.closure.id, actingUser, 'Restored working day for ' + cleanDate);
+        return { success: true, newStatus: 'open', message: `Date ${cleanDate} is now marked as Office Open.` };
+      }
+    }
+
+    // Otherwise create or update an explicit Office Open record (works for weekend or any date)
+    const openRecord: Omit<OfficeClosure, 'id' | 'created_at' | 'updated_at'> & { id?: string } = {
+      title: `Office Open (${cleanDate})`,
+      status: 'open',
+      event_type: 'special_closure',
+      start_date: cleanDate,
+      end_date: cleanDate,
+      is_all_day: true,
+      is_active: true,
+      is_working_day_override: true,
+      is_override: true,
+      custom_message: 'Office is open for interview bookings.',
+      description: customNote || 'Working day declared by management'
+    };
+    if (currentEval.closure && currentEval.closure.start_date === cleanDate && currentEval.closure.end_date === cleanDate) {
+      openRecord.id = currentEval.closure.id;
+    }
+    await saveOfficeClosure(openRecord, actingUser, customNote || `Marked ${cleanDate} as Office Open`);
+    return { success: true, newStatus: 'open', message: `Date ${cleanDate} is now marked as Office Open.` };
+  }
+
+  // 2. If switching to CLOSED
+  // If there's an existing explicit 'open' entry for this date
+  if (currentEval.closure && (currentEval.closure.status === 'open' || currentEval.closure.is_working_day_override)) {
+    const dow = getDayOfWeekEST(cleanDate);
+    const isWeekend = (cachedWeeklyOffConfig.weekly_off_days || DEFAULT_WEEKLY_OFF_DAYS).includes(dow);
+    if (isWeekend) {
+      await deleteOfficeClosure(currentEval.closure.id, actingUser, 'Restored weekly off for ' + cleanDate);
+      return { success: true, newStatus: 'closed', message: `Date ${cleanDate} is now marked as Office Closed.` };
+    }
+  }
+
+  // Save explicit Office Closed entry
+  const closedRecord: Omit<OfficeClosure, 'id' | 'created_at' | 'updated_at'> & { id?: string } = {
+    title: `Office Closed (${cleanDate})`,
+    status: 'closed',
+    event_type: 'special_closure',
+    start_date: cleanDate,
+    end_date: cleanDate,
+    is_all_day: true,
+    is_active: true,
+    is_working_day_override: false,
+    is_override: true,
+    custom_message: 'Our office is closed today. Please select another working day for the interview.',
+    description: customNote || 'Office closure declared by management'
+  };
+  if (currentEval.closure && currentEval.closure.start_date === cleanDate && currentEval.closure.end_date === cleanDate) {
+    closedRecord.id = currentEval.closure.id;
+  }
+  await saveOfficeClosure(closedRecord, actingUser, customNote || `Marked ${cleanDate} as Office Closed`);
+  return { success: true, newStatus: 'closed', message: `Date ${cleanDate} is now marked as Office Closed.` };
+}
+
+/**
+ * Clears/removes a specific holiday or closure entry covering dateStr.
+ * Supports single-date removal or splitting multi-day holiday ranges.
+ * Restores the default weekly schedule (Saturday/Sunday off, Weekdays on).
+ */
+export async function clearHolidayForDate(
+  dateStr: string,
+  actingUser?: Partial<User> | null,
+  clearEntireRange: boolean = false
+): Promise<{ success: boolean; clearedRange: boolean; message: string }> {
+  const cleanDate = dateStr.split('T')[0].trim();
+  const currentEval = checkDateOfficeClosure(cleanDate, cachedClosures, cachedWeeklyOffConfig);
+  const entry = currentEval.closure;
+
+  if (!entry) {
+    return { success: true, clearedRange: false, message: `No manual holiday or closure found on ${cleanDate}. Default schedule is active.` };
+  }
+
+  const isSingleDay = entry.start_date === entry.end_date || cleanDate === entry.start_date && cleanDate === entry.end_date;
+
+  // If single day or user explicitly chose to clear entire range
+  if (isSingleDay || clearEntireRange) {
+    await deleteOfficeClosure(entry.id, actingUser, `Cleared holiday: ${entry.title} (${entry.start_date} to ${entry.end_date})`);
+    return { success: true, clearedRange: true, message: `Cleared "${entry.title}". Restored default schedule.` };
+  }
+
+  // Multi-day holiday: user wants to clear just this specific date
+  // Case A: dateStr is the start date
+  if (cleanDate === entry.start_date) {
+    const newStart = shiftDateString(cleanDate, 1);
+    await updateOfficeClosure(entry.id, { start_date: newStart }, actingUser, `Removed ${cleanDate} from holiday "${entry.title}"`);
+    return { success: true, clearedRange: false, message: `Removed ${cleanDate} from "${entry.title}".` };
+  }
+
+  // Case B: dateStr is the end date
+  if (cleanDate === entry.end_date) {
+    const newEnd = shiftDateString(cleanDate, -1);
+    await updateOfficeClosure(entry.id, { end_date: newEnd }, actingUser, `Removed ${cleanDate} from holiday "${entry.title}"`);
+    return { success: true, clearedRange: false, message: `Removed ${cleanDate} from "${entry.title}".` };
+  }
+
+  // Case C: dateStr is in the middle of a range (e.g. Dec 24 - Dec 26, clearing Dec 25)
+  // Split into two entries: Range 1 (start to date-1), Range 2 (date+1 to end)
+  const range1End = shiftDateString(cleanDate, -1);
+  const range2Start = shiftDateString(cleanDate, 1);
+
+  // Update existing to be Range 1
+  await updateOfficeClosure(entry.id, { end_date: range1End }, actingUser, `Split holiday "${entry.title}" before ${cleanDate}`);
+
+  // Create Range 2
+  const range2Payload: Omit<OfficeClosure, 'id' | 'created_at' | 'updated_at'> = {
+    ...entry,
+    start_date: range2Start,
+    end_date: entry.end_date,
+    title: entry.title
+  };
+  delete (range2Payload as any).id;
+  await createOfficeClosure(range2Payload, actingUser, `Split holiday "${entry.title}" after ${cleanDate}`);
+
+  return { success: true, clearedRange: false, message: `Cleared ${cleanDate} from "${entry.title}". Remaining dates remain closed.` };
+}
+
+/**
+ * Clears an entire office closure / holiday entry by ID.
+ */
+export const clearOfficeClosure = deleteOfficeClosure;
+
+/**
+ * Clears ALL manually created holiday and office closure entries.
+ * Deletes all closure entries, syncs deletion with Google Calendar for all proxies,
+ * and leaves the default Saturday & Sunday weekly off-day configuration completely intact.
+ */
+export async function clearAllOfficeClosures(
+  actingUser?: Partial<User> | null
+): Promise<{ success: boolean; clearedCount: number }> {
+  if (isRunningTests) {
+    const count = cachedClosures.length;
+    cachedClosures = [];
+    notifyClosureSubscribers([]);
+    return { success: true, clearedCount: count };
+  }
+
+  const closures = await getOfficeClosures();
+  const count = closures.length;
+
+  const userId = actingUser?.id ? String(actingUser.id) : 'system';
+  const userName = actingUser?.display_name || actingUser?.email || 'Management';
+
+  // 1. Delete events from Google Calendar for each closure
+  for (const closure of closures) {
+    try {
+      await deleteClosureFromGoogleCalendar(closure);
+    } catch (e) {
+      console.warn('[holidayService] Non-fatal GCal delete error in clearAll:', e);
+    }
+  }
+
+  // 2. Clear client Firestore documents
+  let clientDeleteSucceeded = false;
+  try {
+    for (const closure of closures) {
+      await deleteDoc(doc(db, 'jpc_office_closures', closure.id));
+    }
+    clientDeleteSucceeded = true;
+  } catch (clientErr) {
+    console.warn('[holidayService] Direct client delete in clearAll failed, trying backend API:', clientErr);
+  }
+
+  // 3. Call backend API fallback to ensure complete removal
+  try {
+    await callApiFallback('/api/holidays/clear-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        acting_user_id: userId,
+        acting_user_name: userName
+      })
+    });
+  } catch (apiErr) {
+    if (!clientDeleteSucceeded && count > 0) {
+      throw apiErr;
+    }
+  }
+
+  // 4. Update memory cache and notify all listeners immediately
+  cachedClosures = [];
+  notifyClosureSubscribers([]);
+
+  // 5. Add Audit Log
+  const now = new Date().toISOString();
+  await addHolidayAuditLog({
+    id: 'audit_' + Math.random().toString(36).slice(2, 11),
+    action: 'delete',
+    entity_type: 'closure',
+    entity_id: 'all',
+    acting_user_id: userId,
+    acting_user_name: userName,
+    acting_user_role: actingUser?.role as any,
+    source_system: 'crm',
+    timestamp: now,
+    details: `Cleared all ${count} manual office closures. Default weekly off-days preserved.`
+  }).catch(() => {});
+
+  return { success: true, clearedCount: count };
 }

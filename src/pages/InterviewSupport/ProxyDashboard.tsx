@@ -33,7 +33,18 @@ import {
   InterviewFeedback,
   User
 } from '../../types';
-import { isProxyUser, getInterviewResumeInfo, getProxyLeaveStatusForDate, syncUserLeaveAvailability, shouldHideProxyLeaveFromRole, hasActiveOrFutureLeave, getActiveOrFutureProxyLeaves, validateInterviewTimeWindow, INTERVIEW_SCHEDULING_WINDOW_MESSAGE } from '../../services/interviewService';
+import { 
+  isProxyUser, 
+  getInterviewResumeInfo, 
+  getProxyLeaveStatusForDate, 
+  syncUserLeaveAvailability, 
+  shouldHideProxyLeaveFromRole, 
+  hasActiveOrFutureLeave, 
+  getActiveOrFutureProxyLeaves, 
+  validateInterviewTimeWindow, 
+  INTERVIEW_SCHEDULING_WINDOW_MESSAGE,
+  cleanupDuplicateProxySlots
+} from '../../services/interviewService';
 import { isDateOfficeClosedSync } from '../../services/holidayService';
 import { handleViewFile } from '../../services/fileService';
 import { 

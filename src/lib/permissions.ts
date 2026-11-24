@@ -514,6 +514,22 @@ export function canOverrideWorkingDay(user: User | null): boolean {
   ].includes(user.role);
 }
 
+/**
+ * Checks whether a user has authority to Clear All Holidays.
+ * Strictly limited to Higher Authorities and Administrators.
+ */
+export function canClearAllHolidays(user: User | null): boolean {
+  if (!user) return false;
+  return [
+    'administrator',
+    'jpc_sysadmin',
+    'jpc_manager',
+    'jpc_cs',
+    'aurrum_admin'
+  ].includes(user.role);
+}
+
+
 
 
 

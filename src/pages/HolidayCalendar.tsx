@@ -27,7 +27,8 @@ import { useToast } from '../contexts/ToastContext';
 import { 
   canManageHolidayCalendar, 
   canViewHolidayCalendar, 
-  canOverrideWorkingDay 
+  canOverrideWorkingDay,
+  canClearAllHolidays
 } from '../lib/permissions';
 import { 
   OfficeClosure, 
@@ -49,7 +50,11 @@ import {
   DEFAULT_WEEKLY_OFF_DAYS, 
   DEFAULT_WEEKLY_OFF_MESSAGE,
   syncClosureToGoogleCalendar,
-  syncClosuresFromGoogleCalendar
+  syncClosuresFromGoogleCalendar,
+  toggleDateWorkingStatus,
+  clearHolidayForDate,
+  clearOfficeClosure,
+  clearAllOfficeClosures
 } from '../services/holidayService';
 import { cn } from '../lib/utils';
 import { subscribeToCollection } from '../services/storage';
@@ -70,6 +75,7 @@ export const HolidayCalendar: React.FC = () => {
 
   const isManager = useMemo(() => canManageHolidayCalendar(user), [user]);
   const canOverride = useMemo(() => canOverrideWorkingDay(user), [user]);
+  const canClearAll = useMemo(() => canClearAllHolidays(user), [user]);
 
   // Calendar View Month/Year in EST
   const todayDate = new Date();
@@ -89,12 +95,15 @@ export const HolidayCalendar: React.FC = () => {
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [editingClosure, setEditingClosure] = useState<OfficeClosure | null>(null);
   const [isWeeklySettingsOpen, setIsWeeklySettingsOpen] = useState(false);
+  const [isClearAllModalOpen, setIsClearAllModalOpen] = useState(false);
+  const [isClearingAll, setIsClearingAll] = useState(false);
   const [isAuditLogsOpen, setIsAuditLogsOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
   // Form State for Event Modal
   const [formTitle, setFormTitle] = useState('');
   const [formType, setFormType] = useState<OfficeClosureEventType>('public_holiday');
+  const [formStatus, setFormStatus] = useState<'closed' | 'open'>('closed');
   const [formStartDate, setFormStartDate] = useState('');
   const [formEndDate, setFormEndDate] = useState('');
   const [formStartTime, setFormStartTime] = useState('');
@@ -102,8 +111,6 @@ export const HolidayCalendar: React.FC = () => {
   const [formDescription, setFormDescription] = useState('');
   const [formCustomMessage, setFormCustomMessage] = useState('');
   const [formLocation, setFormLocation] = useState('all');
-  const [formIsOverride, setFormIsOverride] = useState(false);
-  const [formIsWorkingDay, setFormIsWorkingDay] = useState(false);
   const [isSavingEvent, setIsSavingEvent] = useState(false);
 
   // Weekly Off Edit State
@@ -231,6 +238,7 @@ export const HolidayCalendar: React.FC = () => {
     setEditingClosure(null);
     setFormTitle('');
     setFormType('public_holiday');
+    setFormStatus('closed');
     setFormStartDate(defaultDate);
     setFormEndDate(defaultDate);
     setFormStartTime('');
@@ -238,8 +246,6 @@ export const HolidayCalendar: React.FC = () => {
     setFormDescription('');
     setFormCustomMessage('');
     setFormLocation('all');
-    setFormIsOverride(false);
-    setFormIsWorkingDay(false);
     setIsEventModalOpen(true);
   };
 
@@ -252,6 +258,7 @@ export const HolidayCalendar: React.FC = () => {
     setEditingClosure(closure);
     setFormTitle(closure.title);
     setFormType(closure.event_type);
+    setFormStatus(closure.status || (closure.is_working_day_override ? 'open' : 'closed'));
     setFormStartDate(closure.start_date.split('T')[0]);
     setFormEndDate(closure.end_date ? closure.end_date.split('T')[0] : closure.start_date.split('T')[0]);
     setFormStartTime(closure.start_time || '');
@@ -259,69 +266,73 @@ export const HolidayCalendar: React.FC = () => {
     setFormDescription(closure.description || '');
     setFormCustomMessage(closure.custom_message || '');
     setFormLocation(closure.location || 'all');
-    setFormIsOverride(Boolean(closure.is_override));
-    setFormIsWorkingDay(Boolean(closure.is_working_day_override));
     setIsEventModalOpen(true);
   };
 
-  // Quick Override for a Day
-  const handleQuickToggleOverride = async (dateStr: string, currentEval: ReturnType<typeof checkDateOfficeClosure>) => {
+  // Toggle Working Day Status for a Date (Office Open <-> Office Closed)
+  const handleToggleWorkingStatus = async (dateStr: string, currentEval: ReturnType<typeof checkDateOfficeClosure>) => {
     if (!canOverride) {
-      showToast('Only Higher Authorities and Administrators can override working schedule rules.', 'error');
+      showToast('Only Higher Authorities and Administrators can modify calendar working day status.', 'error');
       return;
     }
 
     try {
-      if (currentEval.closure && currentEval.closure.is_override) {
-        // Remove existing override
-        await deleteOfficeClosure(
-          currentEval.closure.id,
-          user ? { id: user.id, display_name: user.display_name || user.email, email: user.email } : undefined,
-          'Removed schedule override'
-        );
-        showToast(`Override removed for ${dateStr}. Restored standard schedule.`, 'success');
+      const userActor = user ? { id: user.id, display_name: user.display_name || user.email, email: user.email } : undefined;
+      const res = await toggleDateWorkingStatus(dateStr, undefined, userActor);
+      showToast(res.message, 'success');
+    } catch (err: any) {
+      showToast('Failed to toggle status: ' + (err.message || 'Error'), 'error');
+    }
+  };
+
+  // Clear a Specific Holiday / Date (Restores Default Schedule)
+  const handleClearHolidayDate = async (dateStr: string, closure?: OfficeClosure) => {
+    if (!isManager) {
+      showToast('You do not have permission to clear holiday entries.', 'error');
+      return;
+    }
+
+    const isMultiDay = closure && closure.start_date !== closure.end_date;
+    let clearEntireRange = false;
+
+    if (isMultiDay) {
+      const choice = window.confirm(
+        `This date (${dateStr}) is part of a multi-day closure "${closure.title}" (${closure.start_date} to ${closure.end_date}).\n\nClick OK to clear ONLY this date (${dateStr}) and keep remaining days closed.\nClick CANCEL to clear the ENTIRE holiday date range.`
+      );
+      clearEntireRange = !choice;
+    } else {
+      if (!window.confirm(`Clear the holiday/closure on ${dateStr} and restore default schedule?`)) {
         return;
       }
+    }
 
-      if (currentEval.isClosed) {
-        // Closed -> Force OPEN as normal working day
-        await createOfficeClosure(
-          {
-            title: `Working Day Override (${dateStr})`,
-            event_type: 'other',
-            start_date: dateStr,
-            end_date: dateStr,
-            description: 'Higher authority override: office open for interview bookings.',
-            custom_message: '',
-            is_override: true,
-            is_working_day_override: true,
-            location: 'all'
-          },
-          user ? { id: user.id, display_name: user.display_name || user.email, email: user.email } : undefined,
-          'Higher authority opened day for interview bookings'
-        );
-        showToast(`Date ${dateStr} is now OPEN for interview bookings!`, 'success');
-      } else {
-        // Open -> Force CLOSED
-        await createOfficeClosure(
-          {
-            title: `Special Office Closure (${dateStr})`,
-            event_type: 'special_closure',
-            start_date: dateStr,
-            end_date: dateStr,
-            description: 'Declared additional office closure by management.',
-            custom_message: 'Our office is closed today by special management declaration. Please schedule for another working day.',
-            is_override: true,
-            is_working_day_override: false,
-            location: 'all'
-          },
-          user ? { id: user.id, display_name: user.display_name || user.email, email: user.email } : undefined,
-          'Higher authority declared special office closure'
-        );
-        showToast(`Date ${dateStr} is now BLOCKED for interview bookings.`, 'success');
-      }
+    try {
+      const userActor = user ? { id: user.id, display_name: user.display_name || user.email, email: user.email } : undefined;
+      const res = await clearHolidayForDate(dateStr, userActor, clearEntireRange);
+      showToast(res.message, 'success');
+      if (isEventModalOpen) setIsEventModalOpen(false);
     } catch (err: any) {
-      showToast('Failed to apply override: ' + (err.message || 'Error'), 'error');
+      showToast('Failed to clear holiday: ' + (err.message || 'Error'), 'error');
+    }
+  };
+
+  // Clear All Holidays (Higher Authorities and Admins Only)
+  const handleClearAllHolidays = async () => {
+    if (!canClearAll) {
+      showToast('Only Higher Authorities and Administrators can clear all holidays.', 'error');
+      return;
+    }
+
+    setIsClearingAll(true);
+    try {
+      const userActor = user ? { id: user.id, display_name: user.display_name || user.email, email: user.email } : undefined;
+      const res = await clearAllOfficeClosures(userActor);
+      showToast(`Cleared all ${res.clearedCount} manual office closure entries. Default weekly schedule preserved.`, 'success');
+      setIsClearAllModalOpen(false);
+    } catch (err: any) {
+      showToast('Failed to clear all holidays: ' + (err.message || 'Error'), 'error');
+    } finally {
+      setIsClearingAll(false);
     }
   };
 
@@ -344,6 +355,7 @@ export const HolidayCalendar: React.FC = () => {
       const payload: Partial<OfficeClosure> = {
         title: formTitle.trim(),
         event_type: formType,
+        status: formStatus,
         start_date: formStartDate,
         end_date: effectiveEnd,
         start_time: formStartTime || null,
@@ -351,8 +363,8 @@ export const HolidayCalendar: React.FC = () => {
         description: formDescription.trim() || null,
         custom_message: formCustomMessage.trim() || null,
         location: formLocation || 'all',
-        is_override: formIsOverride,
-        is_working_day_override: formIsOverride ? formIsWorkingDay : false
+        is_override: formStatus === 'open',
+        is_working_day_override: formStatus === 'open'
       };
 
       const userActor = user ? { id: user.id, display_name: user.display_name || user.email, email: user.email } : undefined;
@@ -382,19 +394,19 @@ export const HolidayCalendar: React.FC = () => {
     }
   };
 
-  // Delete Event
+  // Delete/Clear Event
   const handleDeleteEvent = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this office closure? Interview bookings will be reopened for this period if no other rules apply.')) {
+    if (!window.confirm('Are you sure you want to clear this office closure? Normal interview booking schedule will be restored.')) {
       return;
     }
 
     try {
       const userActor = user ? { id: user.id, display_name: user.display_name || user.email, email: user.email } : undefined;
-      await deleteOfficeClosure(id, userActor, 'Deleted office closure');
-      showToast('Office closure deleted.', 'success');
+      await clearOfficeClosure(id, userActor, 'Cleared office closure');
+      showToast('Office closure cleared. Default schedule restored.', 'success');
       setIsEventModalOpen(false);
     } catch (err: any) {
-      showToast('Failed to delete closure: ' + err.message, 'error');
+      showToast('Failed to clear closure: ' + err.message, 'error');
     }
   };
 
@@ -456,9 +468,8 @@ export const HolidayCalendar: React.FC = () => {
   const upcomingClosures = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
     return closures
-      .filter(c => c.is_active !== false && !c.is_working_day_override && (c.end_date || c.start_date) >= todayStr)
-      .sort((a, b) => a.start_date.localeCompare(b.start_date))
-      .slice(0, 5);
+      .filter(c => c.is_active !== false && c.status !== 'open' && !c.is_working_day_override && (c.end_date || c.start_date) >= todayStr)
+      .sort((a, b) => a.start_date.localeCompare(b.start_date));
   }, [closures]);
 
   return (
@@ -475,10 +486,10 @@ export const HolidayCalendar: React.FC = () => {
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-text-primary tracking-tight">
-            Office Holiday & Weekly Off Calendar
+            Office Holiday & Working Day Calendar
           </h1>
           <p className="text-xs sm:text-sm font-bold text-text-muted">
-            Centralised management of office closures, non-working days, and interview booking restrictions.
+            Manage office closures, working day availability, and interview booking restrictions.
           </p>
         </div>
 
@@ -503,6 +514,17 @@ export const HolidayCalendar: React.FC = () => {
             </button>
           )}
 
+          {canClearAll && (
+            <button
+              onClick={() => setIsClearAllModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-3.5 bg-rose-500/10 text-rose-400 border border-rose-500/30 rounded-2xl font-bold text-xs hover:bg-rose-500/20 transition-all active:scale-95"
+              title="Clear all manual holidays and closures"
+            >
+              <Trash2 className="w-4 h-4 text-rose-400" />
+              <span>Clear All Holidays</span>
+            </button>
+          )}
+
           <button
             onClick={handleSyncGoogleCalendar}
             disabled={isSyncing}
@@ -524,36 +546,70 @@ export const HolidayCalendar: React.FC = () => {
         </div>
       </div>
 
-      {/* Recruiter / Candidate Announcements Banner */}
+      {/* Simplified Upcoming Office Closures Notice - Single Unified Card */}
       {upcomingClosures.length > 0 && (
-        <div className="p-5 sm:p-6 bg-amber-500/10 border border-amber-500/20 rounded-[28px] flex items-start gap-4">
-          <div className="w-10 h-10 bg-amber-500/20 text-amber-500 rounded-2xl flex items-center justify-center shrink-0 border border-amber-500/30">
-            <Info className="w-5 h-5" />
+        <div className="p-5 sm:p-6 bg-amber-500/10 border border-amber-500/25 rounded-[28px] space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 bg-amber-500/20 text-amber-500 rounded-xl flex items-center justify-center shrink-0 border border-amber-500/30">
+                <Info className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-xs sm:text-sm font-black text-amber-500 uppercase tracking-wider">
+                  Upcoming Office Closures (Booking Restrictions Active)
+                </h3>
+                <p className="text-[11px] font-bold text-text-muted mt-0.5">
+                  Interview bookings are automatically blocked for these dates.
+                </p>
+              </div>
+            </div>
+            <span className="px-2.5 py-1 bg-amber-500/20 text-amber-400 rounded-lg text-[10px] font-black uppercase tracking-wider">
+              {upcomingClosures.length} Active {upcomingClosures.length === 1 ? 'Closure' : 'Closures'}
+            </span>
           </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="text-xs sm:text-sm font-black text-amber-500 uppercase tracking-wider">
-              Upcoming Office Closures (Booking Restrictions Active)
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-2.5">
-              {upcomingClosures.map(c => (
-                <div key={c.id} className="p-3 bg-bg-secondary/70 rounded-xl border border-border-primary/60 text-xs space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-text-primary truncate">{c.title}</span>
-                    <span className="text-[10px] px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded-md font-bold uppercase">
-                      {c.event_type.replace('_', ' ')}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+            {upcomingClosures.map(c => (
+              <div key={c.id} className="p-3.5 bg-bg-secondary rounded-2xl border border-border-primary/80 text-xs flex flex-col justify-between gap-2 shadow-sm">
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-black text-text-primary truncate">{c.title}</span>
+                    <span className="text-[9px] px-2 py-0.5 bg-rose-500/15 text-rose-400 rounded-md font-black uppercase tracking-wider shrink-0 border border-rose-500/20">
+                      OFFICE CLOSED
                     </span>
                   </div>
-                  <p className="text-[11px] font-bold text-text-muted">
+                  <p className="text-[11px] font-bold text-text-secondary">
                     {c.start_date === c.end_date ? c.start_date : `${c.start_date} → ${c.end_date}`}
                   </p>
                   {c.custom_message && (
-                    <p className="text-[10px] text-text-secondary italic line-clamp-1">
+                    <p className="text-[10px] text-text-muted italic line-clamp-2">
                       "{c.custom_message}"
                     </p>
                   )}
                 </div>
-              ))}
-            </div>
+
+                {isManager && (
+                  <div className="pt-2 border-t border-border-primary/50 flex items-center justify-end gap-2">
+                    <button
+                      onClick={() => handleClearHolidayDate(c.start_date, c)}
+                      className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold rounded-lg text-[10px] border border-rose-500/20 transition-all flex items-center gap-1"
+                      title="Clear this closure and restore default schedule"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      Clear Holiday
+                    </button>
+                    <button
+                      onClick={() => handleOpenEditModal(c)}
+                      className="px-2.5 py-1 bg-bg-tertiary hover:bg-bg-hover text-text-primary font-bold rounded-lg text-[10px] border border-border-primary transition-all flex items-center gap-1"
+                      title="Edit closure details"
+                    >
+                      <Edit3 className="w-3 h-3" />
+                      Edit
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -602,19 +658,19 @@ export const HolidayCalendar: React.FC = () => {
         <div className="flex flex-wrap items-center gap-4 text-xs font-bold pt-1 text-text-muted">
           <div className="flex items-center gap-1.5">
             <div className="w-3.5 h-3.5 rounded-md bg-accent-green/20 border border-accent-green/40" />
-            <span>Working Day</span>
+            <span>Working Day (Default Open)</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-3.5 h-3.5 rounded-md bg-rose-500/20 border border-rose-500/40" />
-            <span>Public / Company Holiday</span>
+            <span>Office Closed (Holiday / Manual)</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-3.5 h-3.5 rounded-md bg-amber-500/20 border border-amber-500/40" />
+            <div className="w-3.5 h-3.5 rounded-md bg-amber-500/20 border border-border-primary" />
             <span>Weekly Off (Office Closed)</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-3.5 h-3.5 rounded-md bg-emerald-500/30 border border-emerald-500" />
-            <span>Higher Authority Override</span>
+            <div className="w-3.5 h-3.5 rounded-md bg-emerald-500/25 border border-emerald-500" />
+            <span>Office Open (Special Working Day)</span>
           </div>
         </div>
 
@@ -634,10 +690,9 @@ export const HolidayCalendar: React.FC = () => {
             const isToday = item.dateStr === new Date().toISOString().split('T')[0];
             const evalRes = item.evaluation;
             const isClosed = evalRes.isClosed;
-            const isOverrideWorking = evalRes.reason === 'override_working';
-            const isOverrideClosure = evalRes.reason === 'override_closure';
+            const isOpenStatus = evalRes.status === 'open' && (evalRes.reason === 'override_working' || evalRes.reason === 'open');
+            const isClosedStatus = evalRes.status === 'closed' && evalRes.reason !== 'weekly_off';
             const isWeeklyOff = evalRes.reason === 'weekly_off';
-            const isHoliday = evalRes.reason === 'holiday';
 
             return (
               <div
@@ -647,9 +702,8 @@ export const HolidayCalendar: React.FC = () => {
                   !item.isCurrentMonth && "opacity-35 bg-bg-tertiary/20",
                   item.isCurrentMonth && "bg-bg-tertiary/40 hover:border-accent-blue/40",
                   isToday && "ring-2 ring-accent-blue/40 border-accent-blue",
-                  isOverrideWorking && "border-emerald-500/50 bg-emerald-500/10",
-                  isOverrideClosure && "border-rose-500/50 bg-rose-500/10",
-                  isHoliday && "border-rose-500/40 bg-rose-500/5",
+                  isOpenStatus && "border-emerald-500/50 bg-emerald-500/10",
+                  isClosedStatus && "border-rose-500/50 bg-rose-500/10",
                   isWeeklyOff && "border-border-primary bg-bg-tertiary/60"
                 )}
               >
@@ -667,14 +721,23 @@ export const HolidayCalendar: React.FC = () => {
                     <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
                       {canOverride && (
                         <button
-                          onClick={() => handleQuickToggleOverride(item.dateStr, evalRes)}
+                          onClick={() => handleToggleWorkingStatus(item.dateStr, evalRes)}
                           className={cn(
                             "p-1 rounded-md text-[10px] font-bold transition-colors",
                             isClosed ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30" : "bg-rose-500/20 text-rose-400 hover:bg-rose-500/30"
                           )}
-                          title={isClosed ? "Make Working Day" : "Declare Closure"}
+                          title={isClosed ? "Switch to Office Open" : "Switch to Office Closed"}
                         >
                           {isClosed ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                        </button>
+                      )}
+                      {evalRes.closure && (
+                        <button
+                          onClick={() => handleClearHolidayDate(item.dateStr, evalRes.closure)}
+                          className="p-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-md border border-rose-500/20 transition-colors"
+                          title="Clear Holiday / Reset to Default Schedule"
+                        >
+                          <Trash2 className="w-3 h-3" />
                         </button>
                       )}
                       <button
@@ -686,7 +749,7 @@ export const HolidayCalendar: React.FC = () => {
                           }
                         }}
                         className="p-1 bg-bg-secondary text-text-muted hover:text-text-primary rounded-md border border-border-primary"
-                        title={evalRes.closure ? "Edit Closure Event" : "Add Closure Event"}
+                        title={evalRes.closure ? "Edit Holiday / Closure" : "Add Holiday / Closure"}
                       >
                         {evalRes.closure ? <Edit3 className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
                       </button>
@@ -696,47 +759,37 @@ export const HolidayCalendar: React.FC = () => {
 
                 {/* Day status badge & labels */}
                 <div className="mt-1.5 flex-1 flex flex-col justify-end gap-1">
-                  {isOverrideWorking && (
+                  {isOpenStatus && (
                     <div className="p-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-[9px] sm:text-[10px] font-black text-emerald-300 leading-tight">
                       <div className="flex items-center gap-1">
                         <CheckCircle2 className="w-3 h-3 shrink-0" />
-                        <span className="truncate">OVERRIDE: OPEN</span>
+                        <span className="truncate">OFFICE OPEN</span>
                       </div>
-                      <span className="text-[8px] font-normal block opacity-80">Bookings permitted</span>
+                      <span className="text-[8px] font-normal block opacity-80 truncate">Bookings available</span>
                     </div>
                   )}
 
-                  {isOverrideClosure && (
-                    <div className="p-1.5 rounded-xl bg-rose-500/20 border border-rose-500/40 text-[9px] sm:text-[10px] font-black text-rose-300 leading-tight">
-                      <div className="flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3 shrink-0" />
-                        <span className="truncate">{evalRes.title || 'SPECIAL CLOSURE'}</span>
-                      </div>
-                      <span className="text-[8px] font-normal block opacity-80">Office closed</span>
-                    </div>
-                  )}
-
-                  {isHoliday && !isOverrideClosure && (
+                  {isClosedStatus && (
                     <div 
                       onClick={() => evalRes.closure && isManager && handleOpenEditModal(evalRes.closure)}
-                      className="p-1.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-[9px] sm:text-[10px] font-black text-rose-300 leading-tight cursor-pointer hover:bg-rose-500/25 transition-all"
+                      className="p-1.5 rounded-xl bg-rose-500/20 border border-rose-500/40 text-[9px] sm:text-[10px] font-black text-rose-300 leading-tight cursor-pointer hover:bg-rose-500/30 transition-all"
                     >
                       <div className="flex items-center gap-1">
-                        <ShieldAlert className="w-3 h-3 shrink-0" />
-                        <span className="truncate">{evalRes.title || 'HOLIDAY'}</span>
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        <span className="truncate">OFFICE CLOSED</span>
                       </div>
-                      <span className="text-[8px] font-normal block opacity-80">Office Closed</span>
+                      <span className="text-[8px] font-normal block opacity-80 truncate">{evalRes.title || 'Office Closed'}</span>
                     </div>
                   )}
 
-                  {isWeeklyOff && !isHoliday && !isOverrideClosure && (
+                  {isWeeklyOff && !isClosedStatus && !isOpenStatus && (
                     <div className="p-1.5 rounded-xl bg-bg-secondary/70 border border-border-primary text-[9px] sm:text-[10px] font-black text-text-muted leading-tight">
                       <span className="truncate block">WEEKLY OFF</span>
                       <span className="text-[8px] font-normal block opacity-70">Office closed</span>
                     </div>
                   )}
 
-                  {!isClosed && !isOverrideWorking && (
+                  {!isClosed && !isOpenStatus && (
                     <div className="text-[9px] font-bold text-accent-green/80 flex items-center gap-1 px-1">
                       <div className="w-1.5 h-1.5 rounded-full bg-accent-green" />
                       <span className="truncate">Working Day</span>
@@ -952,52 +1005,45 @@ export const HolidayCalendar: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Higher Authority Overrides */}
-                {canOverride && (
-                  <div className="p-4 bg-bg-tertiary/60 border border-border-primary rounded-2xl space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <span className="text-xs font-black text-text-primary block">
-                          Higher Authority Date Override
-                        </span>
-                        <p className="text-[11px] text-text-muted">
-                          Explicitly override standard weekly off or holiday rules for this date range.
-                        </p>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={formIsOverride}
-                        onChange={e => setFormIsOverride(e.target.checked)}
-                        className="w-5 h-5 rounded text-accent-blue"
-                      />
-                    </div>
-
-                    {formIsOverride && (
-                      <div className="pt-2 border-t border-border-primary flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setFormIsWorkingDay(true)}
-                          className={cn(
-                            "flex-1 py-2 rounded-xl text-xs font-bold border transition-all",
-                            formIsWorkingDay ? "bg-emerald-500/20 text-emerald-300 border-emerald-500" : "bg-bg-secondary text-text-muted border-border-primary"
-                          )}
-                        >
-                          Force Open as Working Day
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setFormIsWorkingDay(false)}
-                          className={cn(
-                            "flex-1 py-2 rounded-xl text-xs font-bold border transition-all",
-                            !formIsWorkingDay ? "bg-rose-500/20 text-rose-300 border-rose-500" : "bg-bg-secondary text-text-muted border-border-primary"
-                          )}
-                        >
-                          Force Office Closure
-                        </button>
-                      </div>
-                    )}
+                {/* Calendar Working Status Toggle (Office Closed vs Office Open) */}
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-text-muted uppercase tracking-wider block">
+                    Calendar Status *
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setFormStatus('closed')}
+                      className={cn(
+                        "py-3 px-4 rounded-2xl text-xs font-black border flex items-center justify-center gap-2 transition-all",
+                        formStatus === 'closed'
+                          ? "bg-rose-500/20 text-rose-300 border-rose-500 shadow-sm"
+                          : "bg-bg-tertiary text-text-muted border-border-primary hover:text-text-primary"
+                      )}
+                    >
+                      <Lock className="w-4 h-4" />
+                      Office Closed
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormStatus('open')}
+                      className={cn(
+                        "py-3 px-4 rounded-2xl text-xs font-black border flex items-center justify-center gap-2 transition-all",
+                        formStatus === 'open'
+                          ? "bg-emerald-500/20 text-emerald-300 border-emerald-500 shadow-sm"
+                          : "bg-bg-tertiary text-text-muted border-border-primary hover:text-text-primary"
+                      )}
+                    >
+                      <Unlock className="w-4 h-4" />
+                      Office Open
+                    </button>
                   </div>
-                )}
+                  <p className="text-[11px] font-bold text-text-muted">
+                    {formStatus === 'closed'
+                      ? "Non-working day: All interview bookings are blocked for this date or date range."
+                      : "Working day: Normal interview booking availability is restored for this date or date range."}
+                  </p>
+                </div>
 
                 <div className="space-y-1">
                   <label className="text-xs font-black text-text-muted uppercase tracking-wider block">
@@ -1029,11 +1075,12 @@ export const HolidayCalendar: React.FC = () => {
                   {editingClosure && (
                     <button
                       type="button"
-                      onClick={() => handleDeleteEvent(editingClosure.id)}
+                      onClick={() => handleClearHolidayDate(editingClosure.start_date, editingClosure)}
                       className="p-3.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold rounded-2xl text-xs border border-rose-500/20 transition-all flex items-center justify-center gap-2"
+                      title="Clear this holiday entry and restore default schedule"
                     >
                       <Trash2 className="w-4 h-4" />
-                      Delete
+                      Clear Holiday
                     </button>
                   )}
                   <button
@@ -1049,10 +1096,72 @@ export const HolidayCalendar: React.FC = () => {
                     className="flex-1 py-3.5 bg-accent-blue text-white font-bold rounded-2xl text-xs hover:bg-accent-blue/90 shadow-xl shadow-accent-blue/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {isSavingEvent && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-                    {editingClosure ? 'Save Changes' : 'Create Closure'}
+                    {editingClosure ? 'Save Changes' : 'Save Status'}
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Clear All Holidays Confirmation Modal */}
+      <AnimatePresence>
+        {isClearAllModalOpen && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[75] flex items-center justify-center p-3 sm:p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-bg-secondary w-full max-w-md rounded-[36px] border border-rose-500/30 shadow-2xl p-6 sm:p-8 space-y-5"
+            >
+              <div className="w-14 h-14 rounded-2xl bg-rose-500/15 text-rose-500 border border-rose-500/30 flex items-center justify-center mx-auto">
+                <Trash2 className="w-7 h-7" />
+              </div>
+
+              <div className="text-center space-y-2">
+                <h2 className="text-xl sm:text-2xl font-black text-text-primary tracking-tight">
+                  Clear All Holidays?
+                </h2>
+                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+                  This will remove all manually added holidays, office closures, and special open days. All corresponding booking restrictions will be removed, and changes will be synchronised with Google Calendar.
+                </p>
+              </div>
+
+              <div className="p-3.5 bg-bg-tertiary rounded-2xl border border-border-primary text-[11px] text-text-muted space-y-1.5">
+                <div className="flex items-center gap-2 text-text-primary font-bold">
+                  <CheckCircle2 className="w-4 h-4 text-accent-green shrink-0" />
+                  Default Saturday & Sunday weekly offs remain active
+                </div>
+                <div className="flex items-center gap-2 text-text-primary font-bold">
+                  <CheckCircle2 className="w-4 h-4 text-accent-green shrink-0" />
+                  Historical interviews and proxy assignments remain safe
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsClearAllModalOpen(false)}
+                  disabled={isClearingAll}
+                  className="flex-1 py-3.5 bg-bg-tertiary text-text-primary font-bold rounded-2xl text-xs hover:bg-bg-tertiary/80 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearAllHolidays}
+                  disabled={isClearingAll}
+                  className="flex-1 py-3.5 bg-rose-500 text-white font-bold rounded-2xl text-xs hover:bg-rose-600 shadow-xl shadow-rose-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isClearingAll ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
+                  Yes, Clear All
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

@@ -3523,6 +3523,41 @@ app.all(["/api/holidays/:id", "/holidays/:id"], async (req, res, next) => {
   }
   next();
 });
+app.post(["/api/holidays/clear-all", "/holidays/clear-all"], async (req, res) => {
+  try {
+    if (!db) {
+      return res.json({ success: true, count: 0, message: "DB client bypassed in environment" });
+    }
+    const snap = await db.collection("jpc_office_closures").get();
+    const batch = db.batch();
+    let count = 0;
+    snap.docs.forEach((docSnap) => {
+      batch.delete(docSnap.ref);
+      count++;
+    });
+    if (count > 0) {
+      await batch.commit();
+    }
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const auditId = "audit_" + Math.random().toString(36).slice(2, 11);
+    await db.collection("jpc_holiday_audit_logs").doc(auditId).set({
+      id: auditId,
+      action: "delete",
+      entity_type: "all_closures",
+      entity_id: "all",
+      acting_user_id: req.body?.acting_user_id || "system",
+      acting_user_name: req.body?.acting_user_name || "Management",
+      source_system: "api",
+      timestamp: now,
+      details: `Cleared all ${count} office holiday and closure entries. Default weekly off-days preserved.`
+    }).catch(() => {
+    });
+    return res.json({ success: true, count });
+  } catch (error) {
+    console.error("Error in clear-all holidays API:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
 app.delete(["/api/holidays/:id", "/holidays/:id"], async (req, res) => {
   try {
     const id = req.params.id;
