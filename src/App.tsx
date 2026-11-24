@@ -132,8 +132,7 @@ const AppContent: React.FC = () => {
           '#aurrum-sales',
           '#aurrum-interviews',
           '#receipt',
-          '#office-holidays',
-          '#holidays',
+          ...(canViewHolidayCalendar(user) ? ['#office-holidays', '#holidays'] : []),
           ...(user.role === 'aurrum_admin' ? ['#aurrum-team'] : []),
         ];
         if (!current || (!allowedForAurrum.includes(current) && !current.startsWith('#book-interview'))) {
@@ -207,7 +206,10 @@ const AppContent: React.FC = () => {
           return <Receipt />;
         case '#office-holidays':
         case '#holidays':
-          if (!canViewHolidayCalendar(user)) return <AurrumDashboard />;
+          if (!canViewHolidayCalendar(user)) {
+            window.location.hash = '#aurrum-dashboard';
+            return <AurrumDashboard />;
+          }
           return <HolidayCalendar />;
         default:
           if (hash.startsWith('#book-interview')) {
@@ -294,7 +296,10 @@ const AppContent: React.FC = () => {
         return <AurrumTeam />;
       case '#office-holidays':
       case '#holidays':
-        if (!canViewHolidayCalendar(user)) return <Dashboard />;
+        if (!canViewHolidayCalendar(user)) {
+          window.location.hash = '#dashboard';
+          return <Dashboard />;
+        }
         return <HolidayCalendar />;
       default:
         if (hash.startsWith('#book-interview')) {

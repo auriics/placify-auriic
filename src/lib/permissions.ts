@@ -492,12 +492,21 @@ export function canManageHolidayCalendar(user: User | null): boolean {
 }
 
 /**
- * Checks whether a user can view the holiday calendar and announcements.
- * All internal CRM staff members can view. Candidates are excluded.
+ * Checks whether a user can view the Office Holiday Calendar and its management page.
+ * Strictly restricted to authorised Higher Authorities and Administrators:
+ * - Administrator (administrator, aurrum_admin)
+ * - System Administrator (jpc_sysadmin)
+ * - Manager / Higher Authorities (jpc_manager)
+ * - CS Head / Compliance Head (jpc_cs, jpc_compliance_person)
+ * - Proxies with explicit can_manage_calendar permission
+ *
+ * Strictly HIDDEN from Recruiters (jpc_recruiter), Sales (jpc_sales, aurrum_sales),
+ * Lead Gen (jpc_lead_gen), Marketing (jpc_marketing, jpc_marketing_support),
+ * Resume team, general team members, and Candidates.
  */
 export function canViewHolidayCalendar(user: User | null): boolean {
   if (!user) return false;
-  return user.role !== 'candidate' && user.role !== 'jpc_candidate';
+  return canManageHolidayCalendar(user);
 }
 
 /**

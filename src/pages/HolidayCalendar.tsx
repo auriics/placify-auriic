@@ -74,6 +74,7 @@ export const HolidayCalendar: React.FC = () => {
   const { user } = useAuth();
   const { showToast } = useToast();
 
+  const canView = useMemo(() => canViewHolidayCalendar(user), [user]);
   const isManager = useMemo(() => canManageHolidayCalendar(user), [user]);
   const canOverride = useMemo(() => canOverrideWorkingDay(user), [user]);
   const canClearAll = useMemo(() => canClearAllHolidays(user), [user]);
@@ -121,6 +122,7 @@ export const HolidayCalendar: React.FC = () => {
 
   // Subscriptions
   useEffect(() => {
+    if (!canView) return;
     const unsubClosures = subscribeToOfficeClosures(setClosures);
     const unsubConfig = subscribeToWeeklyOffConfig(config => {
       setWeeklyConfig(config);
@@ -136,7 +138,29 @@ export const HolidayCalendar: React.FC = () => {
       unsubLogs();
       unsubUsers();
     };
-  }, []);
+  }, [canView]);
+
+  if (!canView) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-8 min-h-[60vh]">
+        <div className="max-w-md w-full bg-bg-secondary p-8 rounded-3xl border border-rose-500/30 text-center shadow-xl space-y-4">
+          <div className="w-14 h-14 rounded-2xl bg-rose-500/20 border border-rose-500/30 text-rose-400 flex items-center justify-center mx-auto">
+            <Lock className="w-7 h-7" />
+          </div>
+          <h2 className="text-xl font-black text-text-primary">Access Restricted</h2>
+          <p className="text-sm text-text-muted leading-relaxed">
+            The Office Holiday Calendar is restricted to authorised Higher Authorities and Administrators only.
+          </p>
+          <button
+            onClick={() => { window.location.hash = '#dashboard'; }}
+            className="px-5 py-2.5 bg-accent-blue text-white rounded-xl text-xs font-bold hover:bg-accent-blue/90 transition-all shadow-md"
+          >
+            Return to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Compute Calendar Grid Days
   const calendarDays = useMemo(() => {
@@ -380,11 +404,12 @@ export const HolidayCalendar: React.FC = () => {
         showToast('Office closure updated successfully!', 'success');
       } else {
         // Prevent duplicate closure entries on the exact same date
-        const existingMatch = closures.find(c => 
-          c.start_date === payload.start_date && 
-          (c.end_date === payload.end_date || (!c.end_date && payload.end_date === payload.start_date)) &&
-          c.is_active !== false
-        );
+        const existingMatch = closures.find(c => {
+          if (!c || c.is_active === false || !c.start_date) return false;
+          const s = c.start_date.split('T')[0];
+          const e = (c.end_date || c.start_date).split('T')[0];
+          return (s === payload.start_date && e === payload.end_date) || (s === payload.start_date && (!payload.end_date || payload.end_date === payload.start_date));
+        });
         if (existingMatch) {
           await updateOfficeClosure(
             existingMatch.id,
@@ -462,9 +487,13 @@ export const HolidayCalendar: React.FC = () => {
       // 1. Run deduplication on closures and Google Calendar
       const cleanRes = await cleanupAllDuplicateClosures(userActor);
       
-      // 2. Sync all active closures (both closed and open override)
+      // 2. Fetch fresh deduplicated closures from Firestore so we don't sync old in-memory state
+      const freshClosures = await getOfficeClosures();
+      setClosures(freshClosures);
+
+      // 3. Sync all active closures (both closed and open override)
       let syncCount = 0;
-      for (const closure of closures) {
+      for (const closure of freshClosures) {
         if (closure.is_active !== false) {
           try {
             await syncClosureToGoogleCalendar(closure, user);
@@ -762,9 +791,9 @@ export const HolidayCalendar: React.FC = () => {
                           {isClosed ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
                         </button>
                       )}
-                      {evalRes.closure && (
+                      {(evalRes.closure || closures.some(c => c.is_active !== false && item.dateStr >= c.start_date.split('T')[0] && item.dateStr <= (c.end_date || c.start_date).split('T')[0])) && (
                         <button
-                          onClick={() => handleClearHolidayDate(item.dateStr, evalRes.closure)}
+                          onClick={() => handleClearHolidayDate(item.dateStr, evalRes.closure || closures.find(c => c.is_active !== false && item.dateStr >= c.start_date.split('T')[0] && item.dateStr <= (c.end_date || c.start_date).split('T')[0]))}
                           className="p-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-md border border-rose-500/20 transition-colors"
                           title="Clear Holiday / Reset to Default Schedule"
                         >

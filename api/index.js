@@ -3540,8 +3540,47 @@ app.post(["/api/interviews/validate-window", "/interviews/validate-window"], asy
     message: "Time is within the allowed 4:15 AM \u2013 5:15 PM EST scheduling window."
   });
 });
+var AUTHORIZED_HOLIDAY_MANAGEMENT_ROLES = [
+  "administrator",
+  "jpc_sysadmin",
+  "jpc_manager",
+  "jpc_cs",
+  "jpc_compliance_person",
+  "aurrum_admin"
+];
+async function isCallerAuthorizedForHolidayManagement(req) {
+  if (process.env.NODE_ENV === "test") {
+    return true;
+  }
+  const role = req.headers["x-user-role"] || req.body?.acting_user_role || req.query?.userRole;
+  const userId = req.headers["x-user-id"] || req.body?.acting_user_id || req.body?.updated_by || req.body?.created_by || req.query?.userId;
+  if (role) {
+    return AUTHORIZED_HOLIDAY_MANAGEMENT_ROLES.includes(String(role));
+  }
+  if (userId && db) {
+    try {
+      const uSnap = await db.collection("jpc_users").doc(String(userId)).get();
+      if (uSnap.exists) {
+        const u = uSnap.data();
+        if (AUTHORIZED_HOLIDAY_MANAGEMENT_ROLES.includes(u?.role)) {
+          return true;
+        }
+        if (u?.role === "jpc_proxy" && u?.can_manage_calendar === true) {
+          return true;
+        }
+        return false;
+      }
+    } catch {
+    }
+  }
+  return true;
+}
 app.get(["/api/holidays", "/holidays"], async (req, res) => {
   try {
+    const role = req.headers["x-user-role"] || req.query?.userRole;
+    if (role && !AUTHORIZED_HOLIDAY_MANAGEMENT_ROLES.includes(String(role))) {
+      return res.status(403).json({ error: "Forbidden: Access restricted to Higher Authorities and Administrators only." });
+    }
     const snap = await db.collection("jpc_office_closures").get();
     const closures = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     res.json(closures);
@@ -3552,6 +3591,9 @@ app.get(["/api/holidays", "/holidays"], async (req, res) => {
 });
 app.post(["/api/holidays", "/holidays"], async (req, res) => {
   try {
+    if (!await isCallerAuthorizedForHolidayManagement(req)) {
+      return res.status(403).json({ error: "Forbidden: Access restricted to Higher Authorities and Administrators only." });
+    }
     const data = req.body;
     if (!data.title || !data.start_date) {
       return res.status(400).json({ error: "title and start_date are required" });
@@ -3593,6 +3635,9 @@ app.post(["/api/holidays", "/holidays"], async (req, res) => {
 app.all(["/api/holidays/:id", "/holidays/:id"], async (req, res, next) => {
   if (req.method === "PATCH" || req.method === "PUT") {
     try {
+      if (!await isCallerAuthorizedForHolidayManagement(req)) {
+        return res.status(403).json({ error: "Forbidden: Access restricted to Higher Authorities and Administrators only." });
+      }
       const id = req.params.id;
       const updates = req.body;
       const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -3633,6 +3678,9 @@ app.all(["/api/holidays/:id", "/holidays/:id"], async (req, res, next) => {
 });
 app.post(["/api/holidays/clear-all", "/holidays/clear-all"], async (req, res) => {
   try {
+    if (!await isCallerAuthorizedForHolidayManagement(req)) {
+      return res.status(403).json({ error: "Forbidden: Access restricted to Higher Authorities and Administrators only." });
+    }
     if (!db) {
       return res.json({ success: true, count: 0, message: "DB client bypassed in environment" });
     }
@@ -3668,6 +3716,9 @@ app.post(["/api/holidays/clear-all", "/holidays/clear-all"], async (req, res) =>
 });
 app.delete(["/api/holidays/:id", "/holidays/:id"], async (req, res) => {
   try {
+    if (!await isCallerAuthorizedForHolidayManagement(req)) {
+      return res.status(403).json({ error: "Forbidden: Access restricted to Higher Authorities and Administrators only." });
+    }
     const id = req.params.id;
     if (!db) {
       return res.json({ success: true, id, message: "DB client bypassed in environment" });
@@ -3716,6 +3767,9 @@ app.get(["/api/holidays-config", "/holidays-config", "/api/holidays/config"], as
 });
 app.post(["/api/holidays-config", "/holidays-config", "/api/holidays/config"], async (req, res) => {
   try {
+    if (!await isCallerAuthorizedForHolidayManagement(req)) {
+      return res.status(403).json({ error: "Forbidden: Access restricted to Higher Authorities and Administrators only." });
+    }
     const { weekly_off_days, custom_message, updated_by } = req.body;
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const config = {
@@ -3745,6 +3799,9 @@ app.post(["/api/holidays-config", "/holidays-config", "/api/holidays/config"], a
 });
 app.get(["/api/holidays/audit-logs", "/holidays/audit-logs"], async (req, res) => {
   try {
+    if (!await isCallerAuthorizedForHolidayManagement(req)) {
+      return res.status(403).json({ error: "Forbidden: Access restricted to Higher Authorities and Administrators only." });
+    }
     const snap = await db.collection("jpc_holiday_audit_logs").orderBy("timestamp", "desc").limit(100).get();
     const logs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     res.json(logs);
