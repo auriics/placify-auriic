@@ -33,7 +33,8 @@ import {
   InterviewFeedback,
   User
 } from '../../types';
-import { generateDefaultProxySlots, getSlotStatusColor, cleanupDuplicateProxySlots, isProxyUser, getInterviewResumeInfo, getProxyLeaveStatusForDate, syncUserLeaveAvailability, shouldHideProxyLeaveFromRole, hasActiveOrFutureLeave, getActiveOrFutureProxyLeaves, validateInterviewTimeWindow, INTERVIEW_SCHEDULING_WINDOW_MESSAGE } from '../../services/interviewService';
+import { isProxyUser, getInterviewResumeInfo, getProxyLeaveStatusForDate, syncUserLeaveAvailability, shouldHideProxyLeaveFromRole, hasActiveOrFutureLeave, getActiveOrFutureProxyLeaves, validateInterviewTimeWindow, INTERVIEW_SCHEDULING_WINDOW_MESSAGE } from '../../services/interviewService';
+import { isDateOfficeClosedSync } from '../../services/holidayService';
 import { handleViewFile } from '../../services/fileService';
 import { 
   Calendar as CalendarIcon, 
@@ -511,6 +512,10 @@ export const ProxyDashboard: React.FC = () => {
     return filterDate || getEasternDate();
   }, [filterDate]);
 
+  const closureInfo = useMemo(() => {
+    return isDateOfficeClosedSync(effectiveProxyDate);
+  }, [effectiveProxyDate]);
+
   const hideLeaveStatus = useMemo(() => {
     return shouldHideProxyLeaveFromRole(user?.role);
   }, [user]);
@@ -606,27 +611,68 @@ export const ProxyDashboard: React.FC = () => {
                       const pLeave = !hideLeaveStatus ? getProxyLeaveStatusForDate(p, effectiveProxyDate) : null;
                       const isConflict = pLeave?.isOnLeave;
                       const leaveRange = formatLeavePeriod(p.leave_start_date, p.leave_end_date);
+                      let label = p.display_name;
+                      if (closureInfo.isClosed) {
+                        label += ` 🔴 [OFFICE CLOSED – DAY OFF] - UNAVAILABLE`;
+                      } else if (isConflict) {
+                        label += ` 🔴 [ON LEAVE: ${leaveRange}] - UNAVAILABLE`;
+                      } else if (hasFuture) {
+                        label += ` 🔴 [ON LEAVE: ${leaveRange}]`;
+                      }
                       return (
                         <option key={p.id} value={p.id}>
-                          {p.display_name} {isConflict ? `🔴 [ON LEAVE: ${leaveRange}] - UNAVAILABLE` : hasFuture ? `🔴 [ON LEAVE: ${leaveRange}]` : ''}
+                          {label}
                         </option>
                       );
                     })
                   )}
                 </select>
 
-                {(activeProxyLeaveInfo?.isOnLeave || activeProxyHasFutureLeave) && !hideLeaveStatus && (
+                {closureInfo.isClosed ? (
+                  <span className="px-2.5 py-1 text-[9px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-lg flex items-center gap-1 shadow-sm shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                    DAY OFF
+                  </span>
+                ) : (activeProxyLeaveInfo?.isOnLeave || activeProxyHasFutureLeave) && !hideLeaveStatus ? (
                   <span className="px-2.5 py-1 text-[9px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-lg flex items-center gap-1 shadow-sm shrink-0">
                     <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                     ON LEAVE
                   </span>
-                )}
+                ) : null}
               </div>
             </div>
           )}
 
         </div>
       </div>
+
+      {/* Prominent Banner when Office is Closed (Weekend, Public Holiday, or Higher Authority Day Off) */}
+      {closureInfo.isClosed && (
+        <div className="p-5 sm:p-6 bg-rose-500/15 border-2 border-rose-500/35 rounded-3xl flex items-start sm:items-center gap-4 shadow-sm">
+          <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center shrink-0">
+            <AlertCircle className="w-6 h-6" />
+          </div>
+          <div className="flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-base sm:text-lg font-black text-rose-500 uppercase tracking-tight">
+                OFFICE CLOSED – {closureInfo.title || 'SCHEDULED DAY OFF'}
+              </h3>
+              <span className="px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-md shadow-sm">
+                NON-WORKING DAY
+              </span>
+              <span className="px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-md">
+                PROXIES ON DAY OFF
+              </span>
+            </div>
+            <p className="text-xs sm:text-sm font-bold text-rose-400 mt-1">
+              {closureInfo.message}
+            </p>
+            <p className="text-[11px] text-text-secondary mt-0.5">
+              Notice: Interviews cannot be scheduled or conducted on this date. All proxy availability slots for this date are marked as Day Off.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Prominent Warning when both proxies have leave on selected date */}
       {bothProxiesOnLeaveInCentral && !hideLeaveStatus && (

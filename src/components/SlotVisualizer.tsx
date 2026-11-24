@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { InterviewRound, ProxyAvailability, User } from '../types';
 import { cn, parseLocalTimeToDate, getEasternDate, isUserOnLeaveDuring } from '../lib/utils';
 import { Calendar, Clock, AlertCircle } from 'lucide-react';
+import { isDateOfficeClosedSync } from '../services/holidayService';
 
 interface SlotVisualizerProps {
   rounds: InterviewRound[];
@@ -19,6 +20,8 @@ export const SlotVisualizer: React.FC<SlotVisualizerProps> = ({ rounds, availabi
     day: '2-digit',
   }).format(date), [date]);
 
+  const closureInfo = useMemo(() => isDateOfficeClosedSync(dateStr), [dateStr]);
+
   const isOnLeaveDay = useMemo(() => {
     if (proxyUser) {
       return isUserOnLeaveDuring(proxyUser, dateStr);
@@ -31,17 +34,20 @@ export const SlotVisualizer: React.FC<SlotVisualizerProps> = ({ rounds, availabi
   }, [proxyUser, dateStr, availabilities, proxyId]);
 
   const sortedSlots = useMemo(() => {
+    // If office is closed (day off), do not display normal "available" slots as bookable
     // Available slots
-    const available = availabilities
-      .filter(a => 
-        (proxyId ? String(a.proxy_user_id) === proxyId : true) &&
-        a.slot_start?.startsWith(dateStr) && a.slot_status === 'available')
-      .map(a => ({
-        id: a.id,
-        type: 'available' as const,
-        start: a.slot_start,
-        end: a.slot_end,
-      }));
+    const available = closureInfo.isClosed
+      ? []
+      : availabilities
+          .filter(a => 
+            (proxyId ? String(a.proxy_user_id) === proxyId : true) &&
+            a.slot_start?.startsWith(dateStr) && a.slot_status === 'available')
+          .map(a => ({
+            id: a.id,
+            type: 'available' as const,
+            start: a.slot_start,
+            end: a.slot_end,
+          }));
 
     // Leave / Unavailable slots
     const leaveSlots = availabilities
@@ -70,12 +76,12 @@ export const SlotVisualizer: React.FC<SlotVisualizerProps> = ({ rounds, availabi
       }));
 
     return [...available, ...leaveSlots, ...booked].sort((a, b) => a.start.localeCompare(b.start));
-  }, [rounds, availabilities, dateStr, proxyId]);
+  }, [rounds, availabilities, dateStr, proxyId, closureInfo.isClosed]);
 
   const bookedOnLeaveDay = useMemo(() => {
-    if (!isOnLeaveDay) return [];
+    if (!isOnLeaveDay && !closureInfo.isClosed) return [];
     return sortedSlots.filter(s => s.type === 'booked');
-  }, [isOnLeaveDay, sortedSlots]);
+  }, [isOnLeaveDay, closureInfo.isClosed, sortedSlots]);
 
   return (
     <div className="bg-bg-secondary p-6 rounded-3xl border border-border-primary/50 shadow-sm">
@@ -84,15 +90,42 @@ export const SlotVisualizer: React.FC<SlotVisualizerProps> = ({ rounds, availabi
           <Calendar className="w-4 h-4 text-accent-blue" />
           Schedule for {date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'America/New_York' })} (EST)
         </h3>
-        {isOnLeaveDay && (
+        {closureInfo.isClosed ? (
+          <span className="self-start sm:self-auto px-3 py-1 bg-rose-500/15 text-rose-400 text-[10px] font-black rounded-full border border-rose-500/30 uppercase tracking-widest flex items-center gap-1.5 shadow-sm">
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+            Office Closed – Day Off
+          </span>
+        ) : isOnLeaveDay ? (
           <span className="self-start sm:self-auto px-3 py-1 bg-accent-amber/15 text-accent-amber text-[10px] font-black rounded-full border border-accent-amber/30 uppercase tracking-widest flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-accent-amber" />
             On Leave / Unavailable
           </span>
-        )}
+        ) : null}
       </div>
 
-      {isOnLeaveDay && (
+      {closureInfo.isClosed && (
+        <div className="mb-5 p-4 bg-rose-500/10 border border-rose-500/25 rounded-2xl flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-black text-rose-500 uppercase tracking-wider">
+                OFFICE CLOSED – {closureInfo.title || 'DAY OFF'}
+              </p>
+              <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-rose-500 text-white rounded">
+                NON-WORKING DAY
+              </span>
+            </div>
+            <p className="text-xs text-rose-400 font-bold mt-1">
+              {closureInfo.message}
+            </p>
+            <p className="text-[10px] text-text-secondary mt-0.5">
+              Interviews cannot be scheduled on this date. Proxies are marked as Day Off.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {isOnLeaveDay && !closureInfo.isClosed && (
         <div className="mb-5 p-4 bg-accent-amber/10 border border-accent-amber/25 rounded-2xl flex items-start gap-3">
           <span className="text-lg leading-none mt-0.5">🌴</span>
           <div className="flex-1">

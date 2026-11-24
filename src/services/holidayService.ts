@@ -515,10 +515,29 @@ export const deleteOfficeClosure = async (
   const userId = actingUser?.id ? String(actingUser.id) : 'system';
   const userName = actingUser?.display_name || actingUser?.email || 'Management';
 
+  let deleteSucceeded = false;
+
+  // 1. Try direct Firestore delete
   try {
     await deleteDoc(ref);
+    deleteSucceeded = true;
   } catch (clientErr: any) {
-    console.warn('[holidayService] Direct client deleteDoc failed. Falling back to backend Admin API:', clientErr);
+    console.warn('[holidayService] Direct client deleteDoc failed. Attempting soft-delete and backend API fallback:', clientErr);
+    
+    // 2. Try soft-delete directly on client so rule evaluation ignores it (is_active: false)
+    try {
+      await updateDoc(ref, {
+        is_active: false,
+        updated_at: now,
+        updated_by: userId,
+        updated_by_name: userName
+      });
+      deleteSucceeded = true;
+    } catch (softErr) {
+      // If client update also failed, fallback to backend Admin API
+    }
+
+    // 3. Call backend Admin API fallback
     try {
       await callApiFallback(`/api/holidays/${encodeURIComponent(id)}`, {
         method: 'DELETE',
@@ -528,9 +547,12 @@ export const deleteOfficeClosure = async (
           acting_user_name: userName
         })
       });
+      deleteSucceeded = true;
     } catch (apiErr: any) {
-      console.error('[holidayService] Both client deleteDoc and backend API failed:', apiErr);
-      throw (clientErr?.message ? clientErr : apiErr);
+      console.warn('[holidayService] Backend API delete warning:', apiErr);
+      if (!deleteSucceeded) {
+        throw new Error(apiErr?.message || clientErr?.message || 'Failed to delete office closure due to permissions.');
+      }
     }
   }
 

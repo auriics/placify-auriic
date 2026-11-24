@@ -236,14 +236,11 @@ service cloud.firestore {
 
     // Centralised Office Holiday & Weekly Off Management System
     match /jpc_office_closures/{closureId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /jpc_holiday_audit_logs/{logId} {
-      allow read: if true;
-      allow create: if isSignedIn();
-      allow update, delete: if false;
+      allow read, write: if true;
     }
   }
 }

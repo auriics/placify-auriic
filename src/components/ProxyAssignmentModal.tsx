@@ -422,25 +422,28 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
                     <option value="">-- Select Proxy --</option>
                     {team.filter(isProxyUser).map(p => {
                       const leaveInfo = getProxyLeaveStatusForDate(p, date || getEasternDate(), startTime, endTime);
+                      const isDateClosed = isDateOfficeClosedSync(date).isClosed;
                       const hasFutureLeave = !hideProxyLeave && hasActiveOrFutureLeave(p);
-                      const isAvailable = !leaveInfo.isOnLeave && assignmentResult.availableProxies.some(ap => ap.id === p.id);
-                      const isRecommended = !leaveInfo.isOnLeave && p.id === assignmentResult.bestProxy?.id;
+                      const isAvailable = !isDateClosed && !leaveInfo.isOnLeave && assignmentResult.availableProxies.some(ap => ap.id === p.id);
+                      const isRecommended = !isDateClosed && !leaveInfo.isOnLeave && p.id === assignmentResult.bestProxy?.id;
                       
                       let label = p.display_name;
-                      if (!hideProxyLeave) {
+                      if (isDateClosed) {
+                        label += ` 🔴 [OFFICE CLOSED – DAY OFF] - UNAVAILABLE`;
+                      } else if (!hideProxyLeave) {
                         if (leaveInfo.isOnLeave) {
                           label += ` 🔴 [ON LEAVE: ${leaveInfo.leavePeriodText}] - UNAVAILABLE`;
                         } else if (hasFutureLeave) {
                           label += ` 🔴 [ON LEAVE: ${formatLeavePeriod(p.leave_from, p.leave_to)}]`;
                         }
                       }
-                      if (!leaveInfo.isOnLeave) {
+                      if (!isDateClosed && !leaveInfo.isOnLeave) {
                         if (isRecommended) label += ' (Recommended)';
                         else if (!isAvailable) label += ' (Busy/Conflict)';
                       }
 
                       return (
-                        <option key={p.id} value={p.id} disabled={leaveInfo.isOnLeave}>
+                        <option key={p.id} value={p.id} disabled={leaveInfo.isOnLeave || isDateClosed}>
                           {label}
                         </option>
                       );
