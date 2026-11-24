@@ -25,6 +25,17 @@ export type ProfileHandlingAccess = 'Day Shift' | 'Night Shift' | 'All';
 export const isAurrumRole = (role?: string | null): boolean =>
   role === 'aurrum_admin' || role === 'aurrum_sales' || role === 'aurrum_team';
 
+export interface LeaveHistoryEntry {
+  id: string;
+  start_date?: string | null;
+  end_date?: string | null;
+  return_date?: string | null;
+  reason?: string | null;
+  status: 'completed' | 'cancelled' | 'active';
+  expired_at?: string;
+  notes?: string;
+}
+
 export interface User {
   id: number | string;
   username: string;
@@ -41,6 +52,10 @@ export interface User {
   leave_start_date?: string | null;
   leave_end_date?: string | null;
   leave_reason?: string | null;
+  last_leave_start_date?: string | null;
+  last_leave_end_date?: string | null;
+  leave_auto_expired_at?: string | null;
+  leave_history?: LeaveHistoryEntry[];
   deleted_at?: string | null;
   google_calendar_connected?: boolean;
   google_calendar_email?: string | null;

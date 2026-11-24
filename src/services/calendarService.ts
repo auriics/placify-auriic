@@ -849,13 +849,16 @@ export async function syncProxyLeaveToGoogleCalendar(
 
     const isLeaveActive = Boolean(isIndefinite || leaveStartDate || leaveEndDate);
 
-    // CASE 1: Leave cancelled or cleared -> delete Google Calendar event and local record
+    // CASE 1: Leave cancelled, expired or cleared -> delete Google Calendar events and all local records
     if (!isLeaveActive) {
-      if (existingEventId && userData.google_calendar_connected) {
-        await deleteGoogleCalendarEvent(proxyUserId, existingEventId);
-      }
-      if (existingDoc) {
-        await deleteDoc(doc(db, 'jpc_calendar_events', existingDoc.id));
+      if (!existingSnap.empty) {
+        for (const d of existingSnap.docs) {
+          const evData = d.data();
+          if (evData?.google_event_id && userData.google_calendar_connected) {
+            await deleteGoogleCalendarEvent(proxyUserId, evData.google_event_id).catch(() => {});
+          }
+          await deleteDoc(doc(db, 'jpc_calendar_events', d.id)).catch(() => {});
+        }
       }
       return { success: true, action: 'deleted' };
     }

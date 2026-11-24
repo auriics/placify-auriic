@@ -66,7 +66,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import Select from 'react-select';
 import { InterviewAnalytics } from './InterviewAnalytics';
-import { cn, parseLocalTimeToDate, getCalendarDateInfo, getCurrentEasternISOString, isUserOnLeaveDuring, isUserCurrentlyOnLeave, formatLeavePeriod } from '../../lib/utils';
+import { cn, parseLocalTimeToDate, getCalendarDateInfo, getCurrentEasternISOString, isUserOnLeaveDuring, isUserCurrentlyOnLeave, isUserEffectivelyOnLeave, formatLeavePeriod } from '../../lib/utils';
 import { collection, query, where, orderBy, doc, getDoc, addDoc, getDocs, updateDoc, runTransaction } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { InterviewDetailsModal } from '../../components/InterviewDetailsModal';
@@ -74,7 +74,7 @@ import { ProxyAssignmentModal } from '../../components/ProxyAssignmentModal';
 import { ResumeSubstitutionModal } from '../../components/ResumeSubstitutionModal';
 import { SlotVisualizer } from '../../components/SlotVisualizer';
 import { InterviewTimeDisplay } from '../../components/InterviewTimeDisplay';
-import { findBestProxyForWindow, assignProxiesForRounds, isProxyUser, getLatestCandidateResume, getInterviewResumeInfo, syncUserLeaveAvailability, getProxyConflictingRounds, getProxyLeaveStatusForDate, shouldHideProxyLeaveFromRole, hasActiveOrFutureLeave, validateInterviewTimeWindow, INTERVIEW_SCHEDULING_WINDOW_MESSAGE } from '../../services/interviewService';
+import { findBestProxyForWindow, assignProxiesForRounds, isProxyUser, getLatestCandidateResume, getInterviewResumeInfo, syncUserLeaveAvailability, getProxyConflictingRounds, getProxyLeaveStatusForDate, shouldHideProxyLeaveFromRole, hasActiveOrFutureLeave, validateInterviewTimeWindow, INTERVIEW_SCHEDULING_WINDOW_MESSAGE, checkAndExpireTeamLeaves } from '../../services/interviewService';
 import { isDateOfficeClosedSync } from '../../services/holidayService';
 import { sharedSelectStyles } from '../../lib/selectStyles';
 import { FreeTrialBadge } from '../../components/FreeTrialBadge';
@@ -162,6 +162,7 @@ export const InterviewSupportDashboard: React.FC = () => {
         : data;
       setTeam(filtered);
       setIsLoading(false);
+      checkAndExpireTeamLeaves(filtered).catch(() => {});
     });
 
     return () => {
@@ -2459,7 +2460,7 @@ const RequestModal: React.FC<{
 
   const proxyOptions = useMemo(() => {
     return team
-      .filter(u => isProxyUser(u) && !u.is_on_leave)
+      .filter(u => isProxyUser(u) && !isUserEffectivelyOnLeave(u))
       .map(p => ({
         value: String(p.id),
         label: p.display_name

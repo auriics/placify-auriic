@@ -1,11 +1,12 @@
 import { addProxyAvailability, now } from './storage';
-import { ProxyAvailability, User, Candidate, InterviewSupportRequest, InterviewRound } from '../types';
+import { ProxyAvailability, User, Candidate, InterviewSupportRequest, InterviewRound, LeaveHistoryEntry } from '../types';
 import { collection, query, where, getDocs, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { 
   parseLocalTimeToDate, 
   isUserOnLeaveDuring, 
   isUserCurrentlyOnLeave, 
+  isUserEffectivelyOnLeave,
   formatLeavePeriod, 
   parseLeaveRange, 
   getEasternDate, 
@@ -34,7 +35,9 @@ export {
   INTERVIEW_WINDOW_END_TIME,
   INTERVIEW_SCHEDULING_WINDOW_MESSAGE,
   getEasternTimeMinutes,
-  validateInterviewTimeWindow
+  validateInterviewTimeWindow,
+  isUserEffectivelyOnLeave,
+  isUserCurrentlyOnLeave
 };
 export type { TimeWindowValidationResult } from '../lib/utils';
 import { syncProxyLeaveToGoogleCalendar } from './calendarService';
@@ -378,10 +381,15 @@ export const findBestProxyForWindow = (
     if (hasConflict) continue;
 
     // Check conflict: Manual Availability Blocks (e.g., unavailable, break, leave)
-    const proxyAvails = allAvailabilities.filter(av => 
-      String(av.proxy_user_id) === String(proxy.id) &&
-      ['unavailable', 'break', 'leave'].includes(av.slot_status)
-    );
+    const proxyAvails = allAvailabilities.filter(av => {
+      if (String(av.proxy_user_id) !== String(proxy.id)) return false;
+      if (av.slot_status === 'unavailable' || av.slot_status === 'break') return true;
+      if (av.slot_status === 'leave') {
+        // Only count as conflict if the proxy is genuinely on leave during this slot window
+        return isUserOnLeaveDuring(proxy, av.slot_start, av.slot_end);
+      }
+      return false;
+    });
 
     for (const av of proxyAvails) {
       const startOfAv = new Date(av.slot_start);
@@ -970,4 +978,140 @@ export function getActiveOrFutureProxyLeaves(team: any[], referenceDate?: string
   }
 
   return result;
+}
+
+/**
+ * Automatically checks and expires a team member's approved leave period if the leave end date has passed.
+ * - Calculations are strictly performed in America/New_York (EST/EDT) timezone.
+ * - Restores normal proxy/interview availability: marks previously 'leave' slots as 'available' in jpc_proxy_availability.
+ * - Cleans up proxy_leave events from Google Calendar.
+ * - Archives historical leave records to user.leave_history and updates last_leave_start_date/last_leave_end_date.
+ * - Does NOT delete historical leave records or audit history.
+ * - Does NOT expire future approved leave (leave_start_date > today and leave_end_date >= today).
+ * - Does NOT expire indefinite leave without an end date.
+ */
+export async function checkAndExpireUserLeave(
+  user: User,
+  referenceDate?: string
+): Promise<{ expired: boolean; user: User; restoredSlotsCount?: number }> {
+  if (!user || !user.id) {
+    return { expired: false, user };
+  }
+
+  const todayEst = referenceDate || getEasternDate();
+  const endDate = user.leave_end_date
+    ? user.leave_end_date.split('T')[0].trim()
+    : (user.leave_return_date ? user.leave_return_date.split('T')[0].trim() : null);
+
+  // If user is marked on leave, has an end date, and that end date is strictly in the past (America/New_York EST)
+  const isExpired = Boolean(
+    user.is_on_leave &&
+    endDate &&
+    endDate < todayEst
+  );
+
+  if (!isExpired) {
+    return { expired: false, user };
+  }
+
+  const nowIso = new Date().toISOString();
+  const historyEntry: LeaveHistoryEntry = {
+    id: 'lh_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    start_date: user.leave_start_date || null,
+    end_date: user.leave_end_date || user.leave_return_date || null,
+    return_date: user.leave_return_date || user.leave_end_date || null,
+    reason: user.leave_reason || 'Team Leave',
+    status: 'completed',
+    expired_at: nowIso,
+    notes: `Automatically expired after leave end date (${endDate}) in America/New_York (EST)`
+  };
+
+  const existingHistory = Array.isArray(user.leave_history) ? user.leave_history : [];
+  const updatedUser: User = {
+    ...user,
+    is_on_leave: false,
+    leave_start_date: null,
+    leave_end_date: null,
+    leave_return_date: null,
+    last_leave_start_date: user.leave_start_date || null,
+    last_leave_end_date: user.leave_end_date || user.leave_return_date || null,
+    leave_auto_expired_at: nowIso,
+    leave_history: [...existingHistory, historyEntry]
+  };
+
+  try {
+    // 1. Update Firestore user document
+    const userRef = doc(db, 'jpc_users', String(user.id));
+    await updateDoc(userRef, {
+      is_on_leave: false,
+      leave_start_date: null,
+      leave_end_date: null,
+      leave_return_date: null,
+      last_leave_start_date: user.leave_start_date || null,
+      last_leave_end_date: user.leave_end_date || user.leave_return_date || null,
+      leave_auto_expired_at: nowIso,
+      leave_history: [...existingHistory, historyEntry]
+    });
+  } catch (err) {
+    console.warn(`[checkAndExpireUserLeave] Failed updating user doc for ${user.id}:`, err);
+  }
+
+  // 2. Restore proxy availability slots in jpc_proxy_availability (restore 'leave' -> 'available')
+  let restoredSlotsCount = 0;
+  try {
+    const syncRes = await syncUserLeaveAvailability(String(user.id), null, null, false);
+    restoredSlotsCount = syncRes.restoredCount;
+  } catch (syncErr) {
+    console.warn(`[checkAndExpireUserLeave] Failed restoring availability slots for ${user.id}:`, syncErr);
+  }
+
+  // 3. Clean up proxy leave events from Google Calendar
+  try {
+    await syncProxyLeaveToGoogleCalendar(String(user.id), null, null, false);
+  } catch (calErr) {
+    console.warn(`[checkAndExpireUserLeave] Failed cleaning GCal leave event for ${user.id}:`, calErr);
+  }
+
+  return { expired: true, user: updatedUser, restoredSlotsCount };
+}
+
+/**
+ * Checks all team members and automatically expires any whose leave period has ended.
+ * Self-heals the entire team's leave status across client & server without blocking.
+ */
+export async function checkAndExpireTeamLeaves(
+  teamUsers?: User[],
+  referenceDate?: string
+): Promise<{ checkedCount: number; expiredCount: number; updatedTeam: User[] }> {
+  let list = teamUsers;
+  if (!list || list.length === 0) {
+    try {
+      const snap = await getDocs(collection(db, 'jpc_users'));
+      list = snap.docs.map(d => ({ id: d.id, ...d.data() } as User));
+    } catch {
+      list = [];
+    }
+  }
+
+  const todayEst = referenceDate || getEasternDate();
+  let expiredCount = 0;
+  const updatedTeam: User[] = [];
+
+  for (const u of list) {
+    const endDate = u.leave_end_date
+      ? u.leave_end_date.split('T')[0].trim()
+      : (u.leave_return_date ? u.leave_return_date.split('T')[0].trim() : null);
+
+    if (u.is_on_leave && endDate && endDate < todayEst) {
+      const res = await checkAndExpireUserLeave(u, todayEst);
+      if (res.expired) {
+        expiredCount++;
+        updatedTeam.push(res.user);
+        continue;
+      }
+    }
+    updatedTeam.push(u);
+  }
+
+  return { checkedCount: list.length, expiredCount, updatedTeam };
 }

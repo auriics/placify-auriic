@@ -934,15 +934,22 @@ export async function syncClosureToGoogleCalendar(
     let eventId = updatedEventsMap[userId];
     try {
       // 1. Check for any existing CRM closure events on this proxy's calendar for this date window
-      const timeMin = `${closure.start_date}T00:00:00Z`;
-      const timeMax = `${gcalEndDate}T23:59:59Z`;
+      const prevDay = shiftDateString(closure.start_date, -1);
+      const nextDay = shiftDateString(closure.end_date || closure.start_date, 2);
+      const timeMin = `${prevDay}T00:00:00Z`;
+      const timeMax = `${nextDay}T23:59:59Z`;
       const existingEvents = await listGoogleCalendarEvents(userId, timeMin, timeMax);
       
       const matchingEvents = (existingEvents || []).filter(ev => {
         const s = ev.summary || '';
-        return s.startsWith('🔴 OFFICE CLOSED') || 
+        const isCrmEvent = s.startsWith('🔴 OFFICE CLOSED') || 
                s.startsWith('🟢 OFFICE OPEN') || 
+               s.includes('Office Closed') ||
+               s.includes('Office Open') ||
                (ev.description && ev.description.includes('Placify CRM'));
+        if (!isCrmEvent) return false;
+        const evStart = ev.start?.date || ev.start?.dateTime?.split('T')[0];
+        return evStart === closure.start_date || (ev.start?.date && ev.end?.date && closure.start_date >= ev.start.date && closure.start_date < ev.end.date);
       });
 
       if (matchingEvents.length > 0) {
@@ -1053,8 +1060,9 @@ export async function deleteClosureFromGoogleCalendar(
 export async function cleanGoogleCalendarEventsForDate(dateStr: string): Promise<void> {
   if (isRunningTests) return;
   const clean = dateStr.split('T')[0].trim();
-  const nextDay = getNextDayDateString(clean);
-  const timeMin = `${clean}T00:00:00Z`;
+  const prevDay = shiftDateString(clean, -1);
+  const nextDay = shiftDateString(clean, 2);
+  const timeMin = `${prevDay}T00:00:00Z`;
   const timeMax = `${nextDay}T23:59:59Z`;
   const targetUsers = await findAllConnectedProxyAndAdminUsers();
 
@@ -1063,9 +1071,14 @@ export async function cleanGoogleCalendarEventsForDate(dateStr: string): Promise
       const existingEvents = await listGoogleCalendarEvents(String(u.id), timeMin, timeMax);
       const toDelete = (existingEvents || []).filter(ev => {
         const s = ev.summary || '';
-        return s.startsWith('🔴 OFFICE CLOSED') || 
+        const isCrmEvent = s.startsWith('🔴 OFFICE CLOSED') || 
                s.startsWith('🟢 OFFICE OPEN') || 
+               s.includes('Office Closed') ||
+               s.includes('Office Open') ||
                (ev.description && ev.description.includes('Placify CRM'));
+        if (!isCrmEvent) return false;
+        const evStart = ev.start?.date || ev.start?.dateTime?.split('T')[0];
+        return evStart === clean || (ev.start?.date && ev.end?.date && clean >= ev.start.date && clean < ev.end.date);
       });
       for (const ev of toDelete) {
         await deleteGoogleCalendarEvent(String(u.id), ev.id).catch(() => {});

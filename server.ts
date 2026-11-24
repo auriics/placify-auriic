@@ -356,6 +356,148 @@ if (process.env.NODE_ENV !== 'test' && !isServerless) {
 }
 
 
+// Team Leave Automatic Expiry & Calendar Reset Cron Job
+// Runs daily at 00:01 AM Eastern Time and hourly at minute 1 to ensure prompt availability restoration
+if (process.env.NODE_ENV !== 'test' && !isServerless) {
+  cron.schedule('1 0 * * *', async () => {
+    console.log('[Cron] Running daily midnight America/New_York team leave auto-expiry check...');
+    await autoExpireTeamLeavesServer();
+  }, {
+    timezone: "America/New_York"
+  });
+
+  cron.schedule('1 * * * *', async () => {
+    await autoExpireTeamLeavesServer();
+  }, {
+    timezone: "America/New_York"
+  });
+}
+
+/**
+ * Automatically detects and expires team members whose approved leave has ended (America/New_York).
+ * - Restores their availability and clears expired restrictions.
+ * - Preserves existing interview bookings (booked/completed slots are never touched).
+ * - Archives historical leave records to user.leave_history and updates last_leave_start_date/last_leave_end_date.
+ * - Does not touch future approved leave or indefinite leave without end dates.
+ */
+export async function autoExpireTeamLeavesServer(referenceDateStr?: string): Promise<{
+  checkedCount: number;
+  expiredCount: number;
+  expiredUsers: Array<{ id: string; name: string; leave_end_date: string }>;
+}> {
+  const todayNY = referenceDateStr || getNYDateString(new Date()) || new Date().toISOString().split('T')[0];
+  const expiredUsers: Array<{ id: string; name: string; leave_end_date: string }> = [];
+
+  try {
+    const usersSnapshot = await db.collection('jpc_users')
+      .where('is_on_leave', '==', true)
+      .get();
+
+    if (usersSnapshot.empty) {
+      return { checkedCount: 0, expiredCount: 0, expiredUsers: [] };
+    }
+
+    const nowIso = new Date().toISOString();
+
+    for (const docSnap of usersSnapshot.docs) {
+      const u = docSnap.data();
+      const userId = docSnap.id;
+      const rawEnd = u.leave_end_date || u.leave_return_date;
+      if (!rawEnd) {
+        // Indefinite leave without an end date - do not auto-expire
+        continue;
+      }
+
+      const endDate = String(rawEnd).split('T')[0].trim();
+      if (endDate < todayNY) {
+        // Leave has ended!
+        const historyEntry = {
+          id: 'lh_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+          start_date: u.leave_start_date || null,
+          end_date: endDate,
+          return_date: u.leave_return_date || endDate,
+          reason: u.leave_reason || 'Team Leave',
+          status: 'completed',
+          expired_at: nowIso,
+          notes: `Automatically expired by server after leave end date (${endDate}) in America/New_York (EST)`
+        };
+
+        const existingHistory = Array.isArray(u.leave_history) ? u.leave_history : [];
+
+        // 1. Update User Document
+        await docSnap.ref.update({
+          is_on_leave: false,
+          leave_start_date: null,
+          leave_end_date: null,
+          leave_return_date: null,
+          last_leave_start_date: u.leave_start_date || null,
+          last_leave_end_date: endDate,
+          leave_auto_expired_at: nowIso,
+          leave_history: [...existingHistory, historyEntry]
+        });
+
+        // 2. Restore any 'leave' proxy availability slots for this user to 'available'
+        try {
+          const availSnap = await db.collection('jpc_proxy_availability')
+            .where('proxy_user_id', 'in', [String(userId), userId])
+            .where('slot_status', '==', 'leave')
+            .get();
+
+          if (!availSnap.empty) {
+            const batch = db.batch();
+            availSnap.docs.forEach((availDoc: any) => {
+              batch.update(availDoc.ref, {
+                slot_status: 'available',
+                leave_reason: null
+              });
+            });
+            await batch.commit();
+          }
+        } catch (availErr) {
+          console.warn(`[LeaveExpiry] Failed updating proxy availability for ${userId}:`, availErr);
+        }
+
+        // 3. Clean up any proxy_leave calendar events
+        try {
+          const calSnap = await db.collection('jpc_calendar_events')
+            .where('proxy_user_id', '==', String(userId))
+            .where('event_type', '==', 'proxy_leave')
+            .get();
+
+          if (!calSnap.empty) {
+            const batch = db.batch();
+            calSnap.docs.forEach((calDoc: any) => {
+              batch.delete(calDoc.ref);
+            });
+            await batch.commit();
+          }
+        } catch (calErr) {
+          console.warn(`[LeaveExpiry] Failed deleting calendar events for ${userId}:`, calErr);
+        }
+
+        expiredUsers.push({
+          id: userId,
+          name: u.display_name || u.username || 'Team Member',
+          leave_end_date: endDate
+        });
+      }
+    }
+
+    if (expiredUsers.length > 0) {
+      console.log(`[LeaveExpiry] Auto-expired leave for ${expiredUsers.length} team members:`, expiredUsers);
+    }
+
+    return {
+      checkedCount: usersSnapshot.size,
+      expiredCount: expiredUsers.length,
+      expiredUsers
+    };
+  } catch (err) {
+    console.error('[LeaveExpiry] Error auto-expiring team leaves:', err);
+    return { checkedCount: 0, expiredCount: 0, expiredUsers: [] };
+  }
+}
+
 export function getNYDateString(dateVal: any): string | null {
   if (!dateVal) return null;
   const str = String(dateVal).trim();
@@ -1778,6 +1920,16 @@ async function checkOfficeClosureServer(interviewDate: string) {
     return { isClosed: false };
   }
 }
+
+app.post(['/api/team/check-leave-expiry', '/team/check-leave-expiry'], async (req, res) => {
+  try {
+    const { referenceDate } = req.body || {};
+    const result = await autoExpireTeamLeavesServer(referenceDate);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed checking leave expiry' });
+  }
+});
 
 app.post(['/api/interviews/validate-window', '/interviews/validate-window'], async (req, res) => {
   const { startTime, endTime, durationMinutes, interviewDate } = req.body || {};

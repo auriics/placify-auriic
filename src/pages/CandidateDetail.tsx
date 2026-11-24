@@ -72,7 +72,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
-import { cn, getEasternDate, formatDisplayDate } from '../lib/utils';
+import { cn, getEasternDate, formatDisplayDate, isUserEffectivelyOnLeave } from '../lib/utils';
 import { canManageFreeTrial, isComplianceHead } from '../lib/permissions';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
 import { ShiftPreferenceBadge } from '../components/ShiftPreferenceBadge';
@@ -291,9 +291,9 @@ export const CandidateDetail: React.FC = () => {
 
   const salesUsers = allUsers.filter(u => u.role === 'jpc_sales');
   const csUsers = allUsers.filter(u => u.role === 'jpc_cs' || u.role === 'jpc_compliance_person');
-  const resumeUsers = allUsers.filter(u => u.role === 'jpc_resume' && !u.is_on_leave);
-  const marketingLeaders = allUsers.filter(u => u.role === 'jpc_marketing' && !u.is_on_leave);
-  const marketingUsers = allUsers.filter(u => (u.role === 'jpc_marketing_support' || u.role === 'jpc_marketing') && !u.is_on_leave);
+  const resumeUsers = allUsers.filter(u => u.role === 'jpc_resume' && !isUserEffectivelyOnLeave(u));
+  const marketingLeaders = allUsers.filter(u => u.role === 'jpc_marketing' && !isUserEffectivelyOnLeave(u));
+  const marketingUsers = allUsers.filter(u => (u.role === 'jpc_marketing_support' || u.role === 'jpc_marketing') && !isUserEffectivelyOnLeave(u));
   const latestOfferRequest = candidate?.latest_interview_offer_request || interviewOfferRequests[0] || null;
 
   // Edit states
@@ -329,7 +329,7 @@ export const CandidateDetail: React.FC = () => {
 
   const filteredRecruiters = useMemo(() => {
     if (!packageForm.assigned_marketing_leader) return [];
-    return allUsers.filter(u => u.role === 'jpc_recruiter' && String(u.leader_id) === String(packageForm.assigned_marketing_leader) && !u.is_on_leave);
+    return allUsers.filter(u => u.role === 'jpc_recruiter' && String(u.leader_id) === String(packageForm.assigned_marketing_leader) && !isUserEffectivelyOnLeave(u));
   }, [allUsers, packageForm.assigned_marketing_leader]);
 
   // Payment form
@@ -2734,7 +2734,7 @@ export const CandidateDetail: React.FC = () => {
                         .sort((a, b) => a.display_name.localeCompare(b.display_name))
                         .map(u => (
                           <option key={u.id} value={String(u.id)}>
-                            {u.display_name}{u.is_on_leave ? ' [On Leave]' : ''}
+                            {u.display_name}{isUserEffectivelyOnLeave(u) ? ' [On Leave]' : ''}
                           </option>
                         ))}
                     </select>
@@ -2752,7 +2752,7 @@ export const CandidateDetail: React.FC = () => {
                         .sort((a, b) => a.display_name.localeCompare(b.display_name))
                         .map(u => (
                           <option key={u.id} value={String(u.id)}>
-                            {u.display_name} ({u.role.replace('jpc_', '').replace('_', ' ')}){u.is_on_leave ? ' [On Leave]' : ''}
+                            {u.display_name} ({u.role.replace('jpc_', '').replace('_', ' ')}){isUserEffectivelyOnLeave(u) ? ' [On Leave]' : ''}
                           </option>
                         ))}
                     </select>

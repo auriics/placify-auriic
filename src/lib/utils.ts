@@ -397,7 +397,8 @@ export function isUserOnLeaveDuring(
     return winStart < range.end && winEnd > range.start;
   }
 
-  if (user.is_on_leave) {
+  // If indefinite leave without configured end date
+  if (user.is_on_leave && !user.leave_end_date && !user.leave_return_date) {
     return true;
   }
 
@@ -405,7 +406,60 @@ export function isUserOnLeaveDuring(
 }
 
 /**
+ * Checks if a user is effectively on leave at the given reference date (or current Eastern date).
+ * Strictly handles automatic expiry:
+ * - If leave_end_date < today (in America/New_York EST), returns false (expired).
+ * - If leave_start_date > today (in America/New_York EST), returns false (future leave).
+ * - If within [leave_start_date, leave_end_date], returns true.
+ * - If indefinite leave (is_on_leave === true with no end date), returns true.
+ */
+export function isUserEffectivelyOnLeave(
+  user: {
+    is_on_leave?: boolean;
+    leave_start_date?: string | null;
+    leave_end_date?: string | null;
+    leave_return_date?: string | null;
+  } | null | undefined,
+  referenceDate?: string
+): boolean {
+  if (!user) return false;
+  if (user.is_on_leave === false && !user.leave_start_date && !user.leave_end_date) {
+    return false;
+  }
+
+  const todayStr = referenceDate || getEasternDate();
+  const end = user.leave_end_date
+    ? user.leave_end_date.split('T')[0].trim()
+    : (user.leave_return_date ? user.leave_return_date.split('T')[0].trim() : null);
+
+  // 1. If leave has a configured end date and that end date is strictly before today in EST, the leave has ended/expired!
+  if (end && end < todayStr) {
+    return false;
+  }
+
+  // 2. If leave starts in the future, user is not yet on leave today
+  const start = user.leave_start_date ? user.leave_start_date.split('T')[0].trim() : null;
+  if (start && start > todayStr) {
+    return false;
+  }
+
+  // 3. If within active start & end window
+  if (start && end) {
+    return start <= todayStr && todayStr <= end;
+  }
+
+  // 4. If only start date is given and it's <= today, ongoing leave
+  if (start && !end) {
+    return start <= todayStr;
+  }
+
+  // 5. If indefinite leave (is_on_leave is true without dates)
+  return !!user.is_on_leave;
+}
+
+/**
  * Checks if the user is currently on leave at this exact moment in America/New_York (EST).
+ * Automatically respects leave expiry if the leave end date has passed.
  */
 export function isUserCurrentlyOnLeave(
   user: {
@@ -413,11 +467,11 @@ export function isUserCurrentlyOnLeave(
     leave_start_date?: string | null;
     leave_end_date?: string | null;
     leave_return_date?: string | null;
-  } | null | undefined
+  } | null | undefined,
+  referenceDate?: string
 ): boolean {
   if (!user) return false;
-  const nowEst = new Date();
-  return isUserOnLeaveDuring(user, nowEst, nowEst);
+  return isUserEffectivelyOnLeave(user, referenceDate);
 }
 
 /**

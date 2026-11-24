@@ -43,7 +43,9 @@ import {
   getActiveOrFutureProxyLeaves, 
   validateInterviewTimeWindow, 
   INTERVIEW_SCHEDULING_WINDOW_MESSAGE,
-  cleanupDuplicateProxySlots
+  cleanupDuplicateProxySlots,
+  checkAndExpireUserLeave,
+  checkAndExpireTeamLeaves
 } from '../../services/interviewService';
 import { isDateOfficeClosedSync } from '../../services/holidayService';
 import { handleViewFile } from '../../services/fileService';
@@ -518,6 +520,18 @@ export const ProxyDashboard: React.FC = () => {
   const activeProxyUser = useMemo(() => {
     return team.find(u => String(u.id) === String(activeProxyId));
   }, [team, activeProxyId]);
+
+  useEffect(() => {
+    if (activeProxyUser) {
+      checkAndExpireUserLeave(activeProxyUser).catch(() => {});
+    }
+  }, [activeProxyUser]);
+
+  useEffect(() => {
+    if (team && team.length > 0) {
+      checkAndExpireTeamLeaves(team).catch(() => {});
+    }
+  }, [team]);
 
   const effectiveProxyDate = useMemo(() => {
     return filterDate || getEasternDate();

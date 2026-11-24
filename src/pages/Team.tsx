@@ -3,8 +3,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { subscribeToCollection, saveUser, generateId } from '../services/storage';
 import { Users, UserPlus, Shield, Mail, Phone, MoreVertical, Edit2, Trash2, X, Save, AlertCircle, ShieldCheck, UserCheck, Lock, Copy, TrendingUp, Sparkles, CheckCircle2, Loader2, Sun, Moon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn, isUserOnLeaveDuring, isUserCurrentlyOnLeave, formatLeavePeriod, getEasternDate } from '../lib/utils';
-import { syncUserLeaveAvailability } from '../services/interviewService';
+import { cn, isUserOnLeaveDuring, isUserCurrentlyOnLeave, isUserEffectivelyOnLeave, formatLeavePeriod, getEasternDate } from '../lib/utils';
+import { syncUserLeaveAvailability, checkAndExpireTeamLeaves, hasActiveOrFutureLeave } from '../services/interviewService';
 import { User, UserRole, Candidate, isAurrumRole, ProfileHandlingAccess } from '../types';
 import { Modal } from '../components/Modal';
 import { SMTPConfigModal } from '../components/SMTPConfigModal';
@@ -213,8 +213,10 @@ export const Team: React.FC = () => {
     if (!isAuthReady) return;
     const unsub = subscribeToCollection<User>('jpc_users', (data) => {
       // Strictly exclude Aurrum users from the Auriic CRM Team page
-      setTeam(data.filter(u => !isAurrumRole(u.role)));
+      const filtered = data.filter(u => !isAurrumRole(u.role));
+      setTeam(filtered);
       setIsLoading(false);
+      checkAndExpireTeamLeaves(filtered).catch(() => {});
     });
     const unsubCandidates = subscribeToCollection<Candidate>('jpc_candidates', (data) => {
       setCandidates(data);
@@ -1318,7 +1320,7 @@ export const Team: React.FC = () => {
                       <div>
                         <h3 className="font-bold text-text-primary">{member.display_name}</h3>
                         <p className="text-xs text-text-muted mt-1">@{member.username}</p>
-                        {(member.is_on_leave || member.leave_start_date || member.leave_end_date || member.leave_return_date) && (
+                        {(isUserEffectivelyOnLeave(member) || hasActiveOrFutureLeave(member)) && (
                           <div className="mt-2 px-3 py-2 bg-accent-red/5 border border-accent-red/10 rounded-xl space-y-1">
                             <div className="flex items-center justify-between gap-1">
                               <p className="text-[10px] font-black text-accent-red uppercase tracking-wider flex items-center gap-1 truncate">
@@ -1384,9 +1386,9 @@ export const Team: React.FC = () => {
 
                       <div className="mt-6 pt-6 border-t border-border-primary flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <div className={cn("w-2 h-2 rounded-full", member.is_on_leave ? "bg-accent-red" : "bg-accent-green")} />
+                          <div className={cn("w-2 h-2 rounded-full", isUserEffectivelyOnLeave(member) ? "bg-accent-red" : "bg-accent-green")} />
                           <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">
-                            {member.is_on_leave ? "On Leave" : "Active"}
+                            {isUserEffectivelyOnLeave(member) ? "On Leave" : "Active"}
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
@@ -1397,7 +1399,7 @@ export const Team: React.FC = () => {
                                          (user?.role === 'jpc_cs' && String(member.leader_id) === String(user.id)) ||
                                          (isFaiz && mohitUser && (String(member.leader_id) === String(mohitUser.id) || String(member.leader_id) === String(user.id) || member.id === mohitUser.id));
                             const canToggle = user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || isTL;
-                            const hasLeave = !!(member.is_on_leave || member.leave_start_date || member.leave_end_date);
+                            const hasLeave = hasActiveOrFutureLeave(member);
                             return canToggle && member.id !== user?.id && (
                               <div className="flex items-center gap-1.5">
                                 {hasLeave && (
@@ -2136,7 +2138,7 @@ export const Team: React.FC = () => {
                 .filter(u => 
                   u.role === 'jpc_recruiter' && 
                   u.id !== reassigningFrom?.id && 
-                  !u.is_on_leave &&
+                  !isUserEffectivelyOnLeave(u) &&
                   (() => {
                     const mohitUser = team.find(l => l.username === 'mohit.panchal' || l.email === 'mohit.panchal@auriic.co');
                     const isFaiz = user?.role === 'jpc_cs' && (user.username === 'care' || String(user.display_name).toLowerCase().includes('faiz'));
