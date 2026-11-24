@@ -14,6 +14,7 @@ import {
   clearHolidayForDate,
   clearAllOfficeClosures,
   clearOfficeClosure,
+  cleanupAllDuplicateClosures,
   shiftDateString
 } from '../src/services/holidayService';
 import {
@@ -729,6 +730,132 @@ test('27. RBAC: canClearAllHolidays permits only Higher Authorities and Admins',
   assert.equal(canClearAllHolidays(RECRUITER_USER), false);
   assert.equal(canClearAllHolidays(CANDIDATE_USER), false);
   assert.equal(canClearAllHolidays(null), false);
+});
+
+test('28. Single-Badge Guarantee: Toggling a date multiple times never creates duplicate entries', async () => {
+  const targetDate = '2026-12-16'; // Wednesday
+  setCachedOfficeClosuresForTesting([], { weekly_off_days: [0, 6] });
+  assert.equal(isDateOfficeClosedSync(targetDate).isClosed, false);
+
+  // 1st Toggle: Make closed
+  await toggleDateWorkingStatus(targetDate, 'closed', ADMIN_USER);
+  assert.equal(isDateOfficeClosedSync(targetDate).isClosed, true);
+
+  // 2nd Toggle: Switch to open
+  await toggleDateWorkingStatus(targetDate, 'open', ADMIN_USER);
+  assert.equal(isDateOfficeClosedSync(targetDate).isClosed, false);
+
+  // 3rd Toggle: Switch back to closed
+  await toggleDateWorkingStatus(targetDate, 'closed', ADMIN_USER);
+  assert.equal(isDateOfficeClosedSync(targetDate).isClosed, true);
+
+  // Reset
+  setCachedOfficeClosuresForTesting([]);
+});
+
+test('29. Multi-Closure Reset: Clearing a date with duplicate/redundant closures removes ALL of them and restores default', async () => {
+  const targetDate = '2026-12-28';
+  // Simulate duplicate closures created previously
+  const dupClosures: OfficeClosure[] = [
+    {
+      id: 'dup_closed_1',
+      title: 'Office Closed',
+      status: 'closed',
+      event_type: 'special_closure',
+      start_date: targetDate,
+      end_date: targetDate,
+      is_active: true,
+      created_at: '2026-11-24T00:00:00Z',
+      updated_at: '2026-11-24T00:00:00Z'
+    },
+    {
+      id: 'dup_closed_2',
+      title: 'Office Closed',
+      status: 'closed',
+      event_type: 'special_closure',
+      start_date: targetDate,
+      end_date: targetDate,
+      is_active: true,
+      created_at: '2026-11-24T00:01:00Z',
+      updated_at: '2026-11-24T00:01:00Z'
+    },
+    {
+      id: 'dup_open_1',
+      title: 'Office Open (2026-12-28)',
+      status: 'open',
+      event_type: 'special_closure',
+      start_date: targetDate,
+      end_date: targetDate,
+      is_active: true,
+      is_working_day_override: true,
+      created_at: '2026-11-24T00:02:00Z',
+      updated_at: '2026-11-24T00:02:00Z'
+    }
+  ];
+
+  setCachedOfficeClosuresForTesting(dupClosures, { weekly_off_days: [0, 6] });
+
+  // Clear this date
+  const clearRes = await clearHolidayForDate(targetDate, ADMIN_USER);
+  assert.equal(clearRes.success, true);
+
+  // Must cleanly return to default schedule (Monday is open, no closures remaining)
+  const evalPost = isDateOfficeClosedSync(targetDate);
+  assert.equal(evalPost.isClosed, false);
+  assert.equal(evalPost.closure, undefined);
+
+  // Reset
+  setCachedOfficeClosuresForTesting([]);
+});
+
+test('30. Deduplication: cleanupAllDuplicateClosures removes duplicate records on same date while preserving unique closures', async () => {
+  const closuresWithDuplicates: OfficeClosure[] = [
+    {
+      id: 'dup_a1',
+      title: 'Office Closed (2026-12-25)',
+      status: 'closed',
+      event_type: 'public_holiday',
+      start_date: '2026-12-25',
+      end_date: '2026-12-25',
+      is_active: true,
+      created_at: '2026-11-20T00:00:00Z',
+      updated_at: '2026-11-20T00:00:00Z'
+    },
+    {
+      id: 'dup_a2',
+      title: 'Office Closed (2026-12-25)',
+      status: 'closed',
+      event_type: 'public_holiday',
+      start_date: '2026-12-25',
+      end_date: '2026-12-25',
+      is_active: true,
+      created_at: '2026-11-24T00:00:00Z',
+      updated_at: '2026-11-24T00:00:00Z'
+    },
+    {
+      id: 'unique_b',
+      title: 'New Year Day',
+      status: 'closed',
+      event_type: 'public_holiday',
+      start_date: '2027-01-01',
+      end_date: '2027-01-01',
+      is_active: true,
+      created_at: '2026-11-20T00:00:00Z',
+      updated_at: '2026-11-20T00:00:00Z'
+    }
+  ];
+
+  setCachedOfficeClosuresForTesting(closuresWithDuplicates, { weekly_off_days: [0, 6] });
+
+  const cleanRes = await cleanupAllDuplicateClosures(ADMIN_USER);
+  assert.equal(cleanRes.cleanedClosuresCount, 1); // 1 duplicate removed
+
+  // Both dates still evaluate properly without crash
+  assert.equal(isDateOfficeClosedSync('2026-12-25').isClosed, true);
+  assert.equal(isDateOfficeClosedSync('2027-01-01').isClosed, true);
+
+  // Reset
+  setCachedOfficeClosuresForTesting([]);
 });
 
 

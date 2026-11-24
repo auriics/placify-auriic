@@ -931,10 +931,36 @@ export async function syncClosureToGoogleCalendar(
   // Sync to EACH connected proxy (both proxies!)
   for (const gUser of targetUsers) {
     const userId = String(gUser.id);
-    const existingEvId = updatedEventsMap[userId];
+    let eventId = updatedEventsMap[userId];
     try {
-      let eventId = existingEvId;
-      if (eventId) {
+      // 1. Check for any existing CRM closure events on this proxy's calendar for this date window
+      const timeMin = `${closure.start_date}T00:00:00Z`;
+      const timeMax = `${gcalEndDate}T23:59:59Z`;
+      const existingEvents = await listGoogleCalendarEvents(userId, timeMin, timeMax);
+      
+      const matchingEvents = (existingEvents || []).filter(ev => {
+        const s = ev.summary || '';
+        return s.startsWith('🔴 OFFICE CLOSED') || 
+               s.startsWith('🟢 OFFICE OPEN') || 
+               (ev.description && ev.description.includes('Placify CRM'));
+      });
+
+      if (matchingEvents.length > 0) {
+        // Find if our specific eventId matches one of them, otherwise use the first one
+        const targetEventId = (eventId && matchingEvents.some(e => e.id === eventId))
+          ? eventId
+          : matchingEvents[0].id;
+
+        await updateGoogleCalendarEvent(userId, targetEventId, payload);
+        eventId = targetEventId;
+
+        // Clean up any extra duplicate closure events on that date so only ONE badge exists!
+        for (const extraEv of matchingEvents) {
+          if (extraEv.id !== targetEventId) {
+            await deleteGoogleCalendarEvent(userId, extraEv.id).catch(() => {});
+          }
+        }
+      } else if (eventId) {
         const updated = await updateGoogleCalendarEvent(userId, eventId, payload);
         if (!updated || updated === 'NOT_FOUND') {
           const newEvent = await createGoogleCalendarEvent(userId, payload);
@@ -974,6 +1000,7 @@ export async function deleteClosureFromGoogleCalendar(
   closure: OfficeClosure,
   actingUser?: User | null
 ): Promise<void> {
+  if (isRunningTests) return;
   const eventsMap = closure.google_calendar_events || {};
   const targetUsers = await findAllConnectedProxyAndAdminUsers();
 
@@ -994,6 +1021,57 @@ export async function deleteClosureFromGoogleCalendar(
       try {
         await deleteGoogleCalendarEvent(String(u.id), closure.google_calendar_event_id);
       } catch {}
+    }
+  }
+
+  // 3. Scan Google Calendar in this date window to remove any leftover/duplicate CRM closure events
+  if (closure.start_date) {
+    const gcalEndDate = getNextDayDateString(closure.end_date || closure.start_date);
+    const timeMin = `${closure.start_date}T00:00:00Z`;
+    const timeMax = `${gcalEndDate}T23:59:59Z`;
+
+    for (const u of targetUsers) {
+      try {
+        const existingEvents = await listGoogleCalendarEvents(String(u.id), timeMin, timeMax);
+        const toDelete = (existingEvents || []).filter(ev => {
+          const s = ev.summary || '';
+          return s.startsWith('🔴 OFFICE CLOSED') || 
+                 s.startsWith('🟢 OFFICE OPEN') || 
+                 (ev.description && ev.description.includes('Placify CRM'));
+        });
+        for (const ev of toDelete) {
+          await deleteGoogleCalendarEvent(String(u.id), ev.id).catch(() => {});
+        }
+      } catch {}
+    }
+  }
+}
+
+/**
+ * Completely wipes any CRM Office Closed or Office Open badges from Google Calendar for a specific date.
+ */
+export async function cleanGoogleCalendarEventsForDate(dateStr: string): Promise<void> {
+  if (isRunningTests) return;
+  const clean = dateStr.split('T')[0].trim();
+  const nextDay = getNextDayDateString(clean);
+  const timeMin = `${clean}T00:00:00Z`;
+  const timeMax = `${nextDay}T23:59:59Z`;
+  const targetUsers = await findAllConnectedProxyAndAdminUsers();
+
+  for (const u of targetUsers) {
+    try {
+      const existingEvents = await listGoogleCalendarEvents(String(u.id), timeMin, timeMax);
+      const toDelete = (existingEvents || []).filter(ev => {
+        const s = ev.summary || '';
+        return s.startsWith('🔴 OFFICE CLOSED') || 
+               s.startsWith('🟢 OFFICE OPEN') || 
+               (ev.description && ev.description.includes('Placify CRM'));
+      });
+      for (const ev of toDelete) {
+        await deleteGoogleCalendarEvent(String(u.id), ev.id).catch(() => {});
+      }
+    } catch (err) {
+      console.warn(`[holidayService] Failed cleaning GCal events on ${clean} for ${u.display_name}:`, err);
     }
   }
 }
@@ -1171,6 +1249,7 @@ export function shiftDateString(dateStr: string, days: number): string {
  * Toggles a date between Office Open and Office Closed.
  * If targetStatus is not specified, inverts the current status.
  * Ensures bidirectional switching, immediate cache update, audit logging, and Google Calendar sync.
+ * Guarantees NO duplicate badges: only at most ONE active state per date.
  */
 export async function toggleDateWorkingStatus(
   dateStr: string,
@@ -1185,69 +1264,96 @@ export async function toggleDateWorkingStatus(
   const userId = actingUser?.id ? String(actingUser.id) : 'system';
   const userName = actingUser?.display_name || actingUser?.email || 'Management';
 
+  // Find ALL active closures covering cleanDate to prevent duplicate entries
+  const coveringClosures = cachedClosures.filter(c => {
+    if (!c || c.is_active === false) return false;
+    const s = String(c.start_date).split('T')[0];
+    const e = String(c.end_date || c.start_date).split('T')[0];
+    return cleanDate >= s && cleanDate <= e;
+  });
+
+  const dow = getDayOfWeekEST(cleanDate);
+  const isWeekend = (cachedWeeklyOffConfig.weekly_off_days || DEFAULT_WEEKLY_OFF_DAYS).includes(dow);
+
   // 1. If switching to OPEN
   if (newStatus === 'open') {
-    // If there is an existing manual single-day closed entry for this date
-    if (currentEval.closure && currentEval.closure.start_date === currentEval.closure.end_date && currentEval.closure.start_date === cleanDate) {
-      const dow = getDayOfWeekEST(cleanDate);
-      const isWeekend = (cachedWeeklyOffConfig.weekly_off_days || DEFAULT_WEEKLY_OFF_DAYS).includes(dow);
-      if (!isWeekend) {
-        // Weekday: deleting the closure makes it open by default
-        await deleteOfficeClosure(currentEval.closure.id, actingUser, 'Restored working day for ' + cleanDate);
-        return { success: true, newStatus: 'open', message: `Date ${cleanDate} is now marked as Office Open.` };
+    // Delete or remove cleanDate from ALL closed closures covering this date
+    for (const c of coveringClosures) {
+      if (c.status === 'closed' || (!c.status && !c.is_working_day_override)) {
+        if (c.start_date === cleanDate && (c.end_date === cleanDate || !c.end_date)) {
+          await deleteOfficeClosure(c.id, actingUser, `Removed closed status for ${cleanDate}`);
+        } else {
+          await clearHolidayForDate(cleanDate, actingUser, false);
+        }
       }
     }
 
-    // Otherwise create or update an explicit Office Open record (works for weekend or any date)
-    const openRecord: Omit<OfficeClosure, 'id' | 'created_at' | 'updated_at'> & { id?: string } = {
-      title: `Office Open (${cleanDate})`,
-      status: 'open',
+    // Deduplicate any multiple open closures if present
+    const openClosures = coveringClosures.filter(c => c.status === 'open' || c.is_working_day_override);
+    if (openClosures.length > 1) {
+      for (let i = 1; i < openClosures.length; i++) {
+        await deleteOfficeClosure(openClosures[i].id, actingUser);
+      }
+    }
+
+    if (isWeekend) {
+      // Weekend requires an explicit Office Open record
+      const existingOpen = openClosures[0];
+      const openRecord: Omit<OfficeClosure, 'id' | 'created_at' | 'updated_at'> & { id?: string } = {
+        id: existingOpen ? existingOpen.id : undefined,
+        title: `Office Open (${cleanDate})`,
+        status: 'open',
+        event_type: 'special_closure',
+        start_date: cleanDate,
+        end_date: cleanDate,
+        is_all_day: true,
+        is_active: true,
+        is_working_day_override: true,
+        is_override: true,
+        custom_message: 'Office is open for interview bookings.',
+        description: customNote || 'Working day declared by management'
+      };
+      await saveOfficeClosure(openRecord, actingUser, customNote || `Marked ${cleanDate} as Office Open`);
+    } else {
+      // Weekday is open by default: all closures deleted, so clean GCal events
+      await cleanGoogleCalendarEventsForDate(cleanDate);
+    }
+
+    return { success: true, newStatus: 'open', message: `Date ${cleanDate} is now marked as Office Open.` };
+  }
+
+  // 2. If switching to CLOSED
+  // Delete ALL open closures covering cleanDate
+  for (const c of coveringClosures) {
+    if (c.status === 'open' || c.is_working_day_override) {
+      await deleteOfficeClosure(c.id, actingUser, `Removed open override for ${cleanDate}`);
+    }
+  }
+
+  if (isWeekend) {
+    // Weekend is closed by default weekly schedule (WEEKLY OFF).
+    // All open overrides deleted, so clean any GCal open events
+    await cleanGoogleCalendarEventsForDate(cleanDate);
+  } else {
+    // Weekday: requires an explicit closed closure
+    const existingClosed = coveringClosures.find(c => c.start_date === cleanDate && (c.end_date === cleanDate || !c.end_date) && c.status === 'closed');
+    const closedRecord: Omit<OfficeClosure, 'id' | 'created_at' | 'updated_at'> & { id?: string } = {
+      id: existingClosed ? existingClosed.id : undefined,
+      title: `Office Closed (${cleanDate})`,
+      status: 'closed',
       event_type: 'special_closure',
       start_date: cleanDate,
       end_date: cleanDate,
       is_all_day: true,
       is_active: true,
-      is_working_day_override: true,
+      is_working_day_override: false,
       is_override: true,
-      custom_message: 'Office is open for interview bookings.',
-      description: customNote || 'Working day declared by management'
+      custom_message: 'Our office is closed today. Please select another working day for the interview.',
+      description: customNote || 'Office closure declared by management'
     };
-    if (currentEval.closure && currentEval.closure.start_date === cleanDate && currentEval.closure.end_date === cleanDate) {
-      openRecord.id = currentEval.closure.id;
-    }
-    await saveOfficeClosure(openRecord, actingUser, customNote || `Marked ${cleanDate} as Office Open`);
-    return { success: true, newStatus: 'open', message: `Date ${cleanDate} is now marked as Office Open.` };
+    await saveOfficeClosure(closedRecord, actingUser, customNote || `Marked ${cleanDate} as Office Closed`);
   }
 
-  // 2. If switching to CLOSED
-  // If there's an existing explicit 'open' entry for this date
-  if (currentEval.closure && (currentEval.closure.status === 'open' || currentEval.closure.is_working_day_override)) {
-    const dow = getDayOfWeekEST(cleanDate);
-    const isWeekend = (cachedWeeklyOffConfig.weekly_off_days || DEFAULT_WEEKLY_OFF_DAYS).includes(dow);
-    if (isWeekend) {
-      await deleteOfficeClosure(currentEval.closure.id, actingUser, 'Restored weekly off for ' + cleanDate);
-      return { success: true, newStatus: 'closed', message: `Date ${cleanDate} is now marked as Office Closed.` };
-    }
-  }
-
-  // Save explicit Office Closed entry
-  const closedRecord: Omit<OfficeClosure, 'id' | 'created_at' | 'updated_at'> & { id?: string } = {
-    title: `Office Closed (${cleanDate})`,
-    status: 'closed',
-    event_type: 'special_closure',
-    start_date: cleanDate,
-    end_date: cleanDate,
-    is_all_day: true,
-    is_active: true,
-    is_working_day_override: false,
-    is_override: true,
-    custom_message: 'Our office is closed today. Please select another working day for the interview.',
-    description: customNote || 'Office closure declared by management'
-  };
-  if (currentEval.closure && currentEval.closure.start_date === cleanDate && currentEval.closure.end_date === cleanDate) {
-    closedRecord.id = currentEval.closure.id;
-  }
-  await saveOfficeClosure(closedRecord, actingUser, customNote || `Marked ${cleanDate} as Office Closed`);
   return { success: true, newStatus: 'closed', message: `Date ${cleanDate} is now marked as Office Closed.` };
 }
 
@@ -1255,6 +1361,7 @@ export async function toggleDateWorkingStatus(
  * Clears/removes a specific holiday or closure entry covering dateStr.
  * Supports single-date removal or splitting multi-day holiday ranges.
  * Restores the default weekly schedule (Saturday/Sunday off, Weekdays on).
+ * Removes any and all closure badges from Google Calendar for that date.
  */
 export async function clearHolidayForDate(
   dateStr: string,
@@ -1262,55 +1369,155 @@ export async function clearHolidayForDate(
   clearEntireRange: boolean = false
 ): Promise<{ success: boolean; clearedRange: boolean; message: string }> {
   const cleanDate = dateStr.split('T')[0].trim();
-  const currentEval = checkDateOfficeClosure(cleanDate, cachedClosures, cachedWeeklyOffConfig);
-  const entry = currentEval.closure;
+  
+  // Find ALL matching closures covering cleanDate to prevent partial resets
+  const coveringClosures = cachedClosures.filter(c => {
+    if (!c || c.is_active === false) return false;
+    const s = String(c.start_date).split('T')[0];
+    const e = String(c.end_date || c.start_date).split('T')[0];
+    return cleanDate >= s && cleanDate <= e;
+  });
 
-  if (!entry) {
+  if (coveringClosures.length === 0) {
+    await cleanGoogleCalendarEventsForDate(cleanDate);
     return { success: true, clearedRange: false, message: `No manual holiday or closure found on ${cleanDate}. Default schedule is active.` };
   }
 
-  const isSingleDay = entry.start_date === entry.end_date || cleanDate === entry.start_date && cleanDate === entry.end_date;
+  for (const entry of coveringClosures) {
+    const isSingleDay = entry.start_date === entry.end_date || cleanDate === entry.start_date && cleanDate === entry.end_date;
 
-  // If single day or user explicitly chose to clear entire range
-  if (isSingleDay || clearEntireRange) {
-    await deleteOfficeClosure(entry.id, actingUser, `Cleared holiday: ${entry.title} (${entry.start_date} to ${entry.end_date})`);
-    return { success: true, clearedRange: true, message: `Cleared "${entry.title}". Restored default schedule.` };
+    // If single day or user explicitly chose to clear entire range
+    if (isSingleDay || clearEntireRange) {
+      await deleteOfficeClosure(entry.id, actingUser, `Cleared holiday: ${entry.title}`);
+    } else if (cleanDate === entry.start_date) {
+      const newStart = shiftDateString(cleanDate, 1);
+      await updateOfficeClosure(entry.id, { start_date: newStart }, actingUser, `Removed ${cleanDate} from holiday "${entry.title}"`);
+    } else if (cleanDate === entry.end_date) {
+      const newEnd = shiftDateString(cleanDate, -1);
+      await updateOfficeClosure(entry.id, { end_date: newEnd }, actingUser, `Removed ${cleanDate} from holiday "${entry.title}"`);
+    } else {
+      // Split into Range 1 and Range 2
+      const range1End = shiftDateString(cleanDate, -1);
+      const range2Start = shiftDateString(cleanDate, 1);
+
+      await updateOfficeClosure(entry.id, { end_date: range1End }, actingUser, `Split holiday "${entry.title}" before ${cleanDate}`);
+
+      const range2Payload: Omit<OfficeClosure, 'id' | 'created_at' | 'updated_at'> = {
+        ...entry,
+        start_date: range2Start,
+        end_date: entry.end_date,
+        title: entry.title
+      };
+      delete (range2Payload as any).id;
+      await createOfficeClosure(range2Payload, actingUser, `Split holiday "${entry.title}" after ${cleanDate}`);
+    }
   }
 
-  // Multi-day holiday: user wants to clear just this specific date
-  // Case A: dateStr is the start date
-  if (cleanDate === entry.start_date) {
-    const newStart = shiftDateString(cleanDate, 1);
-    await updateOfficeClosure(entry.id, { start_date: newStart }, actingUser, `Removed ${cleanDate} from holiday "${entry.title}"`);
-    return { success: true, clearedRange: false, message: `Removed ${cleanDate} from "${entry.title}".` };
+  // Completely wipe any remaining GCal closure events for this date
+  await cleanGoogleCalendarEventsForDate(cleanDate);
+
+  return { success: true, clearedRange: clearEntireRange, message: `Cleared closure for ${cleanDate}. Default schedule restored.` };
+}
+
+/**
+ * Cleans up and deduplicates all redundant OfficeClosure records in Firestore
+ * and synchronizes clean, single events to connected Google Calendars.
+ */
+export async function cleanupAllDuplicateClosures(
+  actingUser?: Partial<User> | null
+): Promise<{ cleanedClosuresCount: number; message: string }> {
+  const closures = await getOfficeClosures();
+  let cleanedCount = 0;
+
+  // 1. Deduplicate in-memory & Firestore closures by date range
+  const map = new Map<string, OfficeClosure[]>();
+  for (const c of closures) {
+    if (!c.start_date || c.is_active === false) continue;
+    const key = `${c.start_date.split('T')[0]}_${(c.end_date || c.start_date).split('T')[0]}`;
+    const list = map.get(key) || [];
+    list.push(c);
+    map.set(key, list);
   }
 
-  // Case B: dateStr is the end date
-  if (cleanDate === entry.end_date) {
-    const newEnd = shiftDateString(cleanDate, -1);
-    await updateOfficeClosure(entry.id, { end_date: newEnd }, actingUser, `Removed ${cleanDate} from holiday "${entry.title}"`);
-    return { success: true, clearedRange: false, message: `Removed ${cleanDate} from "${entry.title}".` };
+  for (const [key, list] of map.entries()) {
+    if (list.length > 1) {
+      // Keep newest, delete older duplicate records
+      list.sort((a, b) => (b.updated_at || b.created_at || '').localeCompare(a.updated_at || a.created_at || ''));
+      for (let i = 1; i < list.length; i++) {
+        await deleteOfficeClosure(list[i].id, actingUser, 'Removed duplicate closure entry');
+        cleanedCount++;
+      }
+    }
   }
 
-  // Case C: dateStr is in the middle of a range (e.g. Dec 24 - Dec 26, clearing Dec 25)
-  // Split into two entries: Range 1 (start to date-1), Range 2 (date+1 to end)
-  const range1End = shiftDateString(cleanDate, -1);
-  const range2Start = shiftDateString(cleanDate, 1);
+  // 2. Clean Google Calendar duplicates
+  if (!isRunningTests) {
+    const targetUsers = await findAllConnectedProxyAndAdminUsers();
+    const now = new Date();
+    const timeMin = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+    const timeMax = new Date(now.getFullYear(), now.getMonth() + 4, 1).toISOString();
 
-  // Update existing to be Range 1
-  await updateOfficeClosure(entry.id, { end_date: range1End }, actingUser, `Split holiday "${entry.title}" before ${cleanDate}`);
+    for (const u of targetUsers) {
+      try {
+        const events = await listGoogleCalendarEvents(String(u.id), timeMin, timeMax);
+        const closureEvents = (events || []).filter(ev => {
+          const s = ev.summary || '';
+          return s.startsWith('🔴 OFFICE CLOSED') || 
+                 s.startsWith('🟢 OFFICE OPEN') || 
+                 (ev.description && ev.description.includes('Placify CRM'));
+        });
 
-  // Create Range 2
-  const range2Payload: Omit<OfficeClosure, 'id' | 'created_at' | 'updated_at'> = {
-    ...entry,
-    start_date: range2Start,
-    end_date: entry.end_date,
-    title: entry.title
+        // Group by event start date
+        const dateMap = new Map<string, any[]>();
+        for (const ev of closureEvents) {
+          const d = ev.start?.date || ev.start?.dateTime?.split('T')[0];
+          if (!d) continue;
+          const evList = dateMap.get(d) || [];
+          evList.push(ev);
+          dateMap.set(d, evList);
+        }
+
+        for (const [d, evList] of dateMap.entries()) {
+          const currentEval = checkDateOfficeClosure(d, cachedClosures, cachedWeeklyOffConfig);
+          if (currentEval.isClosed) {
+            // Keep at most 1 red event, delete all other red and green events
+            let kept = false;
+            for (const ev of evList) {
+              const s = ev.summary || '';
+              if (!kept && s.startsWith('🔴 OFFICE CLOSED')) {
+                kept = true;
+              } else {
+                await deleteGoogleCalendarEvent(String(u.id), ev.id).catch(() => {});
+              }
+            }
+          } else if (currentEval.status === 'open' && (currentEval.reason === 'override_working' || currentEval.reason === 'open')) {
+            // Keep at most 1 green event
+            let kept = false;
+            for (const ev of evList) {
+              const s = ev.summary || '';
+              if (!kept && s.startsWith('🟢 OFFICE OPEN')) {
+                kept = true;
+              } else {
+                await deleteGoogleCalendarEvent(String(u.id), ev.id).catch(() => {});
+              }
+            }
+          } else {
+            // Normal working day (weekday, not closed): delete all closure events on this date
+            for (const ev of evList) {
+              await deleteGoogleCalendarEvent(String(u.id), ev.id).catch(() => {});
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`[holidayService] Failed cleaning Google Calendar for user ${u.display_name}:`, err);
+      }
+    }
+  }
+
+  return {
+    cleanedClosuresCount: cleanedCount,
+    message: `Deduplication complete. Cleaned ${cleanedCount} duplicate records and synchronized Google Calendar.`
   };
-  delete (range2Payload as any).id;
-  await createOfficeClosure(range2Payload, actingUser, `Split holiday "${entry.title}" after ${cleanDate}`);
-
-  return { success: true, clearedRange: false, message: `Cleared ${cleanDate} from "${entry.title}". Remaining dates remain closed.` };
 }
 
 /**

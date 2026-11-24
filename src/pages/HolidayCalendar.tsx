@@ -54,7 +54,8 @@ import {
   toggleDateWorkingStatus,
   clearHolidayForDate,
   clearOfficeClosure,
-  clearAllOfficeClosures
+  clearAllOfficeClosures,
+  cleanupAllDuplicateClosures
 } from '../services/holidayService';
 import { cn } from '../lib/utils';
 import { subscribeToCollection } from '../services/storage';
@@ -378,12 +379,28 @@ export const HolidayCalendar: React.FC = () => {
         );
         showToast('Office closure updated successfully!', 'success');
       } else {
-        await createOfficeClosure(
-          payload as any,
-          userActor,
-          'Created new office closure event'
+        // Prevent duplicate closure entries on the exact same date
+        const existingMatch = closures.find(c => 
+          c.start_date === payload.start_date && 
+          (c.end_date === payload.end_date || (!c.end_date && payload.end_date === payload.start_date)) &&
+          c.is_active !== false
         );
-        showToast('Office closure created successfully!', 'success');
+        if (existingMatch) {
+          await updateOfficeClosure(
+            existingMatch.id,
+            payload,
+            userActor,
+            'Updated existing closure event'
+          );
+          showToast('Existing closure updated successfully!', 'success');
+        } else {
+          await createOfficeClosure(
+            payload as any,
+            userActor,
+            'Created new office closure event'
+          );
+          showToast('Office closure created successfully!', 'success');
+        }
       }
 
       setIsEventModalOpen(false);
@@ -436,27 +453,29 @@ export const HolidayCalendar: React.FC = () => {
     }
   };
 
-  // Trigger Google Calendar Sync
+  // Trigger Google Calendar Clean & Sync
   const handleSyncGoogleCalendar = async () => {
     setIsSyncing(true);
     try {
-      const connectedProxies = allUsers.filter(u => u.google_calendar_connected && (u.google_calendar_access_token || u.google_calendar_refresh_token));
+      const userActor = user ? { id: user.id, display_name: user.display_name || user.email, email: user.email } : undefined;
       
+      // 1. Run deduplication on closures and Google Calendar
+      const cleanRes = await cleanupAllDuplicateClosures(userActor);
+      
+      // 2. Sync all active closures (both closed and open override)
       let syncCount = 0;
       for (const closure of closures) {
-        if (!closure.is_working_day_override) {
-          for (const proxy of connectedProxies) {
-            try {
-              await syncClosureToGoogleCalendar(closure, proxy.id);
-              syncCount++;
-            } catch (e) {
-              console.warn(`[GCalSync] Failed for proxy ${proxy.id}:`, e);
-            }
+        if (closure.is_active !== false) {
+          try {
+            await syncClosureToGoogleCalendar(closure, user);
+            syncCount++;
+          } catch (e) {
+            console.warn(`[GCalSync] Failed for closure ${closure.id}:`, e);
           }
         }
       }
 
-      showToast(`Google Calendar synchronization complete (${syncCount} calendar events updated).`, 'success');
+      showToast(`Google Calendar clean & sync complete! (${syncCount} closures synced, ${cleanRes.cleanedClosuresCount} duplicates cleaned).`, 'success');
     } catch (err: any) {
       showToast('Google Calendar sync error: ' + err.message, 'error');
     } finally {
@@ -464,12 +483,24 @@ export const HolidayCalendar: React.FC = () => {
     }
   };
 
-  // Upcoming Closures for Notice Banner
+  // Upcoming Closures for Notice Banner (deduplicated by date)
   const upcomingClosures = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
-    return closures
+    const filtered = closures
       .filter(c => c.is_active !== false && c.status !== 'open' && !c.is_working_day_override && (c.end_date || c.start_date) >= todayStr)
       .sort((a, b) => a.start_date.localeCompare(b.start_date));
+
+    // Deduplicate by date range
+    const seen = new Set<string>();
+    const unique: OfficeClosure[] = [];
+    for (const c of filtered) {
+      const key = `${c.start_date}_${c.end_date || c.start_date}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(c);
+      }
+    }
+    return unique;
   }, [closures]);
 
   return (
