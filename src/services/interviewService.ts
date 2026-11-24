@@ -18,6 +18,14 @@ import {
   getEasternTimeMinutes,
   validateInterviewTimeWindow
 } from '../lib/utils';
+import { 
+  checkDateOfficeClosure, 
+  getCachedOfficeClosures, 
+  getCachedWeeklyOffConfig, 
+  isDateOfficeClosedSync,
+  DateClosureEvaluation 
+} from './holidayService';
+import { OfficeClosure, WeeklyOffConfig } from '../types';
 
 export {
   INTERVIEW_WINDOW_START_MINUTES,
@@ -98,8 +106,9 @@ export const cleanupDuplicateProxySlots = async (proxyUserId: string) => {
       const start = data.slot_start;
       
       if (start) {
-        // If it lands on a weekend, flag for immediate deletion
-        if (isWeekendString(start)) {
+        // If it lands on a closed date (weekend or holiday without working day override), flag for immediate deletion
+        const closureCheck = isDateOfficeClosedSync(start);
+        if (closureCheck.isClosed) {
           weekendDocsToDelete.push(dDoc.id);
           return;
         }
@@ -183,8 +192,9 @@ export const generateDefaultProxySlots = async (proxyUserId: string) => {
       day: '2-digit'
     }).format(date);
     
-    // Skip weekends (0 is Sunday, 6 is Saturday)
-    if (isWeekendString(dateStr)) continue;
+    // Skip non-working days (respecting weekly off-days and active office closures, unless overridden as working days)
+    const dateClosure = isDateOfficeClosedSync(dateStr);
+    if (dateClosure.isClosed) continue;
     
     // 9:30 AM to 5:15 PM EST (strictly within allowed 4:15 AM – 5:15 PM EST window)
     let currentHour = 9;
@@ -207,8 +217,8 @@ export const generateDefaultProxySlots = async (proxyUserId: string) => {
 
       const endTime = `${dateStr}T${String(nextHour).padStart(2, '0')}:${String(nextMinute).padStart(2, '0')}:00`;
 
-      // Skip if this slot_start already exists, is a weekend, or falls outside the permitted 4:15 AM – 5:15 PM window
-      if (!existingStarts.has(startTime) && !isWeekendString(startTime) && validateInterviewTimeWindow(startTime, endTime).isValid) {
+      // Skip if this slot_start already exists, is on a closed day, or falls outside the permitted 4:15 AM – 5:15 PM window
+      if (!existingStarts.has(startTime) && !isDateOfficeClosedSync(startTime).isClosed && validateInterviewTimeWindow(startTime, endTime).isValid) {
         slots.push({
           proxy_user_id: proxyUserId,
           slot_start: startTime,
@@ -272,9 +282,26 @@ export const findBestProxyForWindow = (
   allAvailabilities: any[],
   calendarEvents: any[] = [],
   excludeRoundId?: string,
-  temporaryWorkloadMap?: Record<string, number>
-): { bestProxy: any; availableProxies: any[]; errors: string[] } => {
-  // 0. Enforce Permitted Interview Scheduling Window (4:15 AM – 5:15 PM EST)
+  temporaryWorkloadMap?: Record<string, number>,
+  officeClosures?: OfficeClosure[],
+  weeklyOffConfig?: WeeklyOffConfig
+): { bestProxy: any; availableProxies: any[]; errors: string[]; closureInfo?: DateClosureEvaluation } => {
+  // 0. Enforce Centralised Office Closure & Weekly Off Rules (unless overridden by Higher Authority)
+  const closureEval = checkDateOfficeClosure(
+    dateStr,
+    officeClosures ?? getCachedOfficeClosures(),
+    weeklyOffConfig ?? getCachedWeeklyOffConfig()
+  );
+  if (closureEval.isClosed) {
+    return {
+      bestProxy: null,
+      availableProxies: [],
+      errors: [closureEval.message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.'],
+      closureInfo: closureEval
+    };
+  }
+
+  // 1. Enforce Permitted Interview Scheduling Window (4:15 AM – 5:15 PM EST)
   const windowValidation = validateInterviewTimeWindow(startTimeJoint, endTimeJoint, undefined, dateStr);
   if (!windowValidation.isValid) {
     return {
@@ -286,7 +313,7 @@ export const findBestProxyForWindow = (
 
   const errors: string[] = [];
   
-  // 1. Create buffered window for checking
+  // 2. Create buffered window for checking
   const jointStart = new Date(`${dateStr}T${startTimeJoint}:00`);
   const jointEnd = new Date(`${dateStr}T${endTimeJoint}:00`);
 
@@ -452,7 +479,9 @@ export const assignProxiesForRounds = (
   proxies: any[],
   allRounds: any[],
   allAvailabilities: any[],
-  calendarEvents: any[] = []
+  calendarEvents: any[] = [],
+  officeClosures?: OfficeClosure[],
+  weeklyOffConfig?: WeeklyOffConfig
 ): {
   roundAssignments: { roundIndex: number; bestProxy: any; availableProxies: any[]; errors: string[] }[];
   temporaryWorkloadMap: Record<string, number>;
@@ -479,7 +508,9 @@ export const assignProxiesForRounds = (
       allAvailabilities,
       calendarEvents,
       undefined,
-      temporaryWorkloadMap
+      temporaryWorkloadMap,
+      officeClosures,
+      weeklyOffConfig
     );
 
     roundAssignments.push({
@@ -526,7 +557,9 @@ export const resolveBestSlotForBooking = (
   proxies: any[],
   allRounds: any[],
   allAvailabilities: any[],
-  calendarEvents: any[] = []
+  calendarEvents: any[] = [],
+  officeClosures?: OfficeClosure[],
+  weeklyOffConfig?: WeeklyOffConfig
 ): ProxyAvailability | null => {
   const availableSlotsAtTime = sameTimeSlots.filter(
     s => s.slot_start === slotStartIso && s.slot_status === 'available'
@@ -566,7 +599,11 @@ export const resolveBestSlotForBooking = (
     candidateProxies,
     allRounds,
     allAvailabilities,
-    calendarEvents
+    calendarEvents,
+    undefined,
+    undefined,
+    officeClosures,
+    weeklyOffConfig
   );
 
   if (!result.bestProxy) {

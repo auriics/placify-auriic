@@ -54,6 +54,7 @@ export interface User {
   sales_deactivated_at?: string | null;
   proxy_priority?: number;
   profile_handling_access?: ProfileHandlingAccess | string | null;
+  can_manage_calendar?: boolean;
 }
 
 export type Stage = 
@@ -583,4 +584,60 @@ export interface LeadRoundRobinConfig {
   custom_order_user_ids?: (string | number)[];
   total_leads_assigned?: number;
   recent_assignments?: LeadRoundRobinAssignment[];
+}
+
+export type OfficeClosureEventType = 
+  | 'public_holiday'
+  | 'company_holiday'
+  | 'special_closure'
+  | 'weekly_off'
+  | 'other';
+
+export interface OfficeClosure {
+  id: string;
+  title: string;
+  event_type: OfficeClosureEventType;
+  start_date: string; // YYYY-MM-DD
+  end_date: string;   // YYYY-MM-DD
+  start_time?: string | null; // e.g. "09:00"
+  end_time?: string | null;   // e.g. "17:00"
+  is_all_day: boolean;
+  description?: string;
+  custom_message: string;
+  location?: string; // 'all' or specific location
+  is_active: boolean;
+  is_working_day_override?: boolean; // If true, explicitly makes this day an open/working day, overriding weekly off or holidays!
+  google_calendar_event_id?: string | null;
+  google_calendar_sync_status?: 'synced' | 'pending' | 'failed' | 'not_synced';
+  last_synced_at?: string | null;
+  sync_error?: string | null;
+  source?: 'crm' | 'google_calendar';
+  created_by: string;
+  created_by_name?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_by_name?: string;
+  updated_at: string;
+}
+
+export interface WeeklyOffConfig {
+  weekly_off_days: number[]; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday. Default: [0, 6]
+  custom_message: string;
+  updated_by?: string;
+  updated_at?: string;
+}
+
+export interface HolidayAuditLog {
+  id: string;
+  action: 'create' | 'update' | 'delete' | 'override' | 'sync';
+  entity_type: 'closure' | 'weekly_off_config';
+  entity_id: string;
+  acting_user_id: string;
+  acting_user_name: string;
+  acting_user_role?: string;
+  previous_value?: any;
+  new_value?: any;
+  source_system: 'crm' | 'google_calendar';
+  timestamp: string;
+  details?: string;
 }

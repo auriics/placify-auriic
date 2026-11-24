@@ -75,6 +75,7 @@ import { ResumeSubstitutionModal } from '../../components/ResumeSubstitutionModa
 import { SlotVisualizer } from '../../components/SlotVisualizer';
 import { InterviewTimeDisplay } from '../../components/InterviewTimeDisplay';
 import { findBestProxyForWindow, assignProxiesForRounds, isProxyUser, getLatestCandidateResume, getInterviewResumeInfo, syncUserLeaveAvailability, getProxyConflictingRounds, getProxyLeaveStatusForDate, shouldHideProxyLeaveFromRole, hasActiveOrFutureLeave, validateInterviewTimeWindow, INTERVIEW_SCHEDULING_WINDOW_MESSAGE } from '../../services/interviewService';
+import { isDateOfficeClosedSync } from '../../services/holidayService';
 import { sharedSelectStyles } from '../../lib/selectStyles';
 import { FreeTrialBadge } from '../../components/FreeTrialBadge';
 import { ProxyLeaveBanner } from '../../components/ProxyLeaveBanner';
@@ -1873,6 +1874,14 @@ const DirectScheduleModal: React.FC<{
       const mm = String(endD.getMinutes()).padStart(2, '0');
       const bookedEnd = `${y}-${m}-${dVal}T${hh}:${mm}:00`;
 
+      // Enforce Office Closures & Non-Working Days
+      const closureCheck = isDateOfficeClosedSync(parts[0]);
+      if (closureCheck.isClosed) {
+        showToast(closureCheck.message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.', 'error');
+        setIsSubmitting(false);
+        return;
+      }
+
       // Enforce Permitted Interview Scheduling Window (4:15 AM – 5:15 PM EST)
       const windowCheck = validateInterviewTimeWindow(bookedStart, bookedEnd, duration, parts[0]);
       if (!windowCheck.isValid) {
@@ -2171,6 +2180,19 @@ const RequestModal: React.FC<{
         otherResumeFilename = newResumeFile.name;
         resumeId = otherResumeUrl;
         useOtherResume = true;
+      }
+
+      // Enforce Office Closures & Non-Working Days
+      for (let i = 0; i < formData.rounds.length; i++) {
+        const r = formData.rounds[i];
+        if (r.interview_date) {
+          const closure = isDateOfficeClosedSync(r.interview_date);
+          if (closure.isClosed) {
+            showToast(`Round ${i + 1} (${r.label}): ${closure.message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.'}`, "error");
+            setIsSubmitting(false);
+            return;
+          }
+        }
       }
 
       // Enforce Permitted Interview Scheduling Window (4:15 AM – 5:15 PM EST)
@@ -2753,6 +2775,14 @@ const RequestModal: React.FC<{
                           }}
                           className="w-full bg-bg-secondary border border-border-primary rounded-xl text-xs p-2 font-bold text-text-primary focus:ring-1 focus:ring-accent-blue"
                         />
+                        {round.interview_date && isDateOfficeClosedSync(round.interview_date).isClosed && (
+                          <div className="p-2 bg-accent-red/10 border border-accent-red/30 rounded-lg flex items-center gap-1.5 text-accent-red mt-1">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                            <span className="text-[9px] font-bold">
+                              {isDateOfficeClosedSync(round.interview_date).message || 'Office is closed on this date.'}
+                            </span>
+                          </div>
+                        )}
                       </div>
                       <div className="space-y-1">
                         <span className="text-[8px] text-text-muted font-black uppercase tracking-wider block">Start Time (EST)</span>

@@ -24,6 +24,7 @@ dotenv.config();
 
 // Environment detection
 export const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
+export const isRunningTests = process.env.NODE_ENV === 'test' || Boolean(process.env.NODE_TEST_CONTEXT) || process.execArgv.includes('--test');
 
 // Initialize Firebase Admin safely
 let databaseId: string | undefined = undefined;
@@ -104,8 +105,8 @@ const initFirestore = (id?: string) => {
 
 db = initFirestore(databaseId);
 
-// Connection test for debugging (only run in long-running persistent servers, NOT serverless)
-if (db && process.env.NODE_ENV !== 'test' && !isServerless) {
+// Connection test for debugging (only run in long-running persistent servers, NOT serverless or test)
+if (db && !isRunningTests && !isServerless) {
   const testRef = db.collection('_connection_test_').doc('server_start');
   testRef.set({
     last_start: new Date().toISOString(),
@@ -1704,10 +1705,99 @@ app.patch('/api/interview-offer-requests/:id', async (req, res) => {
 });
 
 // ==========================================
-// INTERVIEW SCHEDULING TIME WINDOW VALIDATION
+// INTERVIEW SCHEDULING TIME WINDOW & HOLIDAY VALIDATION
 // ==========================================
-app.post(['/api/interviews/validate-window', '/interviews/validate-window'], (req, res) => {
+
+async function checkOfficeClosureServer(interviewDate: string) {
+  if (!interviewDate) return { isClosed: false };
+  const cleanDate = String(interviewDate).split('T')[0].trim();
+  if (cleanDate.length !== 10) return { isClosed: false };
+
+  try {
+    const closuresSnap = await db.collection('jpc_office_closures').get();
+    const closures: any[] = closuresSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    const activeClosures = closures.filter(c => {
+      if (c.is_active === false) return false;
+      const start = (c.start_date || '').split('T')[0].trim();
+      const end = (c.end_date || c.start_date || '').split('T')[0].trim();
+      return cleanDate >= start && cleanDate <= end;
+    });
+
+    // 1. Higher Authority Working Day Override
+    const workingDayOverride = activeClosures.find(c => c.is_working_day_override === true);
+    if (workingDayOverride) {
+      return { isClosed: false, reason: 'override_working', title: workingDayOverride.title };
+    }
+
+    // 2. Explicit Holiday or Closure
+    const holidayClosure = activeClosures.find(c => !c.is_working_day_override);
+    if (holidayClosure) {
+      const msg = holidayClosure.custom_message || `Interview booking is unavailable on this date because the office is closed for ${holidayClosure.title}. Please select another working day.`;
+      return {
+        isClosed: true,
+        reason: 'holiday',
+        title: holidayClosure.title,
+        message: msg
+      };
+    }
+
+    // 3. Weekly Off Days
+    const configDoc = await db.collection('jpc_settings').doc('weekly_off_config').get();
+    const configData = configDoc.exists ? configDoc.data() : null;
+    const weeklyOffDays = Array.isArray(configData?.weekly_off_days) ? configData.weekly_off_days : [0, 6];
+    
+    const [y, m, d] = cleanDate.split('-').map(Number);
+    const dayOfWeek = new Date(y, m - 1, d).getDay();
+
+    if (weeklyOffDays.includes(dayOfWeek)) {
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const dayName = dayNames[dayOfWeek] || 'Weekend';
+      const msg = configData?.custom_message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.';
+      return {
+        isClosed: true,
+        reason: 'weekly_off',
+        title: `Weekly Off – ${dayName}`,
+        message: msg
+      };
+    }
+
+    return { isClosed: false };
+  } catch (err) {
+    console.warn('[server] Error checking office closure:', err);
+    const [y, m, d] = cleanDate.split('-').map(Number);
+    const dayOfWeek = new Date(y, m - 1, d).getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      return {
+        isClosed: true,
+        reason: 'weekly_off',
+        title: 'Weekly Off',
+        message: 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.'
+      };
+    }
+    return { isClosed: false };
+  }
+}
+
+app.post(['/api/interviews/validate-window', '/interviews/validate-window'], async (req, res) => {
   const { startTime, endTime, durationMinutes, interviewDate } = req.body || {};
+
+  // 1. Enforce Centralised Office Closure & Weekly Off Rules
+  if (interviewDate) {
+    const closure = await checkOfficeClosureServer(interviewDate);
+    if (closure.isClosed) {
+      return res.status(400).json({
+        isValid: false,
+        isClosed: true,
+        reason: closure.reason,
+        title: closure.title,
+        error: closure.message,
+        message: closure.message
+      });
+    }
+  }
+
+  // 2. Validate Daily Scheduling Window (4:15 AM – 5:15 PM EST)
   const validation = validateInterviewTimeWindow(startTime, endTime, durationMinutes, interviewDate);
   if (!validation.isValid) {
     return res.status(400).json({
@@ -1723,6 +1813,203 @@ app.post(['/api/interviews/validate-window', '/interviews/validate-window'], (re
     endMinutes: validation.endMinutes,
     message: 'Time is within the allowed 4:15 AM – 5:15 PM EST scheduling window.'
   });
+});
+
+// ==========================================
+// CENTRALISED OFFICE HOLIDAYS & CLOSURES APIS
+// ==========================================
+
+app.get(['/api/holidays', '/holidays'], async (req, res) => {
+  try {
+    const snap = await db.collection('jpc_office_closures').get();
+    const closures = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    res.json(closures);
+  } catch (error: any) {
+    console.error('Error fetching holidays:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post(['/api/holidays', '/holidays'], async (req, res) => {
+  try {
+    const data = req.body;
+    if (!data.title || !data.start_date) {
+      return res.status(400).json({ error: 'title and start_date are required' });
+    }
+
+    const id = data.id || ('closure_' + Math.random().toString(36).slice(2, 11));
+    const now = new Date().toISOString();
+    const record = {
+      ...data,
+      id,
+      title: String(data.title).trim(),
+      start_date: String(data.start_date).split('T')[0].trim(),
+      end_date: String(data.end_date || data.start_date).split('T')[0].trim(),
+      is_active: data.is_active ?? true,
+      is_working_day_override: !!data.is_working_day_override,
+      created_at: now,
+      updated_at: now
+    };
+
+    await db.collection('jpc_office_closures').doc(id).set(record);
+
+    // Audit log
+    const auditId = 'audit_' + Math.random().toString(36).slice(2, 11);
+    await db.collection('jpc_holiday_audit_logs').doc(auditId).set({
+      id: auditId,
+      action: 'create',
+      entity_type: 'closure',
+      entity_id: id,
+      acting_user_id: data.created_by || 'system',
+      acting_user_name: data.created_by_name || 'Management',
+      new_value: record,
+      source_system: 'api',
+      timestamp: now,
+      details: `Created closure: ${record.title}`
+    }).catch(() => {});
+
+    res.status(201).json(record);
+  } catch (error: any) {
+    console.error('Error creating holiday:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch(['/api/holidays/:id', '/holidays/:id'], async (req, res) => {
+  try {
+    const id = req.params.id;
+    const updates = req.body;
+    const now = new Date().toISOString();
+
+    const ref = db.collection('jpc_office_closures').doc(id);
+    const existing = await ref.get();
+    if (!existing.exists) {
+      return res.status(404).json({ error: 'Holiday not found' });
+    }
+
+    const finalUpdates = {
+      ...updates,
+      updated_at: now
+    };
+    if (updates.start_date) finalUpdates.start_date = updates.start_date.split('T')[0].trim();
+    if (updates.end_date) finalUpdates.end_date = updates.end_date.split('T')[0].trim();
+
+    await ref.set(finalUpdates, { merge: true });
+
+    // Audit log
+    const auditId = 'audit_' + Math.random().toString(36).slice(2, 11);
+    await db.collection('jpc_holiday_audit_logs').doc(auditId).set({
+      id: auditId,
+      action: updates.is_working_day_override !== undefined ? 'override' : 'update',
+      entity_type: 'closure',
+      entity_id: id,
+      acting_user_id: updates.updated_by || 'system',
+      acting_user_name: updates.updated_by_name || 'Management',
+      previous_value: existing.data(),
+      new_value: { ...existing.data(), ...finalUpdates },
+      source_system: 'api',
+      timestamp: now,
+      details: `Updated closure: ${existing.data()?.title}`
+    }).catch(() => {});
+
+    res.json({ id, ...existing.data(), ...finalUpdates });
+  } catch (error: any) {
+    console.error(`Error updating holiday ${req.params.id}:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete(['/api/holidays/:id', '/holidays/:id'], async (req, res) => {
+  try {
+    const id = req.params.id;
+    const ref = db.collection('jpc_office_closures').doc(id);
+    const existing = await ref.get();
+    if (!existing.exists) {
+      return res.status(404).json({ error: 'Holiday not found' });
+    }
+
+    await ref.delete();
+
+    // Audit log
+    const now = new Date().toISOString();
+    const auditId = 'audit_' + Math.random().toString(36).slice(2, 11);
+    await db.collection('jpc_holiday_audit_logs').doc(auditId).set({
+      id: auditId,
+      action: 'delete',
+      entity_type: 'closure',
+      entity_id: id,
+      acting_user_id: req.body?.acting_user_id || 'system',
+      acting_user_name: req.body?.acting_user_name || 'Management',
+      previous_value: existing.data(),
+      source_system: 'api',
+      timestamp: now,
+      details: `Deleted closure: ${existing.data()?.title}`
+    }).catch(() => {});
+
+    res.json({ success: true, id });
+  } catch (error: any) {
+    console.error(`Error deleting holiday ${req.params.id}:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get(['/api/holidays-config', '/holidays-config', '/api/holidays/config'], async (req, res) => {
+  try {
+    const docSnap = await db.collection('jpc_settings').doc('weekly_off_config').get();
+    if (docSnap.exists) {
+      res.json(docSnap.data());
+    } else {
+      res.json({
+        weekly_off_days: [0, 6],
+        custom_message: 'Our office is closed today due to the scheduled weekly off-day. Please select another working day.'
+      });
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post(['/api/holidays-config', '/holidays-config', '/api/holidays/config'], async (req, res) => {
+  try {
+    const { weekly_off_days, custom_message, updated_by } = req.body;
+    const now = new Date().toISOString();
+    const config = {
+      weekly_off_days: Array.isArray(weekly_off_days) ? weekly_off_days : [0, 6],
+      custom_message: custom_message?.trim() || 'Our office is closed today due to the scheduled weekly off-day. Please select another working day.',
+      updated_by: updated_by || 'system',
+      updated_at: now
+    };
+
+    await db.collection('jpc_settings').doc('weekly_off_config').set(config);
+
+    // Audit log
+    const auditId = 'audit_' + Math.random().toString(36).slice(2, 11);
+    await db.collection('jpc_holiday_audit_logs').doc(auditId).set({
+      id: auditId,
+      action: 'override',
+      entity_type: 'weekly_off_config',
+      entity_id: 'weekly_off_config',
+      acting_user_id: updated_by || 'system',
+      new_value: config,
+      source_system: 'api',
+      timestamp: now,
+      details: `Updated weekly off config: days=[${config.weekly_off_days.join(', ')}]`
+    }).catch(() => {});
+
+    res.json(config);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get(['/api/holidays/audit-logs', '/holidays/audit-logs'], async (req, res) => {
+  try {
+    const snap = await db.collection('jpc_holiday_audit_logs').orderBy('timestamp', 'desc').limit(100).get();
+    const logs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    res.json(logs);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ==========================================
@@ -3938,7 +4225,7 @@ async function startServer() {
   });
 }
 
-if (process.env.NODE_ENV !== 'test' && !isServerless) {
+if (!isRunningTests && !isServerless) {
   startServer();
 }
 

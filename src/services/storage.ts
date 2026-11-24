@@ -18,6 +18,7 @@
 import { clearPreviousCalendarEvents } from './calendarService';
 import { canDeleteInterviewRequest, canEditCandidateBasicInfo } from '../lib/permissions';
 import { isSalesWorkingHours, validateInterviewTimeWindow } from '../lib/utils';
+import { isDateOfficeClosedSync } from './holidayService';
 import { db, auth } from '../firebase';
 import { isOfferStageDisabled, isCompletedStageDisabled, isPaymentsRevenueDisabled } from '../lib/featureFlags';
 import { DEFAULT_CANDIDATE_FLAGS, normalizeCandidateFlags, normalizeCandidateStage } from '../constants';
@@ -1418,6 +1419,16 @@ export const deleteInterviewSupportRequest = async (
 };
 
 export const addInterviewRound = async (round: Omit<InterviewRound, 'id' | 'created_at' | 'updated_at'>) => {
+  // 1. Validate Centralised Office Closure & Weekly Off Rules
+  const targetDate = (round.interview_date || round.booked_slot_time?.split('T')[0] || '').trim();
+  if (targetDate) {
+    const closureCheck = isDateOfficeClosedSync(targetDate);
+    if (closureCheck.isClosed) {
+      throw new Error(closureCheck.message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.');
+    }
+  }
+
+  // 2. Validate Daily Scheduling Window (4:15 AM – 5:15 PM EST)
   if (round.booked_slot_time) {
     const val = validateInterviewTimeWindow(round.booked_slot_time, round.booked_slot_end, round.duration_minutes, round.interview_date || undefined);
     if (!val.isValid) {
@@ -1436,6 +1447,16 @@ export const addInterviewRound = async (round: Omit<InterviewRound, 'id' | 'crea
 };
 
 export const updateInterviewRound = async (id: string, updates: Partial<InterviewRound>) => {
+  // 1. Validate Centralised Office Closure & Weekly Off Rules
+  const targetDate = (updates.interview_date || updates.booked_slot_time?.split('T')[0] || '').trim();
+  if (targetDate) {
+    const closureCheck = isDateOfficeClosedSync(targetDate);
+    if (closureCheck.isClosed) {
+      throw new Error(closureCheck.message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.');
+    }
+  }
+
+  // 2. Validate Daily Scheduling Window (4:15 AM – 5:15 PM EST)
   if (updates.booked_slot_time) {
     const val = validateInterviewTimeWindow(updates.booked_slot_time, updates.booked_slot_end, updates.duration_minutes, updates.interview_date || undefined);
     if (!val.isValid) {

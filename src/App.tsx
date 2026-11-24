@@ -5,6 +5,7 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { Sidebar } from './components/Sidebar';
 import { isProxyUser } from './services/interviewService';
+import { canViewHolidayCalendar } from './lib/permissions';
 import { isAurrumRole } from './types';
 import { AddCandidateModal } from './components/AddCandidateModal';
 import { NotificationList } from './components/NotificationList';
@@ -45,6 +46,7 @@ const AurrumCandidateDetail = lazy(() => import('./pages/AurrumCareers/AurrumCan
 const AurrumSales = lazy(() => import('./pages/AurrumCareers/AurrumSales').then(m => ({ default: m.AurrumSales })));
 const AurrumInterviewSupport = lazy(() => import('./pages/AurrumCareers/AurrumInterviewSupport').then(m => ({ default: m.AurrumInterviewSupport })));
 const AurrumTeam = lazy(() => import('./pages/AurrumCareers/AurrumTeam').then(m => ({ default: m.AurrumTeam })));
+const HolidayCalendar = lazy(() => import('./pages/HolidayCalendar').then(m => ({ default: m.HolidayCalendar })));
 
 const PageLoader = () => (
   <div className="flex-1 flex items-center justify-center p-20">
@@ -129,6 +131,8 @@ const AppContent: React.FC = () => {
           '#aurrum-sales',
           '#aurrum-interviews',
           '#receipt',
+          '#office-holidays',
+          '#holidays',
           ...(user.role === 'aurrum_admin' ? ['#aurrum-team'] : []),
         ];
         if (!current || (!allowedForAurrum.includes(current) && !current.startsWith('#book-interview'))) {
@@ -200,6 +204,10 @@ const AppContent: React.FC = () => {
         case '#receipt': 
           if (isPaymentsRevenueDisabled()) return <AurrumDashboard />;
           return <Receipt />;
+        case '#office-holidays':
+        case '#holidays':
+          if (!canViewHolidayCalendar(user)) return <AurrumDashboard />;
+          return <HolidayCalendar />;
         default:
           if (hash.startsWith('#book-interview')) {
             return <BookingPage />;
@@ -283,6 +291,10 @@ const AppContent: React.FC = () => {
         if (isAurrumRestrictedForUser(user)) return <Dashboard />;
         if (user?.role !== 'administrator' && user?.role !== 'jpc_sysadmin' && user?.role !== 'jpc_manager' && user?.role !== 'aurrum_admin') return <AurrumDashboard />;
         return <AurrumTeam />;
+      case '#office-holidays':
+      case '#holidays':
+        if (!canViewHolidayCalendar(user)) return <Dashboard />;
+        return <HolidayCalendar />;
       default:
         if (hash.startsWith('#book-interview')) {
           return <BookingPage />;
@@ -310,6 +322,8 @@ const AppContent: React.FC = () => {
       case '#feature-alerts': return 'Feature Alerts';
       case '#interviews': return 'Interview Support';
       case '#interviews-proxy': return 'Proxy Support';
+      case '#office-holidays':
+      case '#holidays': return 'Office Holidays';
       case '#aurrum-dashboard': return 'Aurrum Dashboard';
       case '#aurrum-candidates': return 'Aurrum Candidates';
       case '#aurrum-candidate': return 'Aurrum Candidate Profile';

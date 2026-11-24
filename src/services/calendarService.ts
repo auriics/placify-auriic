@@ -938,3 +938,42 @@ export async function syncProxyLeaveToGoogleCalendar(
     return { success: false, action: 'skipped' };
   }
 }
+
+/**
+ * Lists primary Google Calendar events for a user within a specified time window.
+ */
+export async function listGoogleCalendarEvents(
+  userId: string,
+  timeMin?: string,
+  timeMax?: string
+): Promise<any[]> {
+  try {
+    const token = await ensureGoogleTokenValid(userId);
+    if (!token) return [];
+
+    const params = new URLSearchParams({
+      singleEvents: 'true',
+      orderBy: 'startTime',
+      maxResults: '250',
+    });
+    if (timeMin) params.append('timeMin', timeMin);
+    if (timeMax) params.append('timeMax', timeMax);
+
+    const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!res.ok) {
+      console.warn(`[CalendarService] Failed to list events: ${res.status} ${res.statusText}`);
+      return [];
+    }
+
+    const data = await res.json();
+    return data.items || [];
+  } catch (err) {
+    console.error('[CalendarService] Error listing Google Calendar events:', err);
+    return [];
+  }
+}

@@ -22,14 +22,15 @@ import {
   Zap,
   TrendingUp,
   FolderTree,
-  Sparkles
+  Sparkles,
+  Calendar
 } from 'lucide-react';
 import { cn, isSalesWorkingHours } from '../lib/utils';
 import { subscribeToCollection, updateSalesAvailability } from '../services/storage';
 import { useToast } from '../contexts/ToastContext';
 import { isProxyUser } from '../services/interviewService';
 import { FollowUp, Candidate, User, isAurrumRole } from '../types';
-import { canUserAccessCandidate } from '../lib/permissions';
+import { canUserAccessCandidate, canViewHolidayCalendar } from '../lib/permissions';
 
 interface SidebarProps {
   currentHash: string;
@@ -194,6 +195,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentHash, isOpen, setIsOpen
       hash: '#interviews-proxy', 
       icon: Clock, 
       visible: !isAurrumOnlyUser && (user?.role === 'administrator' || user?.role === 'jpc_sysadmin' || user?.role === 'jpc_manager' || isProxyUser(user))
+    },
+    { 
+      label: 'Office Holidays', 
+      hash: '#office-holidays', 
+      icon: Calendar, 
+      visible: !isAurrumOnlyUser && canViewHolidayCalendar(user)
     },
     { 
       label: 'Not Interested', 

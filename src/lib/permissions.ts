@@ -456,6 +456,65 @@ export function canEditCandidateBasicInfo(role?: string | null): boolean {
   ].includes(role);
 }
 
+/**
+ * Checks whether a user has authority to manage the Centralised Holiday Calendar:
+ * create, edit, delete holidays, configure weekly off-days, and manage Google Calendar sync.
+ *
+ * Authorized:
+ * - Administrator (administrator)
+ * - System Administrator (jpc_sysadmin)
+ * - Operations Manager (jpc_manager)
+ * - Customer Service / Compliance Head (jpc_cs)
+ * - Compliance Person (jpc_compliance_person)
+ * - Aurrum Admin (aurrum_admin)
+ * - Authorized Proxies with explicit can_manage_calendar permission
+ */
+export function canManageHolidayCalendar(user: User | null): boolean {
+  if (!user) return false;
+  
+  if ([
+    'administrator',
+    'jpc_sysadmin',
+    'jpc_manager',
+    'jpc_cs',
+    'jpc_compliance_person',
+    'aurrum_admin'
+  ].includes(user.role)) {
+    return true;
+  }
+
+  // Authorized proxy with explicit permission
+  if (user.role === 'jpc_proxy' && user.can_manage_calendar === true) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Checks whether a user can view the holiday calendar and announcements.
+ * All internal CRM staff members can view. Candidates are excluded.
+ */
+export function canViewHolidayCalendar(user: User | null): boolean {
+  if (!user) return false;
+  return user.role !== 'candidate' && user.role !== 'jpc_candidate';
+}
+
+/**
+ * Checks whether a user has authority to execute a Higher Authority Working Day Override
+ * or Weekly Off configuration overhaul.
+ */
+export function canOverrideWorkingDay(user: User | null): boolean {
+  if (!user) return false;
+  return [
+    'administrator',
+    'jpc_sysadmin',
+    'jpc_manager',
+    'jpc_cs'
+  ].includes(user.role);
+}
+
+
 
 
 

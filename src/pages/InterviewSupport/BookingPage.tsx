@@ -40,6 +40,7 @@ import { uploadFile } from '../../services/fileService';
 import { InterviewTimeDisplay } from '../../components/InterviewTimeDisplay';
 import { syncInterviewRoundToGoogleCalendar } from '../../services/calendarService';
 import { findBestProxyForWindow, isProxyUser, resolveBestSlotForBooking, validateInterviewTimeWindow, INTERVIEW_SCHEDULING_WINDOW_MESSAGE } from '../../services/interviewService';
+import { isDateOfficeClosedSync } from '../../services/holidayService';
 
 const DetailCard: React.FC<{ label: string; value: string | undefined; icon: any }> = ({ label, value, icon: Icon }) => (
   <div className="flex items-center gap-5 p-5 bg-bg-tertiary rounded-[24px] border border-border-primary shadow-sm hover:border-accent-blue/30 transition-all">
@@ -328,7 +329,10 @@ export const BookingPage: React.FC = () => {
 
   const dates = useMemo(() => {
     const uniqueDates = Array.from(new Set(availability.map(a => a.slot_start.split('T')[0])));
-    return uniqueDates.sort().map(d => getCalendarDateInfo(d));
+    return uniqueDates
+      .filter(d => !isDateOfficeClosedSync(d).isClosed)
+      .sort()
+      .map(d => getCalendarDateInfo(d));
   }, [availability]);
 
   const slotsForSelectedDate = useMemo(() => {
@@ -375,6 +379,12 @@ export const BookingPage: React.FC = () => {
       }
       if (!customDate || !customStartTime || !customEndTime) {
         showToast('Please specify the date, start time, and end time.', 'error');
+        isSubmittingRef.current = false;
+        return;
+      }
+      const closureCheck = isDateOfficeClosedSync(customDate);
+      if (closureCheck.isClosed) {
+        showToast(closureCheck.message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.', 'error');
         isSubmittingRef.current = false;
         return;
       }
@@ -601,6 +611,15 @@ export const BookingPage: React.FC = () => {
         } else {
           showToast(resolveErr.message || 'Error checking availability. Please try again.', 'error');
         }
+        isSubmittingRef.current = false;
+        setIsSubmitting(false);
+        return;
+      }
+
+      const slotDate = slot.slot_start.split('T')[0];
+      const slotClosure = isDateOfficeClosedSync(slotDate);
+      if (slotClosure.isClosed) {
+        showToast(slotClosure.message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.', 'error');
         isSubmittingRef.current = false;
         setIsSubmitting(false);
         return;
@@ -992,6 +1011,15 @@ export const BookingPage: React.FC = () => {
                       className="w-full px-5 py-4 bg-bg-tertiary border border-border-primary rounded-[20px] text-sm focus:ring-2 focus:ring-accent-blue/20 outline-none font-bold text-text-primary h-[56px] font-sans"
                     />
                   </div>
+
+                  {customDate && isDateOfficeClosedSync(customDate).isClosed && (
+                    <div className="sm:col-span-3 p-4 bg-accent-red/10 border border-accent-red/30 rounded-2xl flex items-center gap-3 text-accent-red">
+                      <AlertCircle className="w-5 h-5 shrink-0" />
+                      <span className="text-xs font-bold font-sans">
+                        {isDateOfficeClosedSync(customDate).message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.'}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Assignment & Availability Details Feedback */}
@@ -1095,11 +1123,11 @@ export const BookingPage: React.FC = () => {
                   </div>
 
                   <button 
-                    disabled={!formCandidateName || !formCandidateEmail || !formCandidatePhone || !formCandidateWhatsApp || !formCompany || !formJobTitle || !formJobLink || !customDate || !customStartTime || !customEndTime || !resumeFile || !availabilityCheck.hasAvailableProxy || isSubmitting || isUploading}
+                    disabled={!formCandidateName || !formCandidateEmail || !formCandidatePhone || !formCandidateWhatsApp || !formCompany || !formJobTitle || !formJobLink || !customDate || !customStartTime || !customEndTime || !resumeFile || !availabilityCheck.hasAvailableProxy || isDateOfficeClosedSync(customDate).isClosed || isSubmitting || isUploading}
                     onClick={handleBook}
                     className={cn(
                       "w-full py-6 rounded-[30px] font-black text-lg transition-all flex items-center justify-center gap-3 shadow-2xl",
-                      (!formCandidateName || !formCandidateEmail || !formCandidatePhone || !formCandidateWhatsApp || !formCompany || !formJobTitle || !formJobLink || !customDate || !customStartTime || !customEndTime || !resumeFile || !availabilityCheck.hasAvailableProxy)
+                      (!formCandidateName || !formCandidateEmail || !formCandidatePhone || !formCandidateWhatsApp || !formCompany || !formJobTitle || !formJobLink || !customDate || !customStartTime || !customEndTime || !resumeFile || !availabilityCheck.hasAvailableProxy || isDateOfficeClosedSync(customDate).isClosed)
                         ? "bg-bg-tertiary text-text-muted border border-border-primary cursor-not-allowed" 
                         : "bg-accent-blue text-white shadow-accent-blue/30 hover:scale-[1.02] active:scale-[0.98] hover:shadow-accent-blue/40"
                     )}

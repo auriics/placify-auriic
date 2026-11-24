@@ -87,6 +87,7 @@ import {
   INTERVIEW_SCHEDULING_WINDOW_MESSAGE,
   syncUserLeaveAvailability,
 } from '../../services/interviewService';
+import { isDateOfficeClosedSync } from '../../services/holidayService';
 import { sharedSelectStyles } from '../../lib/selectStyles';
 import { useDebounce } from '../../lib/hooks';
 import { AurrumFlowHeader } from './AurrumFlowHeader';
@@ -2138,6 +2139,14 @@ const AurrumDirectScheduleModal: React.FC<{
       const mm = String(endD.getMinutes()).padStart(2, '0');
       const bookedEnd = `${y}-${m}-${dVal}T${hh}:${mm}:00`;
 
+      // Enforce Office Closures & Non-Working Days for this date
+      const singleClosureCheck = isDateOfficeClosedSync(parts[0]);
+      if (singleClosureCheck.isClosed) {
+        showToast(singleClosureCheck.message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.', 'error');
+        setIsSubmitting(false);
+        return;
+      }
+
       // Enforce Permitted Interview Scheduling Window (4:15 AM – 5:15 PM EST)
       const windowCheck = validateInterviewTimeWindow(bookedStart, bookedEnd, duration, parts[0]);
       if (!windowCheck.isValid) {
@@ -2522,6 +2531,19 @@ const AurrumInterviewRequestModal: React.FC<{
         otherResumeFilename = newResumeFile.name;
         resumeId = otherResumeUrl;
         useOtherResume = true;
+      }
+
+      // Enforce Office Closures & Non-Working Days across all rounds
+      for (let i = 0; i < formData.rounds.length; i++) {
+        const r = formData.rounds[i];
+        if (r.interview_date) {
+          const closure = isDateOfficeClosedSync(r.interview_date);
+          if (closure.isClosed) {
+            showToast(`Round ${i + 1} (${r.label}): ${closure.message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.'}`, 'error');
+            setIsSubmitting(false);
+            return;
+          }
+        }
       }
 
       // Enforce Permitted Interview Scheduling Window (4:15 AM – 5:15 PM EST)
@@ -3038,6 +3060,14 @@ const AurrumInterviewRequestModal: React.FC<{
                       }}
                       className="w-full px-3 py-2 bg-bg-secondary border border-border-primary rounded-xl text-xs font-bold text-text-primary"
                     />
+                    {round.interview_date && isDateOfficeClosedSync(round.interview_date).isClosed && (
+                      <div className="p-2 bg-accent-red/10 border border-accent-red/30 rounded-lg flex items-center gap-1.5 text-accent-red mt-1">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        <span className="text-[9px] font-bold">
+                          {isDateOfficeClosedSync(round.interview_date).message || 'Office is closed on this date.'}
+                        </span>
+                      </div>
+                    )}
                   </div>
                   <div>
                     <span className="text-[9px] font-black uppercase text-text-muted block mb-1">

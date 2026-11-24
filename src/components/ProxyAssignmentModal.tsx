@@ -7,6 +7,7 @@ import { useToast } from '../contexts/ToastContext';
 import { updateInterviewRound, updateInterviewSupportRequest, logInterviewActivity, addInterviewNotification } from '../services/storage';
 import { syncInterviewRoundToGoogleCalendar, checkProxyAvailability } from '../services/calendarService';
 import { findBestProxyForWindow, isProxyUser, resolveEffectiveProxySelection, getProxyLeaveStatusForDate, shouldHideProxyLeaveFromRole, hasActiveOrFutureLeave, validateInterviewTimeWindow, INTERVIEW_SCHEDULING_WINDOW_MESSAGE } from '../services/interviewService';
+import { isDateOfficeClosedSync } from '../services/holidayService';
 import { isUserOnLeaveDuring, formatLeavePeriod, getEasternDate, cn } from '../lib/utils';
 import { db } from '../firebase';
 import { collection, addDoc } from 'firebase/firestore';
@@ -167,6 +168,12 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
     if (!user) return;
     if (!selectedProxy) {
       showToast('Please select a proxy to assign.', 'error');
+      return;
+    }
+
+    const closureCheck = isDateOfficeClosedSync(date);
+    if (closureCheck.isClosed) {
+      showToast(closureCheck.message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.', 'error');
       return;
     }
 
@@ -332,6 +339,14 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
                   onChange={e => { setDate(e.target.value); setSelectedSlot(''); }}
                   className="w-full bg-bg-secondary border border-border-primary rounded-xl text-xs p-2 font-bold text-text-primary focus:ring-1 focus:ring-accent-blue"
                 />
+                {date && isDateOfficeClosedSync(date).isClosed && (
+                  <div className="p-2.5 bg-accent-red/10 border border-accent-red/30 rounded-xl flex items-center gap-2 text-accent-red mt-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span className="text-[10px] font-bold">
+                      {isDateOfficeClosedSync(date).message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.'}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {!isManualTime ? (
@@ -541,7 +556,7 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
               </button>
               <button 
                 onClick={handleAssign}
-                disabled={!selectedProxyId || isSubmitting || isCheckingCalendar || !isSelectedProxyAvailable || !isTimeRangeValid}
+                disabled={!selectedProxyId || isSubmitting || isCheckingCalendar || !isSelectedProxyAvailable || !isTimeRangeValid || isDateOfficeClosedSync(date).isClosed}
                 className="w-full sm:flex-1 py-3.5 sm:py-4 bg-accent-blue text-white font-bold rounded-[20px] hover:bg-accent-blue/90 shadow-xl shadow-accent-blue/20 transition-all text-sm disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {isSubmitting && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
