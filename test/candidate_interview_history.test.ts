@@ -29,6 +29,10 @@ describe('Candidate Details – Interview History & Navigation Flow', () => {
       candidateDetailSrc.includes("subscribeToCollection<InterviewFeedback>('jpc_interview_feedback'"),
       'CandidateDetail must subscribe to jpc_interview_feedback'
     );
+    assert.ok(
+      candidateDetailSrc.match(/import\s*\{[\s\S]*?\bBuilding\b[\s\S]*?\}\s*from\s*['"]lucide-react['"]/),
+      'CandidateDetail must import Building icon from lucide-react'
+    );
   });
 
   it('verifies Interview History section renders complete interview details for every entry', () => {

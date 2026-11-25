@@ -69,7 +69,8 @@ import {
   Award,
   Globe,
   Loader2,
-  Eye
+  Eye,
+  Building
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
