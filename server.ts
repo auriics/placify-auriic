@@ -4456,10 +4456,30 @@ async function startServer() {
       ? possibleDistPath 
       : process.cwd();
     
+    // 1. Serve immutable static assets with long cache and no fallthrough to index.html
+    const assetsPath = path.join(distPath, 'assets');
+    if (fs.existsSync(assetsPath)) {
+      app.use('/assets', express.static(assetsPath, {
+        maxAge: '1y',
+        immutable: true,
+        fallthrough: false
+      }));
+    }
+
+    // 2. Serve remaining public static files
     app.use(express.static(distPath));
+
+    // 3. SPA fallback - explicitly 404 for missing /assets/ or /api/ rather than returning index.html
     app.get('*all', (req, res) => {
+      if (req.path.startsWith('/assets/') || req.path.startsWith('/api/')) {
+        return res.status(404).json({ error: 'Not Found', path: req.path });
+      }
+
       const indexPath = path.join(distPath, 'index.html');
       if (fs.existsSync(indexPath)) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
         res.sendFile(indexPath);
       } else {
         res.status(404).send('index.html not found');

@@ -68,7 +68,8 @@ import {
   Sparkles,
   Award,
   Globe,
-  Loader2
+  Loader2,
+  Eye
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -77,10 +78,31 @@ import { canManageFreeTrial, isComplianceHead } from '../lib/permissions';
 import { FreeTrialBadge } from '../components/FreeTrialBadge';
 import { ShiftPreferenceBadge } from '../components/ShiftPreferenceBadge';
 import { sendWelcomeEmail } from '../services/welcomeEmail';
-import { Candidate, Payment, Promise as PromiseType, QCChecklistItem, FollowUp, ActivityLog, User, Stage, ResumeChangeRequest, Application, InterviewSupportRequest, TargetReductionRequest, ResumeVersion, InterviewOfferRequest, RecruiterAssignmentHistory } from '../types';
+import { 
+  Candidate, 
+  Payment, 
+  Promise as PromiseType, 
+  QCChecklistItem, 
+  FollowUp, 
+  ActivityLog, 
+  User, 
+  Stage, 
+  ResumeChangeRequest, 
+  Application, 
+  InterviewSupportRequest, 
+  TargetReductionRequest, 
+  ResumeVersion, 
+  InterviewOfferRequest, 
+  RecruiterAssignmentHistory,
+  InterviewRound,
+  InterviewFeedback,
+  ProxyAvailability
+} from '../types';
 import { InterviewCompletionModal } from '../components/InterviewCompletionModal';
 import { ComplianceOfferApprovalModal } from '../components/ComplianceOfferApprovalModal';
 import { ProxyLeaveBanner } from '../components/ProxyLeaveBanner';
+import { InterviewDetailsModal } from '../components/InterviewDetailsModal';
+import { InterviewTimeDisplay } from '../components/InterviewTimeDisplay';
 import { query, collection, where, onSnapshot, doc, setDoc, getDocs } from 'firebase/firestore';
 import { db, firebaseConfig } from '../firebase';
 import { initializeApp } from 'firebase/app';
@@ -134,6 +156,11 @@ export const CandidateDetail: React.FC = () => {
   const [resumeRequests, setResumeRequests] = useState<ResumeChangeRequest[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [interviews, setInterviews] = useState<InterviewSupportRequest[]>([]);
+  const [interviewRounds, setInterviewRounds] = useState<InterviewRound[]>([]);
+  const [interviewFeedbacks, setInterviewFeedbacks] = useState<InterviewFeedback[]>([]);
+  const [proxyAvailabilities, setProxyAvailabilities] = useState<ProxyAvailability[]>([]);
+  const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
+  const [selectedDetailRequest, setSelectedDetailRequest] = useState<InterviewSupportRequest | null>(null);
   const [targetRequests, setTargetRequests] = useState<TargetReductionRequest[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [interviewOfferRequests, setInterviewOfferRequests] = useState<InterviewOfferRequest[]>([]);
@@ -231,6 +258,11 @@ export const CandidateDetail: React.FC = () => {
       setAllUsers(data);
     });
 
+    const unsubRounds = subscribeToCollection<InterviewRound>('jpc_interview_rounds', setInterviewRounds);
+    const unsubFeedbacks = subscribeToCollection<InterviewFeedback>('jpc_interview_feedback', setInterviewFeedbacks);
+    const unsubAvailabilities = subscribeToCollection<ProxyAvailability>('jpc_proxy_availability', setProxyAvailabilities);
+    const unsubCalendarEvents = subscribeToCollection<any>('jpc_calendar_events', setCalendarEvents);
+
     return () => {
       unsubCandidate();
       unsubPayments();
@@ -244,8 +276,60 @@ export const CandidateDetail: React.FC = () => {
       unsubInterviews();
       unsubOfferRequests();
       unsubUsers();
+      unsubRounds();
+      unsubFeedbacks();
+      unsubAvailabilities();
+      unsubCalendarEvents();
     };
   }, [isAuthReady, id]);
+
+  // Synchronize URL hash with interview detail view for smooth navigation and back button support
+  useEffect(() => {
+    const handleHashSync = () => {
+      const rawHash = window.location.hash || '';
+      if (!rawHash.startsWith('#candidate')) return;
+      const searchPart = rawHash.split('?')[1] || '';
+      const searchParams = new URLSearchParams(searchPart);
+      const intId = searchParams.get('interviewId');
+      
+      if (intId) {
+        if (interviews.length > 0) {
+          const matched = interviews.find(i => String(i.id) === String(intId));
+          if (matched) {
+            setSelectedDetailRequest(matched);
+          }
+        }
+      } else {
+        // When interviewId is removed (e.g. browser back button pressed), close interview details
+        setSelectedDetailRequest(null);
+      }
+    };
+
+    handleHashSync();
+    window.addEventListener('hashchange', handleHashSync);
+    return () => window.removeEventListener('hashchange', handleHashSync);
+  }, [interviews]);
+
+  const handleOpenInterviewDetails = (req: InterviewSupportRequest) => {
+    setSelectedDetailRequest(req);
+    if (candidate?.id) {
+      window.location.hash = `#candidate?id=${candidate.id}&interviewId=${req.id}`;
+    }
+  };
+
+  const handleCloseInterviewDetails = () => {
+    setSelectedDetailRequest(null);
+    if (candidate?.id) {
+      window.location.hash = `#candidate?id=${candidate.id}`;
+    }
+    // Return to the exact Interview History section
+    setTimeout(() => {
+      const el = document.getElementById('interview-history-section');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 50);
+  };
 
   // Automatic "healing" of large documents (offloading raw base64 to CV repository)
   useEffect(() => {
@@ -1936,6 +2020,23 @@ export const CandidateDetail: React.FC = () => {
           onSuccess={() => {
             setIsComplianceApprovalModalOpen(false);
           }}
+        />
+      )}
+
+      {/* Complete Interview Details View */}
+      {selectedDetailRequest && (
+        <InterviewDetailsModal
+          request={selectedDetailRequest}
+          onClose={handleCloseInterviewDetails}
+          onBack={handleCloseInterviewDetails}
+          rounds={interviewRounds}
+          candidates={candidate ? [candidate] : []}
+          team={allUsers}
+          feedbacks={interviewFeedbacks}
+          availabilities={proxyAvailabilities}
+          calendarEvents={calendarEvents}
+          canEdit={canEdit}
+          backLabel="Back to Candidate Details"
         />
       )}
 
@@ -3941,56 +4042,278 @@ export const CandidateDetail: React.FC = () => {
 
           {/* Interview History */}
           {!isSalesperson && (
-            <section className="bg-bg-secondary border border-border-primary rounded-2xl overflow-hidden shadow-sm">
-            <div className="px-6 py-4 border-b border-border-primary flex items-center justify-between">
-              <h3 className="font-bold text-text-primary flex items-center gap-2">
-                <Video className="w-5 h-5 text-accent-red" />
-                Interview History
-              </h3>
-              <a href="#interviews" className="text-xs font-bold text-accent-blue hover:underline">View All</a>
-            </div>
-            <div className="p-6 space-y-4">
-              {interviews.length > 0 ? (
-                interviews.map(int => (
-                  <div key={int.id} className="p-4 bg-bg-tertiary/50 border border-border-primary rounded-xl space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className={cn(
-                          "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border",
-                          int.overall_status === 'live' ? "bg-accent-red/10 text-accent-red border-accent-red/20" : "bg-bg-tertiary text-text-muted border-border-primary"
-                        )}>
-                          {int.overall_status.replace('_', ' ')}
-                        </span>
-                        {canDeleteInterviewRequest(user, int, candidate, allUsers) && (
-                          <button 
-                            onClick={() => handleDeleteInterview(int.id, int)}
-                            className="p-1 text-rose-500 hover:bg-rose-500/10 rounded-md transition-all"
-                            title="Delete Interview Request"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                      <span className="text-[10px] text-text-muted font-medium">
-                        {new Date(int.created_at).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <p className="text-sm font-bold text-text-primary flex items-center gap-2">
-                      <Briefcase className="w-4 h-4 text-accent-blue" />
-                      {int.company_name} - {int.job_title}
-                    </p>
-                    {int.notes && (
-                      <p className="text-xs text-text-secondary italic line-clamp-2">"{int.notes}"</p>
-                    )}
+            <section id="interview-history-section" className="bg-bg-secondary border border-border-primary rounded-2xl overflow-hidden shadow-sm">
+              <div className="px-6 py-4 border-b border-border-primary flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-accent-red/10 text-accent-red flex items-center justify-center">
+                    <Video className="w-4 h-4" />
                   </div>
-                ))
-              ) : (
-                <div className="text-center py-4">
-                  <p className="text-sm text-text-muted italic">No interviews recorded</p>
+                  <div>
+                    <h3 className="font-bold text-text-primary flex items-center gap-2">
+                      Interview History
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-bg-tertiary text-text-secondary border border-border-primary">
+                        {interviews.length}
+                      </span>
+                    </h3>
+                    <p className="text-[11px] text-text-secondary">
+                      Complete interview schedules, rounds, proxies, feedback, and meeting details
+                    </p>
+                  </div>
                 </div>
-              )}
-            </div>
-          </section>
+                <a
+                  href={`#interviews?search=${encodeURIComponent(candidate?.full_name || '')}&from=candidate&candidateId=${candidate?.id}`}
+                  className="text-xs font-bold text-accent-blue hover:underline flex items-center gap-1.5"
+                >
+                  <span>Interview Support</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+
+              <div className="p-6 space-y-4">
+                {interviews.length > 0 ? (
+                  interviews
+                    .slice()
+                    .sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime())
+                    .map((int) => {
+                      const intRounds = interviewRounds
+                        .filter((r) => r.request_id === int.id)
+                        .sort((a, b) => (a.round_label || '').localeCompare(b.round_label || ''));
+                      const intFeedbacks = interviewFeedbacks.filter((f) =>
+                        intRounds.some((r) => r.id === f.round_id)
+                      );
+                      const recruiter = resolveRecruiterUser(int.recruiter_id, allUsers, candidate);
+                      const csUser = allUsers.find((u) => String(u.id) === String(int.cs_id));
+                      const compName = int.interview_company_name || int.company_name || 'Company Name';
+
+                      return (
+                        <div
+                          key={int.id}
+                          className="p-5 bg-bg-tertiary/40 hover:bg-bg-tertiary/70 border border-border-primary rounded-2xl space-y-4 transition-all shadow-xs"
+                        >
+                          {/* Entry Top Row: Status, Type, Date, Delete */}
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-primary/50 pb-3">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span
+                                className={cn(
+                                  'px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border',
+                                  int.overall_status === 'live'
+                                    ? 'bg-accent-red/10 text-accent-red border-accent-red/25 animate-pulse'
+                                    : int.overall_status === 'completed' || int.overall_status === 'placed'
+                                    ? 'bg-accent-green/10 text-accent-green border-accent-green/25'
+                                    : int.overall_status === 'candidate_slot_selected' || int.overall_status === 'proxy_assigned' || int.overall_status === 'confirmed'
+                                    ? 'bg-accent-blue/10 text-accent-blue border-accent-blue/25'
+                                    : int.overall_status === 'pending_request' || int.overall_status === 'booking_link_generated'
+                                    ? 'bg-accent-amber/10 text-accent-amber border-accent-amber/25'
+                                    : 'bg-bg-tertiary text-text-muted border-border-primary'
+                                )}
+                              >
+                                {int.overall_status.replace(/_/g, ' ')}
+                              </span>
+
+                              {int.interview_type && (
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-bg-secondary text-text-secondary border border-border-primary uppercase">
+                                  {int.interview_type.replace(/_/g, ' ')}
+                                </span>
+                              )}
+
+                              {intRounds.length > 0 && (
+                                <span className="text-[11px] font-bold text-accent-blue">
+                                  {intRounds.length} {intRounds.length === 1 ? 'Round' : 'Rounds'}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <span className="text-[11px] text-text-muted font-medium flex items-center gap-1">
+                                <Calendar className="w-3.5 h-3.5 text-text-muted" />
+                                {new Date(int.created_at).toLocaleDateString()}
+                              </span>
+                              {canDeleteInterviewRequest(user, int, candidate, allUsers) && (
+                                <button
+                                  onClick={() => handleDeleteInterview(int.id, int)}
+                                  className="p-1.5 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all cursor-pointer"
+                                  title="Delete Interview Request"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Company, Designation, Job Link */}
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <h4 className="text-base font-black text-text-primary flex items-center gap-2">
+                                <Building className="w-4 h-4 text-accent-blue shrink-0" />
+                                <span>{compName}</span>
+                                <span className="text-text-muted font-normal">•</span>
+                                <span className="text-text-secondary font-bold text-sm">{int.job_title || 'Role'}</span>
+                              </h4>
+                              {int.job_link && (
+                                <a
+                                  href={int.job_link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-xs font-bold text-accent-blue hover:underline"
+                                >
+                                  <span>Job Board Link</span>
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </a>
+                              )}
+                            </div>
+                            {int.job_description && (
+                              <p className="text-xs text-text-secondary line-clamp-2 mt-1">
+                                {int.job_description}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Scheduled Rounds Section */}
+                          <div className="space-y-2.5 pt-1">
+                            <div className="text-[10px] font-black uppercase tracking-wider text-text-muted flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5 text-accent-blue" />
+                              <span>Round Schedule & Technical Proxies</span>
+                            </div>
+
+                            {intRounds.length > 0 ? (
+                              <div className="grid grid-cols-1 gap-2.5">
+                                {intRounds.map((round, rIdx) => {
+                                  const proxyUser = round.proxy_user_id
+                                    ? allUsers.find((u) => String(u.id) === String(round.proxy_user_id))
+                                    : null;
+                                  const roundFeedback = intFeedbacks.find((f) => f.round_id === round.id);
+
+                                  return (
+                                    <div
+                                      key={round.id || rIdx}
+                                      className="p-3 bg-bg-secondary border border-border-primary/80 rounded-xl space-y-2"
+                                    >
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs font-black text-text-primary">
+                                            {round.round_label || `Round ${rIdx + 1}`}
+                                          </span>
+                                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-bg-tertiary text-text-secondary border border-border-primary uppercase">
+                                            {round.round_type || 'technical'}
+                                          </span>
+                                          <span
+                                            className={cn(
+                                              'text-[9px] font-black px-1.5 py-0.5 rounded uppercase border',
+                                              round.status === 'live'
+                                                ? 'bg-rose-500/10 text-rose-500 border-rose-500/25 animate-pulse'
+                                                : round.status === 'completed'
+                                                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/25'
+                                                : round.status === 'confirmed' || round.status === 'booked'
+                                                ? 'bg-blue-500/10 text-blue-500 border-blue-500/25'
+                                                : 'bg-bg-tertiary text-text-muted border-border-primary'
+                                            )}
+                                          >
+                                            {round.status}
+                                          </span>
+                                        </div>
+
+                                        {round.result && (
+                                          <span className="text-[10px] font-extrabold text-emerald-500 uppercase bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md">
+                                            Outcome: {round.result}
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      {/* Timing Display */}
+                                      <div className="text-xs font-medium text-text-secondary">
+                                        <InterviewTimeDisplay
+                                          startTime={round.booked_slot_time || round.interview_date}
+                                          endTime={round.booked_slot_end}
+                                          durationMinutes={round.duration_minutes}
+                                          inline
+                                        />
+                                      </div>
+
+                                      {/* Proxy & Meeting Link */}
+                                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-1 border-t border-border-primary/40">
+                                        <div className="flex items-center gap-1.5 text-text-primary font-bold">
+                                          <UserIcon className="w-3.5 h-3.5 text-accent-blue" />
+                                          <span className="text-text-muted font-normal text-[11px]">Interviewer:</span>
+                                          <span>{proxyUser?.display_name || 'Pending Proxy Assignment'}</span>
+                                        </div>
+
+                                        {(round.meeting_link || int.meeting_link) && (
+                                          <a
+                                            href={round.meeting_link || int.meeting_link}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1 text-[11px] font-bold text-accent-blue hover:underline"
+                                          >
+                                            <Video className="w-3.5 h-3.5" />
+                                            <span>Meeting Link</span>
+                                            <ExternalLink className="w-3 h-3" />
+                                          </a>
+                                        )}
+                                      </div>
+
+                                      {/* Feedback snippet if available */}
+                                      {roundFeedback && (
+                                        <div className="mt-1 p-2 bg-bg-tertiary/60 rounded-lg border border-border-primary/50 text-[11px] text-text-secondary">
+                                          <span className="font-bold text-text-primary">Feedback: </span>
+                                          <span className="italic">"{roundFeedback.notes || roundFeedback.feedback || 'Round evaluated'}"</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div className="p-3 bg-bg-secondary rounded-xl border border-dashed border-border-primary text-xs text-text-muted italic flex items-center gap-2">
+                                <Clock className="w-4 h-4 text-accent-amber" />
+                                <span>No individual rounds booked yet. Waiting for candidate slot confirmation.</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Recruiter, CS, Notes, and View Details Button */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-border-primary/50">
+                            <div className="text-[11px] text-text-muted space-y-0.5">
+                              <div>
+                                <span className="font-bold text-text-secondary">Recruiter: </span>
+                                <span>{recruiter?.display_name || 'Unassigned'}</span>
+                                {csUser?.display_name && (
+                                  <>
+                                    <span className="mx-1.5">•</span>
+                                    <span className="font-bold text-text-secondary">CS: </span>
+                                    <span>{csUser.display_name}</span>
+                                  </>
+                                )}
+                              </div>
+                              {int.notes && (
+                                <p className="italic text-text-secondary line-clamp-1">
+                                  Notes: "{int.notes}"
+                                </p>
+                              )}
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleOpenInterviewDetails(int)}
+                              className="px-4 py-2 bg-accent-blue hover:bg-accent-blue/90 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm shadow-accent-blue/20 cursor-pointer shrink-0"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>View Details</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                ) : (
+                  <div className="text-center py-8 bg-bg-tertiary/20 rounded-2xl border border-dashed border-border-primary space-y-2">
+                    <Video className="w-8 h-8 text-text-muted mx-auto opacity-40" />
+                    <p className="text-sm font-bold text-text-primary">No interviews recorded</p>
+                    <p className="text-xs text-text-secondary">
+                      When interviews are scheduled for this candidate, complete history and round details will appear here.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </section>
           )}
 
           {/* Application Performance */}

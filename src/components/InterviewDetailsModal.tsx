@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { 
   X, Calendar, Clock, User as UserIcon, Building, Briefcase, 
   Globe, Mail, Phone, ExternalLink, Link as LinkIcon, Edit3, Save, 
-  CheckCircle2, AlertCircle, RefreshCw, FileText, Sparkles
+  CheckCircle2, AlertCircle, RefreshCw, FileText, Sparkles, ArrowLeft
 } from 'lucide-react';
 import { InterviewSupportRequest, InterviewRound, Candidate, User, InterviewFeedback, ProxyAvailability } from '../types';
 import { db } from '../firebase';
@@ -30,6 +30,8 @@ interface InterviewDetailsModalProps {
   availabilities: ProxyAvailability[];
   calendarEvents: any[];
   canEdit: boolean;
+  onBack?: () => void;
+  backLabel?: string;
 }
 
 export const InterviewDetailsModal: React.FC<InterviewDetailsModalProps> = ({
@@ -41,7 +43,9 @@ export const InterviewDetailsModal: React.FC<InterviewDetailsModalProps> = ({
   feedbacks,
   availabilities,
   calendarEvents,
-  canEdit
+  canEdit,
+  onBack,
+  backLabel = 'Back to Candidate Details'
 }) => {
   const { user: currentUser } = useAuth();
   const { showToast } = useToast();
@@ -93,25 +97,35 @@ export const InterviewDetailsModal: React.FC<InterviewDetailsModalProps> = ({
         className="bg-bg-secondary w-full max-w-5xl rounded-2xl sm:rounded-[36px] shadow-2xl border border-border-primary overflow-hidden flex flex-col my-4 sm:my-8 max-h-[94vh] sm:max-h-[90vh]"
       >
         {/* Header */}
-        <div className="px-5 sm:px-10 py-4 sm:py-8 border-b border-border-primary shrink-0 flex items-center justify-between bg-bg-tertiary">
-          <div>
-            <span className={cn(
-              "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border",
-              request.overall_status === 'completed' ? "bg-accent-green/10 text-accent-green border-accent-green/20" :
-              request.overall_status === 'live' ? "bg-accent-red/10 text-accent-red border-accent-red/20 animate-pulse" :
-              "bg-accent-blue/10 text-accent-blue border-accent-blue/20"
-            )}>
-              {request.overall_status.replace('_', ' ')}
-            </span>
-            <h2 className="text-xl sm:text-2xl font-black text-text-primary tracking-tight mt-2 sm:mt-3">
-              {isEditing ? 'Edit Interview Details' : `${candidate?.full_name || 'Candidate'}'s Application`}
-            </h2>
+        <div className="px-5 sm:px-10 py-4 sm:py-6 border-b border-border-primary shrink-0 flex items-center justify-between bg-bg-tertiary">
+          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+            <button
+              onClick={onBack || onClose}
+              className="px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl bg-bg-secondary hover:bg-bg-primary text-text-primary text-xs font-bold border border-border-primary transition-all flex items-center gap-1.5 shadow-sm cursor-pointer shrink-0"
+              title={backLabel}
+            >
+              <ArrowLeft className="w-4 h-4 text-accent-blue" />
+              <span className="hidden sm:inline">{backLabel}</span>
+            </button>
+            <div className="min-w-0">
+              <span className={cn(
+                "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border",
+                request.overall_status === 'completed' ? "bg-accent-green/10 text-accent-green border-accent-green/20" :
+                request.overall_status === 'live' ? "bg-accent-red/10 text-accent-red border-accent-red/20 animate-pulse" :
+                "bg-accent-blue/10 text-accent-blue border-accent-blue/20"
+              )}>
+                {request.overall_status.replace('_', ' ')}
+              </span>
+              <h2 className="text-lg sm:text-2xl font-black text-text-primary tracking-tight mt-1 sm:mt-2 truncate">
+                {isEditing ? 'Edit Interview Details' : `${candidate?.full_name || 'Candidate'}'s Application`}
+              </h2>
+            </div>
           </div>
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {canEdit && !isEditing && (
               <button
                 onClick={() => setIsEditing(true)}
-                className="px-3.5 sm:px-5 py-2 sm:py-2.5 bg-bg-secondary border border-border-primary hover:border-accent-blue text-xs font-bold text-text-primary rounded-xl transition-all flex items-center gap-1.5 sm:gap-2"
+                className="px-3.5 sm:px-5 py-2 sm:py-2.5 bg-bg-secondary border border-border-primary hover:border-accent-blue text-xs font-bold text-text-primary rounded-xl transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer"
               >
                 <Edit3 className="w-3.5 h-3.5 text-accent-blue" />
                 <span className="hidden sm:inline">Edit Info</span>
@@ -119,7 +133,8 @@ export const InterviewDetailsModal: React.FC<InterviewDetailsModalProps> = ({
             )}
             <button
               onClick={onClose}
-              className="p-2 sm:p-3 hover:bg-bg-primary rounded-full transition-all border border-border-primary hover:border-text-secondary/20"
+              className="p-2 sm:p-3 hover:bg-bg-primary rounded-full transition-all border border-border-primary hover:border-text-secondary/20 cursor-pointer"
+              title="Close"
             >
               <X className="w-5 h-5 text-text-secondary" />
             </button>
@@ -618,6 +633,22 @@ export const InterviewDetailsModal: React.FC<InterviewDetailsModalProps> = ({
             }}
           />
         )}
+        {/* Footer with Back Button */}
+        <div className="px-5 sm:px-10 py-3 sm:py-4 border-t border-border-primary bg-bg-tertiary flex items-center justify-between shrink-0">
+          <button
+            onClick={onBack || onClose}
+            className="px-4 py-2 bg-bg-secondary hover:bg-bg-primary border border-border-primary text-text-primary text-xs font-bold rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-sm"
+          >
+            <ArrowLeft className="w-4 h-4 text-accent-blue" />
+            <span>{backLabel}</span>
+          </button>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-bg-secondary hover:bg-bg-primary border border-border-primary text-text-secondary hover:text-text-primary text-xs font-bold rounded-xl transition-all cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
       </motion.div>
     </div>
   );

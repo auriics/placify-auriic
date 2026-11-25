@@ -61,7 +61,8 @@ import {
   Trash2,
   BarChart2,
   MessageCircle,
-  Upload
+  Upload,
+  ArrowLeft
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Select from 'react-select';
@@ -138,6 +139,23 @@ export const InterviewSupportDashboard: React.FC = () => {
   const [selectedDetailRequest, setSelectedDetailRequest] = useState<InterviewSupportRequest | null>(null);
   const [substitutionRequest, setSubstitutionRequest] = useState<InterviewSupportRequest | null>(null);
   const [selectedProxyId, setSelectedProxyId] = useState<string>('all');
+
+  const hashSearch = window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '';
+  const urlParams = useMemo(() => new URLSearchParams(hashSearch), [hashSearch]);
+  const fromCandidateId = urlParams.get('candidateId');
+  const returnCandidate = fromCandidateId ? candidates.find(c => String(c.id) === String(fromCandidateId)) : null;
+
+  useEffect(() => {
+    const s = urlParams.get('search');
+    if (s && !searchTerm) {
+      setSearchTerm(decodeURIComponent(s));
+    }
+    const intId = urlParams.get('interviewId');
+    if (intId && requests.length > 0 && !selectedDetailRequest) {
+      const match = requests.find(r => String(r.id) === String(intId));
+      if (match) setSelectedDetailRequest(match);
+    }
+  }, [urlParams, requests]);
 
   useEffect(() => {
     if (!isAuthReady) return;
@@ -431,6 +449,30 @@ export const InterviewSupportDashboard: React.FC = () => {
     <div className="space-y-8 pb-20">
       {/* Real-time Proxy Leave Alert Banner (Hidden from Lead and Sales) */}
       <ProxyLeaveBanner team={team} contextTitle="Interview Support Live Notice" />
+
+      {/* Navigation Return Banner if accessed from Candidate Details */}
+      {fromCandidateId && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-accent-blue/10 border border-accent-blue/25 rounded-2xl shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-accent-blue/15 text-accent-blue flex items-center justify-center shrink-0">
+              <UserIcon className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-text-primary">
+                Viewing Interview Support for <span className="text-accent-blue font-extrabold">{returnCandidate?.full_name || 'Candidate'}</span>
+              </p>
+              <p className="text-[11px] text-text-secondary">Return directly to Candidate Details & Interview History section</p>
+            </div>
+          </div>
+          <a
+            href={`#candidate?id=${fromCandidateId}`}
+            className="px-4 py-2 bg-accent-blue text-white rounded-xl text-xs font-bold hover:bg-accent-blue/90 transition-all flex items-center justify-center gap-2 shadow-sm shrink-0"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back to Candidate Details</span>
+          </a>
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
@@ -1219,6 +1261,12 @@ export const InterviewSupportDashboard: React.FC = () => {
         <InterviewDetailsModal
           request={selectedDetailRequest}
           onClose={() => setSelectedDetailRequest(null)}
+          onBack={() => {
+            setSelectedDetailRequest(null);
+            if (fromCandidateId) {
+              window.location.hash = `#candidate?id=${fromCandidateId}`;
+            }
+          }}
           rounds={rounds}
           candidates={candidates}
           team={team}
@@ -1226,6 +1274,7 @@ export const InterviewSupportDashboard: React.FC = () => {
           availabilities={availabilities}
           calendarEvents={calendarEvents}
           canEdit={canEditProtectedAll}
+          backLabel={fromCandidateId ? "Back to Candidate Details" : "Back"}
         />
       )}
 

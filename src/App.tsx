@@ -1,5 +1,6 @@
 ﻿import { isPaymentsRevenueDisabled, isAurrumRestrictedForUser } from './lib/featureFlags';
 import React, { useState, useEffect, Suspense, lazy } from 'react';
+import { lazyWithRetry } from './lib/lazyWithRetry';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ToastProvider } from './contexts/ToastContext';
@@ -17,37 +18,37 @@ import { Plus, Menu, Search } from 'lucide-react';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 
-// Lazy load pages
-const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })));
-const CandidateDashboard = lazy(() => import('./pages/CandidateDashboard').then(m => ({ default: m.CandidateDashboard })));
-const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
-const Pipeline = lazy(() => import('./pages/Pipeline').then(m => ({ default: m.Pipeline })));
-const Candidates = lazy(() => import('./pages/Candidates').then(m => ({ default: m.Candidates })));
-const CandidateDetail = lazy(() => import('./pages/CandidateDetail').then(m => ({ default: m.CandidateDetail })));
-const FollowUps = lazy(() => import('./pages/FollowUps').then(m => ({ default: m.FollowUps })));
-const NotInterested = lazy(() => import('./pages/NotInterested').then(m => ({ default: m.NotInterested })));
-const NotEligible = lazy(() => import('./pages/NotEligible').then(m => ({ default: m.NotEligible })));
-const Team = lazy(() => import('./pages/Team').then(m => ({ default: m.Team })));
-const Receipt = lazy(() => import('./pages/Receipt').then(m => ({ default: m.Receipt })));
-const AppTracker = lazy(() => import('./pages/AppTracker').then(m => ({ default: m.AppTracker })));
-const ResumeLogBook = lazy(() => import('./pages/ResumeLogBook').then(m => ({ default: m.ResumeLogBook })));
-const RTRLogBook = lazy(() => import('./pages/RTRLogBook').then(m => ({ default: m.RTRLogBook })));
-const ResumePrepLog = lazy(() => import('./pages/ResumePrepLog').then(m => ({ default: m.ResumePrepLog })));
-const TargetDashboard = lazy(() => import('./pages/TargetDashboard').then(m => ({ default: m.TargetDashboard })));
-const CVRepository = lazy(() => import('./pages/CVRepository').then(m => ({ default: m.CVRepository })));
-const DomainResumeRepository = lazy(() => import('./pages/DomainResumeRepository').then(m => ({ default: m.DomainResumeRepository })));
-const FeatureAnnouncements = lazy(() => import('./pages/FeatureAnnouncements').then(m => ({ default: m.FeatureAnnouncements })));
-const InterviewSupportDashboard = lazy(() => import('./pages/InterviewSupport/Dashboard').then(m => ({ default: m.InterviewSupportDashboard })));
-const ProxyDashboard = lazy(() => import('./pages/InterviewSupport/ProxyDashboard').then(m => ({ default: m.ProxyDashboard })));
-const BookingPage = lazy(() => import('./pages/InterviewSupport/BookingPage').then(m => ({ default: m.BookingPage })));
-const CRMDashboard = lazy(() => import('./pages/CRMDashboard').then(m => ({ default: m.CRMDashboard })));
-const AurrumDashboard = lazy(() => import('./pages/AurrumCareers/AurrumDashboard').then(m => ({ default: m.AurrumDashboard })));
-const AurrumCandidates = lazy(() => import('./pages/AurrumCareers/AurrumCandidates').then(m => ({ default: m.AurrumCandidates })));
-const AurrumCandidateDetail = lazy(() => import('./pages/AurrumCareers/AurrumCandidateDetail').then(m => ({ default: m.AurrumCandidateDetail })));
-const AurrumSales = lazy(() => import('./pages/AurrumCareers/AurrumSales').then(m => ({ default: m.AurrumSales })));
-const AurrumInterviewSupport = lazy(() => import('./pages/AurrumCareers/AurrumInterviewSupport').then(m => ({ default: m.AurrumInterviewSupport })));
-const AurrumTeam = lazy(() => import('./pages/AurrumCareers/AurrumTeam').then(m => ({ default: m.AurrumTeam })));
-const HolidayCalendar = lazy(() => import('./pages/HolidayCalendar').then(m => ({ default: m.HolidayCalendar })));
+// Lazy load pages with automatic retry and reload recovery for new deployments
+const LoginPage = lazyWithRetry(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })), 'LoginPage');
+const CandidateDashboard = lazyWithRetry(() => import('./pages/CandidateDashboard').then(m => ({ default: m.CandidateDashboard })), 'CandidateDashboard');
+const Dashboard = lazyWithRetry(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })), 'Dashboard');
+const Pipeline = lazyWithRetry(() => import('./pages/Pipeline').then(m => ({ default: m.Pipeline })), 'Pipeline');
+const Candidates = lazyWithRetry(() => import('./pages/Candidates').then(m => ({ default: m.Candidates })), 'Candidates');
+const CandidateDetail = lazyWithRetry(() => import('./pages/CandidateDetail').then(m => ({ default: m.CandidateDetail })), 'CandidateDetail');
+const FollowUps = lazyWithRetry(() => import('./pages/FollowUps').then(m => ({ default: m.FollowUps })), 'FollowUps');
+const NotInterested = lazyWithRetry(() => import('./pages/NotInterested').then(m => ({ default: m.NotInterested })), 'NotInterested');
+const NotEligible = lazyWithRetry(() => import('./pages/NotEligible').then(m => ({ default: m.NotEligible })), 'NotEligible');
+const Team = lazyWithRetry(() => import('./pages/Team').then(m => ({ default: m.Team })), 'Team');
+const Receipt = lazyWithRetry(() => import('./pages/Receipt').then(m => ({ default: m.Receipt })), 'Receipt');
+const AppTracker = lazyWithRetry(() => import('./pages/AppTracker').then(m => ({ default: m.AppTracker })), 'AppTracker');
+const ResumeLogBook = lazyWithRetry(() => import('./pages/ResumeLogBook').then(m => ({ default: m.ResumeLogBook })), 'ResumeLogBook');
+const RTRLogBook = lazyWithRetry(() => import('./pages/RTRLogBook').then(m => ({ default: m.RTRLogBook })), 'RTRLogBook');
+const ResumePrepLog = lazyWithRetry(() => import('./pages/ResumePrepLog').then(m => ({ default: m.ResumePrepLog })), 'ResumePrepLog');
+const TargetDashboard = lazyWithRetry(() => import('./pages/TargetDashboard').then(m => ({ default: m.TargetDashboard })), 'TargetDashboard');
+const CVRepository = lazyWithRetry(() => import('./pages/CVRepository').then(m => ({ default: m.CVRepository })), 'CVRepository');
+const DomainResumeRepository = lazyWithRetry(() => import('./pages/DomainResumeRepository').then(m => ({ default: m.DomainResumeRepository })), 'DomainResumeRepository');
+const FeatureAnnouncements = lazyWithRetry(() => import('./pages/FeatureAnnouncements').then(m => ({ default: m.FeatureAnnouncements })), 'FeatureAnnouncements');
+const InterviewSupportDashboard = lazyWithRetry(() => import('./pages/InterviewSupport/Dashboard').then(m => ({ default: m.InterviewSupportDashboard })), 'InterviewSupportDashboard');
+const ProxyDashboard = lazyWithRetry(() => import('./pages/InterviewSupport/ProxyDashboard').then(m => ({ default: m.ProxyDashboard })), 'ProxyDashboard');
+const BookingPage = lazyWithRetry(() => import('./pages/InterviewSupport/BookingPage').then(m => ({ default: m.BookingPage })), 'BookingPage');
+const CRMDashboard = lazyWithRetry(() => import('./pages/CRMDashboard').then(m => ({ default: m.CRMDashboard })), 'CRMDashboard');
+const AurrumDashboard = lazyWithRetry(() => import('./pages/AurrumCareers/AurrumDashboard').then(m => ({ default: m.AurrumDashboard })), 'AurrumDashboard');
+const AurrumCandidates = lazyWithRetry(() => import('./pages/AurrumCareers/AurrumCandidates').then(m => ({ default: m.AurrumCandidates })), 'AurrumCandidates');
+const AurrumCandidateDetail = lazyWithRetry(() => import('./pages/AurrumCareers/AurrumCandidateDetail').then(m => ({ default: m.AurrumCandidateDetail })), 'AurrumCandidateDetail');
+const AurrumSales = lazyWithRetry(() => import('./pages/AurrumCareers/AurrumSales').then(m => ({ default: m.AurrumSales })), 'AurrumSales');
+const AurrumInterviewSupport = lazyWithRetry(() => import('./pages/AurrumCareers/AurrumInterviewSupport').then(m => ({ default: m.AurrumInterviewSupport })), 'AurrumInterviewSupport');
+const AurrumTeam = lazyWithRetry(() => import('./pages/AurrumCareers/AurrumTeam').then(m => ({ default: m.AurrumTeam })), 'AurrumTeam');
+const HolidayCalendar = lazyWithRetry(() => import('./pages/HolidayCalendar').then(m => ({ default: m.HolidayCalendar })), 'HolidayCalendar');
 
 const PageLoader = () => (
   <div className="flex-1 flex items-center justify-center p-20">
@@ -92,12 +93,12 @@ const AppContent: React.FC = () => {
       ? (window as any).requestIdleCallback
       : (fn: () => void) => setTimeout(fn, 200);
     idle(() => {
-      // These are the highest-traffic pages; preload their lazy bundles
-      import('./pages/Candidates');
-      import('./pages/Pipeline');
-      import('./pages/AppTracker');
-      import('./pages/FollowUps');
-      import('./pages/Dashboard');
+      // These are the highest-traffic pages; preload their lazy bundles (safely catch any chunk errors)
+      import('./pages/Candidates').catch(() => {});
+      import('./pages/Pipeline').catch(() => {});
+      import('./pages/AppTracker').catch(() => {});
+      import('./pages/FollowUps').catch(() => {});
+      import('./pages/Dashboard').catch(() => {});
     });
   }, [isAuthReady, user]);
 
