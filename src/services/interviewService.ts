@@ -41,40 +41,9 @@ export {
 };
 export type { TimeWindowValidationResult } from '../lib/utils';
 import { syncProxyLeaveToGoogleCalendar } from './calendarService';
+import { isProxyUser } from '../lib/permissions';
 
-export function isProxyUser(u: User): boolean {
-  if (!u) return false;
-  if (u.deleted_at) return false;
-
-  // Explicit jpc_proxy role
-  if (u.role === 'jpc_proxy') return true;
-
-  const emailLower = u.email?.toLowerCase() || '';
-  const usernameLower = u.username?.toLowerCase() || '';
-  const displayNameLower = u.display_name?.toLowerCase() || '';
-
-  // Nihal Khalyani (nihal.khalyani@auriic.co) is a resume person, not a proxy
-  if (emailLower === 'nihal.khalyani@auriic.co' || usernameLower === 'nihal.khalyani') {
-    return false;
-  }
-
-  // Nihal Proxy (nihalnx09@gmail.com) is explicitly a proxy
-  if (emailLower === 'nihalnx09@gmail.com' || usernameLower === 'nihalnx09' || usernameLower === 'nihalnx') {
-    return true;
-  }
-
-  // Rudraksh proxy checks
-  if (usernameLower === 'rudraksh.rawal' || displayNameLower.includes('rudra')) {
-    return true;
-  }
-
-  // General fallback for names containing "nihal" but ignoring resume email or resume user
-  if (displayNameLower.includes('nihal')) {
-    return true;
-  }
-
-  return false;
-}
+export { isProxyUser };
 
 /**
  * Checks if a given date string (e.g. YYYY-MM-DD) represents a weekend day (Saturday or Sunday)

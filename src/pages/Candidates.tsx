@@ -202,21 +202,8 @@ export const Candidates: React.FC = () => {
     
     // Reuse shared warm subscription cache (instant navigation, zero duplicate Firestore reads)
     const unsub = subscribeToCollection<Candidate>('jpc_candidates', (data) => {
-      const filtered = data.filter(c => {
-        if (c.deleted_at || c.crm_brand === 'aurrum') return false;
-        if (user.role === 'jpc_recruiter') {
-          const isAssigned = String(c.assigned_recruiter) === String(user.id);
-          const wasPrev = Array.isArray(c.previous_recruiters) && c.previous_recruiters.some(
-            p => String(p.recruiter_id) === String(user.id)
-          );
-          return isAssigned || wasPrev;
-        }
-        if (user.role === 'jpc_marketing') return String(c.assigned_marketing_leader) === String(user.id);
-        if (user.role === 'jpc_sales') return String(c.assigned_sales) === String(user.id);
-        if (user.role === 'jpc_lead_gen') return String(c.lead_generated_by) === String(user.id);
-        return true;
-      });
-      setCandidates(filtered);
+      const active = data.filter(c => !c.deleted_at && c.crm_brand !== 'aurrum');
+      setCandidates(active);
       setIsLoading(false);
     });
 

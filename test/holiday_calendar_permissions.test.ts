@@ -22,7 +22,7 @@ function makeUser(role: Role, extra: Partial<User> = {}): User {
 }
 
 // =========================================================================
-// 1. HIGHER AUTHORITIES - FULL ACCESS GRANTED
+// 1. HIGHER AUTHORITIES - FULL MANAGEMENT ACCESS RETAINED
 // =========================================================================
 test('1.1 Administrator has full view and management permissions', () => {
   const admin = makeUser('administrator');
@@ -76,51 +76,51 @@ test('1.7 Authorized Proxy with explicit can_manage_calendar has view and manage
 });
 
 // =========================================================================
-// 2. UNAUTHORISED ROLES - STRICTLY HIDDEN AND BLOCKED
+// 2. ALL OTHER TEAM MEMBERS - VIEW-ONLY ACCESS GRANTED (NO MANAGEMENT)
 // =========================================================================
-test('2.1 Recruiter (jpc_recruiter) is strictly BLOCKED from viewing Holiday Calendar', () => {
+test('2.1 Recruiter (jpc_recruiter) has view-only access (no management/editing)', () => {
   const recruiter = makeUser('jpc_recruiter');
-  assert.equal(canViewHolidayCalendar(recruiter), false);
-  assert.equal(canManageHolidayCalendar(recruiter), false);
-  assert.equal(canOverrideWorkingDay(recruiter), false);
-  assert.equal(canClearAllHolidays(recruiter), false);
+  assert.equal(canViewHolidayCalendar(recruiter), true, 'Recruiter must be able to view calendar');
+  assert.equal(canManageHolidayCalendar(recruiter), false, 'Recruiter cannot manage calendar');
+  assert.equal(canOverrideWorkingDay(recruiter), false, 'Recruiter cannot override working days');
+  assert.equal(canClearAllHolidays(recruiter), false, 'Recruiter cannot clear all holidays');
 });
 
-test('2.2 Sales Team (jpc_sales, aurrum_sales) is strictly BLOCKED from viewing Holiday Calendar', () => {
+test('2.2 Sales Team (jpc_sales, aurrum_sales) has view-only access', () => {
   const sales = makeUser('jpc_sales');
-  assert.equal(canViewHolidayCalendar(sales), false);
+  assert.equal(canViewHolidayCalendar(sales), true);
   assert.equal(canManageHolidayCalendar(sales), false);
 
   const aurrumSales = makeUser('aurrum_sales');
-  assert.equal(canViewHolidayCalendar(aurrumSales), false);
+  assert.equal(canViewHolidayCalendar(aurrumSales), true);
   assert.equal(canManageHolidayCalendar(aurrumSales), false);
 });
 
-test('2.3 Lead Generation Team (jpc_lead_gen) is strictly BLOCKED from viewing Holiday Calendar', () => {
+test('2.3 Lead Generation Team (jpc_lead_gen) has view-only access', () => {
   const leadGen = makeUser('jpc_lead_gen');
-  assert.equal(canViewHolidayCalendar(leadGen), false);
+  assert.equal(canViewHolidayCalendar(leadGen), true);
   assert.equal(canManageHolidayCalendar(leadGen), false);
 });
 
-test('2.4 Marketing Team (jpc_marketing, jpc_marketing_support) is strictly BLOCKED', () => {
+test('2.4 Marketing Team (jpc_marketing, jpc_marketing_support) has view-only access', () => {
   const marketing = makeUser('jpc_marketing');
-  assert.equal(canViewHolidayCalendar(marketing), false);
+  assert.equal(canViewHolidayCalendar(marketing), true);
   assert.equal(canManageHolidayCalendar(marketing), false);
 
   const mktgSupport = makeUser('jpc_marketing_support');
-  assert.equal(canViewHolidayCalendar(mktgSupport), false);
+  assert.equal(canViewHolidayCalendar(mktgSupport), true);
   assert.equal(canManageHolidayCalendar(mktgSupport), false);
 });
 
-test('2.5 Resume Team (jpc_resume) is strictly BLOCKED from viewing Holiday Calendar', () => {
+test('2.5 Resume Team (jpc_resume) has view-only access', () => {
   const resume = makeUser('jpc_resume');
-  assert.equal(canViewHolidayCalendar(resume), false);
+  assert.equal(canViewHolidayCalendar(resume), true);
   assert.equal(canManageHolidayCalendar(resume), false);
 });
 
-test('2.6 Default Proxy (jpc_proxy without can_manage_calendar) is strictly BLOCKED', () => {
+test('2.6 Proxy Team (jpc_proxy without can_manage_calendar) has view-only access', () => {
   const defaultProxy = makeUser('jpc_proxy');
-  assert.equal(canViewHolidayCalendar(defaultProxy), false);
+  assert.equal(canViewHolidayCalendar(defaultProxy), true);
   assert.equal(canManageHolidayCalendar(defaultProxy), false);
 });
 
@@ -135,9 +135,9 @@ test('2.7 Candidates and Unauthenticated users are strictly BLOCKED', () => {
 });
 
 // =========================================================================
-// 3. SIDEBAR VISIBILITY LOGIC
+// 3. SIDEBAR VISIBILITY LOGIC FOR TEAM MEMBERS
 // =========================================================================
-test('3.1 Sidebar nav item visibility logic accurately filters by role', () => {
+test('3.1 Sidebar nav item visibility logic accurately shows calendar for all team members', () => {
   const isSidebarVisible = (user: User | null, isAurrumOnly: boolean = false) => {
     return !isAurrumOnly && canViewHolidayCalendar(user);
   };
@@ -148,13 +148,17 @@ test('3.1 Sidebar nav item visibility logic accurately filters by role', () => {
   assert.equal(isSidebarVisible(makeUser('jpc_manager')), true);
   assert.equal(isSidebarVisible(makeUser('jpc_cs')), true);
 
-  // General team members -> Hidden
-  assert.equal(isSidebarVisible(makeUser('jpc_recruiter')), false);
-  assert.equal(isSidebarVisible(makeUser('jpc_sales')), false);
-  assert.equal(isSidebarVisible(makeUser('jpc_lead_gen')), false);
-  assert.equal(isSidebarVisible(makeUser('jpc_marketing')), false);
-  assert.equal(isSidebarVisible(makeUser('jpc_resume')), false);
-  assert.equal(isSidebarVisible(makeUser('jpc_proxy')), false);
+  // General team members -> Also Visible (View-Only)
+  assert.equal(isSidebarVisible(makeUser('jpc_recruiter')), true);
+  assert.equal(isSidebarVisible(makeUser('jpc_sales')), true);
+  assert.equal(isSidebarVisible(makeUser('jpc_lead_gen')), true);
+  assert.equal(isSidebarVisible(makeUser('jpc_marketing')), true);
+  assert.equal(isSidebarVisible(makeUser('jpc_resume')), true);
+  assert.equal(isSidebarVisible(makeUser('jpc_proxy')), true);
+
+  // Non-team members -> Hidden
+  assert.equal(isSidebarVisible(makeUser('candidate')), false);
+  assert.equal(isSidebarVisible(makeUser('jpc_candidate')), false);
   assert.equal(isSidebarVisible(null), false);
 });
 

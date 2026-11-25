@@ -20,7 +20,10 @@ import {
   X,
   CalendarCheck,
   Building,
-  Globe
+  Globe,
+  Sparkles,
+  Megaphone,
+  Eye
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -55,10 +58,12 @@ import {
   clearHolidayForDate,
   clearOfficeClosure,
   clearAllOfficeClosures,
-  cleanupAllDuplicateClosures
+  cleanupAllDuplicateClosures,
+  getOfficeClosures
 } from '../services/holidayService';
 import { cn } from '../lib/utils';
 import { subscribeToCollection } from '../services/storage';
+import { getHolidayTheme, renderHolidayIcon } from '../utils/holidayThemes';
 
 const DAYS_OF_WEEK = [
   { day: 0, name: 'Sunday', short: 'Sun' },
@@ -101,6 +106,12 @@ export const HolidayCalendar: React.FC = () => {
   const [isClearingAll, setIsClearingAll] = useState(false);
   const [isAuditLogsOpen, setIsAuditLogsOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Interactive Holiday Details Modal State
+  const [selectedDetailsDate, setSelectedDetailsDate] = useState<string | null>(null);
+  const [selectedDetailsClosures, setSelectedDetailsClosures] = useState<OfficeClosure[]>([]);
+  const [selectedDetailsEval, setSelectedDetailsEval] = useState<ReturnType<typeof checkDateOfficeClosure> | null>(null);
+  const [activeClosureTab, setActiveClosureTab] = useState<number>(0);
 
   // Form State for Event Modal
   const [formTitle, setFormTitle] = useState('');
@@ -252,6 +263,66 @@ export const HolidayCalendar: React.FC = () => {
     setCurrentYear(now.getFullYear());
     setCurrentMonth(now.getMonth());
   };
+
+  // Date format helpers
+  const formatDisplayDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    return dateObj.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  const formatClosureRange = (startDate: string, endDate?: string | null) => {
+    if (!startDate) return '';
+    const sFormatted = formatDisplayDate(startDate.split('T')[0]);
+    if (!endDate || endDate.split('T')[0] === startDate.split('T')[0]) {
+      return sFormatted;
+    }
+    const eFormatted = formatDisplayDate(endDate.split('T')[0]);
+    return `${sFormatted} → ${eFormatted}`;
+  };
+
+  // Open Interactive Holiday Details Modal (Available to all team members)
+  const handleOpenHolidayDetails = (dateStr: string, evalRes?: ReturnType<typeof checkDateOfficeClosure>) => {
+    const currentEval = evalRes || checkDateOfficeClosure(dateStr, closures, weeklyConfig);
+    const matching = closures.filter(c => {
+      if (!c || c.is_active === false || !c.start_date) return false;
+      const s = c.start_date.split('T')[0];
+      const e = (c.end_date || c.start_date).split('T')[0];
+      return dateStr >= s && dateStr <= e;
+    });
+
+    if (currentEval.closure && !matching.some(m => m.id === currentEval.closure?.id)) {
+      matching.unshift(currentEval.closure);
+    }
+
+    setSelectedDetailsDate(dateStr);
+    setSelectedDetailsClosures(matching);
+    setSelectedDetailsEval(currentEval);
+    setActiveClosureTab(0);
+  };
+
+  const handleCloseHolidayDetails = () => {
+    setSelectedDetailsDate(null);
+    setSelectedDetailsClosures([]);
+    setSelectedDetailsEval(null);
+    setActiveClosureTab(0);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedDetailsDate) {
+        handleCloseHolidayDetails();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedDetailsDate]);
 
   // Open Add Event Modal
   const handleOpenAddModal = (dateStr?: string) => {
@@ -544,12 +615,19 @@ export const HolidayCalendar: React.FC = () => {
             <span className="flex items-center gap-1 text-[10px] font-bold text-text-muted">
               <Globe className="w-3 h-3 text-accent-blue" /> America/New_York (EST)
             </span>
+            {!isManager && (
+              <span className="px-2.5 py-0.5 bg-amber-500/10 text-amber-500 rounded-lg text-[10px] font-black uppercase tracking-wider border border-amber-500/20">
+                View Only
+              </span>
+            )}
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-text-primary tracking-tight">
             Office Holiday & Working Day Calendar
           </h1>
           <p className="text-xs sm:text-sm font-bold text-text-muted">
-            Manage office closures, working day availability, and interview booking restrictions.
+            {isManager
+              ? 'Manage office closures, working day availability, and interview booking restrictions.'
+              : 'View office closures, working day availability, and scheduled public holidays.'}
           </p>
         </div>
 
@@ -633,47 +711,82 @@ export const HolidayCalendar: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
-            {upcomingClosures.map(c => (
-              <div key={c.id} className="p-3.5 bg-bg-secondary rounded-2xl border border-border-primary/80 text-xs flex flex-col justify-between gap-2 shadow-sm">
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-black text-text-primary truncate">{c.title}</span>
-                    <span className="text-[9px] px-2 py-0.5 bg-rose-500/15 text-rose-400 rounded-md font-black uppercase tracking-wider shrink-0 border border-rose-500/20">
-                      OFFICE CLOSED
-                    </span>
-                  </div>
-                  <p className="text-[11px] font-bold text-text-secondary">
-                    {c.start_date === c.end_date ? c.start_date : `${c.start_date} → ${c.end_date}`}
-                  </p>
-                  {c.custom_message && (
-                    <p className="text-[10px] text-text-muted italic line-clamp-2">
-                      "{c.custom_message}"
-                    </p>
+            {upcomingClosures.map(c => {
+              const cardTheme = getHolidayTheme(c.title, c.event_type);
+              return (
+                <div 
+                  key={c.id} 
+                  onClick={() => handleOpenHolidayDetails(c.start_date.split('T')[0])}
+                  className={cn(
+                    "p-4 bg-bg-secondary rounded-2xl border text-xs flex flex-col justify-between gap-3 shadow-sm hover:shadow-md transition-all cursor-pointer group relative overflow-hidden",
+                    cardTheme.cellGlow,
+                    cardTheme.cellBorderHover
                   )}
-                </div>
+                  title="Click to view holiday announcement & festival details"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className={cn("p-1.5 rounded-lg shrink-0", cardTheme.iconBg)}>
+                          {renderHolidayIcon(cardTheme.iconName, "w-4 h-4")}
+                        </div>
+                        <span className="font-black text-text-primary truncate">{c.title}</span>
+                      </div>
+                      <span className={cn(
+                        "text-[9px] px-2 py-0.5 rounded-md font-black uppercase tracking-wider shrink-0 border",
+                        cardTheme.badgeBg,
+                        cardTheme.badgeBorder,
+                        cardTheme.badgeText
+                      )}>
+                        {cardTheme.festiveTag.split(' ')[0]} CLOSED
+                      </span>
+                    </div>
 
-                {isManager && (
-                  <div className="pt-2 border-t border-border-primary/50 flex items-center justify-end gap-2">
-                    <button
-                      onClick={() => handleClearHolidayDate(c.start_date, c)}
-                      className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold rounded-lg text-[10px] border border-rose-500/20 transition-all flex items-center gap-1"
-                      title="Clear this closure and restore default schedule"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      Clear Holiday
-                    </button>
-                    <button
-                      onClick={() => handleOpenEditModal(c)}
-                      className="px-2.5 py-1 bg-bg-tertiary hover:bg-bg-hover text-text-primary font-bold rounded-lg text-[10px] border border-border-primary transition-all flex items-center gap-1"
-                      title="Edit closure details"
-                    >
-                      <Edit3 className="w-3 h-3" />
-                      Edit
-                    </button>
+                    <p className="text-[11px] font-bold text-text-secondary flex items-center gap-1.5">
+                      <Clock className="w-3 h-3 text-text-muted" />
+                      {c.start_date === c.end_date ? c.start_date : `${c.start_date} → ${c.end_date}`}
+                    </p>
+
+                    {c.custom_message ? (
+                      <p className="text-[10px] text-text-muted italic line-clamp-2 bg-bg-tertiary/60 p-2 rounded-xl border border-border-primary/50">
+                        "{c.custom_message}"
+                      </p>
+                    ) : (
+                      <p className="text-[10px] text-text-muted italic line-clamp-1 opacity-80">
+                        {cardTheme.defaultGreeting}
+                      </p>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+
+                  <div className="pt-2 border-t border-border-primary/50 flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-bold text-accent-blue flex items-center gap-1 group-hover:underline">
+                      <Eye className="w-3 h-3" /> View Details
+                    </span>
+
+                    {isManager && (
+                      <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={() => handleClearHolidayDate(c.start_date, c)}
+                          className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold rounded-lg text-[10px] border border-rose-500/20 transition-all flex items-center gap-1"
+                          title="Clear this closure and restore default schedule"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          Clear
+                        </button>
+                        <button
+                          onClick={() => handleOpenEditModal(c)}
+                          className="px-2.5 py-1 bg-bg-tertiary hover:bg-bg-hover text-text-primary font-bold rounded-lg text-[10px] border border-border-primary transition-all flex items-center gap-1"
+                          title="Edit closure details"
+                        >
+                          <Edit3 className="w-3 h-3" />
+                          Edit
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -758,36 +871,55 @@ export const HolidayCalendar: React.FC = () => {
             const isClosedStatus = evalRes.status === 'closed' && evalRes.reason !== 'weekly_off';
             const isWeeklyOff = evalRes.reason === 'weekly_off';
 
+            // Find all matching closures for this cell
+            const cellClosures = closures.filter(c => {
+              if (!c || c.is_active === false || !c.start_date) return false;
+              const s = c.start_date.split('T')[0];
+              const e = (c.end_date || c.start_date).split('T')[0];
+              return item.dateStr >= s && item.dateStr <= e;
+            });
+            if (evalRes.closure && !cellClosures.some(m => m.id === evalRes.closure?.id)) {
+              cellClosures.unshift(evalRes.closure);
+            }
+            const primaryClosure = cellClosures[0] || evalRes.closure;
+            const theme = getHolidayTheme(
+              primaryClosure?.title || evalRes.title, 
+              primaryClosure?.event_type, 
+              isOpenStatus
+            );
+
+            const hasHolidayOrClosure = isClosedStatus || isOpenStatus || cellClosures.length > 0;
+
             return (
               <div
                 key={idx}
                 className={cn(
-                  "min-h-[110px] sm:min-h-[135px] p-2.5 sm:p-3 rounded-2xl border transition-all flex flex-col justify-between group relative overflow-hidden",
+                  "min-h-[115px] sm:min-h-[140px] p-2.5 sm:p-3 rounded-2xl border transition-all flex flex-col justify-between group relative overflow-hidden",
                   !item.isCurrentMonth && "opacity-35 bg-bg-tertiary/20",
-                  item.isCurrentMonth && "bg-bg-tertiary/40 hover:border-accent-blue/40",
-                  isToday && "ring-2 ring-accent-blue/40 border-accent-blue",
-                  isOpenStatus && "border-emerald-500/50 bg-emerald-500/10",
-                  isClosedStatus && "border-rose-500/50 bg-rose-500/10",
-                  isWeeklyOff && "border-border-primary bg-bg-tertiary/60"
+                  item.isCurrentMonth && !hasHolidayOrClosure && !isWeeklyOff && "bg-bg-tertiary/40 hover:border-accent-blue/40",
+                  isToday && "ring-2 ring-accent-blue/50 border-accent-blue shadow-sm",
+                  isOpenStatus && "border-emerald-500/50 bg-emerald-500/10 hover:border-emerald-500/70",
+                  isClosedStatus && cn("border-border-primary/80", theme.cellGlow, theme.cellBorderHover),
+                  isWeeklyOff && !isClosedStatus && !isOpenStatus && "border-border-primary bg-bg-tertiary/60"
                 )}
               >
                 {/* Date header */}
                 <div className="flex items-center justify-between">
                   <span className={cn(
                     "text-xs sm:text-sm font-black rounded-lg px-2 py-0.5",
-                    isToday ? "bg-accent-blue text-white" : "text-text-primary"
+                    isToday ? "bg-accent-blue text-white shadow-md shadow-accent-blue/20" : "text-text-primary"
                   )}>
                     {item.dayNumber}
                   </span>
 
-                  {/* Actions for Authorized Roles */}
+                  {/* Actions for Authorized Higher Authority Roles */}
                   {isManager && item.isCurrentMonth && (
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 z-10" onClick={e => e.stopPropagation()}>
                       {canOverride && (
                         <button
                           onClick={() => handleToggleWorkingStatus(item.dateStr, evalRes)}
                           className={cn(
-                            "p-1 rounded-md text-[10px] font-bold transition-colors",
+                            "p-1 rounded-md text-[10px] font-bold transition-colors shadow-sm",
                             isClosed ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30" : "bg-rose-500/20 text-rose-400 hover:bg-rose-500/30"
                           )}
                           title={isClosed ? "Switch to Office Open" : "Switch to Office Closed"}
@@ -824,32 +956,67 @@ export const HolidayCalendar: React.FC = () => {
                 {/* Day status badge & labels */}
                 <div className="mt-1.5 flex-1 flex flex-col justify-end gap-1">
                   {isOpenStatus && (
-                    <div className="p-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-[9px] sm:text-[10px] font-black text-emerald-300 leading-tight">
-                      <div className="flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3 shrink-0" />
-                        <span className="truncate">OFFICE OPEN</span>
+                    <div 
+                      onClick={() => handleOpenHolidayDetails(item.dateStr, evalRes)}
+                      className="p-1.5 rounded-xl bg-gradient-to-r from-emerald-500/25 to-teal-500/20 border border-emerald-500/40 text-[9px] sm:text-[10px] font-black text-emerald-300 leading-tight cursor-pointer hover:scale-[1.02] active:scale-95 transition-all shadow-sm"
+                      title="Click to view special working day details"
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <div className="flex items-center gap-1 min-w-0">
+                          <CheckCircle2 className="w-3 h-3 shrink-0" />
+                          <span className="truncate">OFFICE OPEN</span>
+                        </div>
+                        <Eye className="w-2.5 h-2.5 opacity-60 hover:opacity-100 shrink-0" />
                       </div>
-                      <span className="text-[8px] font-normal block opacity-80 truncate">Bookings available</span>
+                      <span className="text-[8px] font-normal block opacity-85 truncate mt-0.5">Special Working Day</span>
                     </div>
                   )}
 
                   {isClosedStatus && (
                     <div 
-                      onClick={() => evalRes.closure && isManager && handleOpenEditModal(evalRes.closure)}
-                      className="p-1.5 rounded-xl bg-rose-500/20 border border-rose-500/40 text-[9px] sm:text-[10px] font-black text-rose-300 leading-tight cursor-pointer hover:bg-rose-500/30 transition-all"
+                      onClick={() => handleOpenHolidayDetails(item.dateStr, evalRes)}
+                      className={cn(
+                        "p-1.5 rounded-xl border leading-tight transition-all cursor-pointer group/badge relative overflow-hidden",
+                        theme.badgeBg,
+                        theme.badgeBorder,
+                        theme.badgeText,
+                        "hover:scale-[1.02] active:scale-95 hover:shadow-md"
+                      )}
+                      title="Click to view holiday announcement & festival details"
                     >
-                      <div className="flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3 shrink-0" />
-                        <span className="truncate">OFFICE CLOSED</span>
+                      <div className="flex items-center justify-between gap-1">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="shrink-0">{renderHolidayIcon(theme.iconName, "w-3 h-3")}</span>
+                          <span className="truncate text-[9px] sm:text-[10px] font-black uppercase tracking-wider">
+                            {primaryClosure?.title || evalRes.title || 'Office Closed'}
+                          </span>
+                        </div>
+                        {cellClosures.length > 1 && (
+                          <span className="px-1 py-0.2 rounded-md bg-white/20 text-[8px] font-black shrink-0">
+                            +{cellClosures.length - 1}
+                          </span>
+                        )}
                       </div>
-                      <span className="text-[8px] font-normal block opacity-80 truncate">{evalRes.title || 'Office Closed'}</span>
+                      <div className="flex items-center justify-between gap-1 mt-0.5">
+                        <span className="text-[8px] font-medium opacity-90 truncate">
+                          {primaryClosure?.custom_message ? `"${primaryClosure.custom_message}"` : theme.festiveTag}
+                        </span>
+                        <Eye className="w-2.5 h-2.5 opacity-60 group-hover/badge:opacity-100 shrink-0" />
+                      </div>
                     </div>
                   )}
 
                   {isWeeklyOff && !isClosedStatus && !isOpenStatus && (
-                    <div className="p-1.5 rounded-xl bg-bg-secondary/70 border border-border-primary text-[9px] sm:text-[10px] font-black text-text-muted leading-tight">
-                      <span className="truncate block">WEEKLY OFF</span>
-                      <span className="text-[8px] font-normal block opacity-70">Office closed</span>
+                    <div 
+                      onClick={() => handleOpenHolidayDetails(item.dateStr, evalRes)}
+                      className="p-1.5 rounded-xl bg-bg-secondary/70 hover:bg-bg-secondary border border-border-primary text-[9px] sm:text-[10px] font-black text-text-muted leading-tight cursor-pointer transition-all"
+                      title="Click to view weekly off schedule details"
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="truncate block">WEEKLY OFF</span>
+                        <Eye className="w-2.5 h-2.5 opacity-40 hover:opacity-100 shrink-0" />
+                      </div>
+                      <span className="text-[8px] font-normal block opacity-70 mt-0.5 truncate">Office closed</span>
                     </div>
                   )}
 
@@ -866,9 +1033,248 @@ export const HolidayCalendar: React.FC = () => {
         </div>
       </div>
 
+      {/* Interactive Holiday Details Animated Modal */}
+      <AnimatePresence>
+        {selectedDetailsDate && selectedDetailsEval && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[80] flex items-center justify-center p-3 sm:p-4">
+            {(() => {
+              const currentClosure = selectedDetailsClosures[activeClosureTab] || selectedDetailsEval.closure;
+              const isOpenOverride = selectedDetailsEval.status === 'open' && (selectedDetailsEval.reason === 'override_working' || selectedDetailsEval.reason === 'open');
+              const theme = getHolidayTheme(
+                currentClosure?.title || selectedDetailsEval.title,
+                currentClosure?.event_type,
+                isOpenOverride
+              );
+
+              return (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.94, y: 16 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.94, y: 16 }}
+                  transition={{ duration: 0.22, ease: "easeOut" }}
+                  className="bg-bg-secondary w-full max-w-lg rounded-[36px] border border-border-primary shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
+                >
+                  {/* Festival Themed Header Banner */}
+                  <div className={cn("relative p-6 sm:p-8 bg-gradient-to-br border-b border-border-primary/60 overflow-hidden", theme.bannerGradient, theme.ambientGlow)}>
+                    {/* Animated Decorative Ambient Glow / Sparkles */}
+                    <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-white/10 blur-3xl pointer-events-none" />
+                    <div className="absolute -bottom-10 -left-10 w-40 h-40 rounded-full bg-white/10 blur-2xl pointer-events-none" />
+                    <Sparkles className="absolute top-4 right-14 w-5 h-5 text-amber-200/50 animate-pulse pointer-events-none" />
+
+                    <div className="flex items-start justify-between relative z-10 gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className={cn("w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg transition-transform hover:scale-105", theme.iconBg)}>
+                          {renderHolidayIcon(theme.iconName, "w-7 h-7")}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="px-3 py-1 rounded-full text-[11px] font-black tracking-wider uppercase bg-black/40 text-white/95 border border-white/20 backdrop-blur-md shadow-sm">
+                              {theme.festiveTag}
+                            </span>
+                            {!isManager && (
+                              <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                View Only
+                              </span>
+                            )}
+                          </div>
+                          <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight mt-1.5 drop-shadow-md">
+                            {currentClosure?.title || selectedDetailsEval.title || (isOpenOverride ? 'Special Working Day' : 'Office Closed')}
+                          </h2>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={handleCloseHolidayDetails}
+                        className="p-2.5 bg-black/40 hover:bg-black/60 text-white/80 hover:text-white rounded-2xl border border-white/20 backdrop-blur-md transition-all active:scale-95 shrink-0"
+                        title="Close details"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    {/* Date and Booking Status Chip */}
+                    <div className="flex flex-wrap items-center gap-2 mt-4 relative z-10 text-xs font-bold text-white/90">
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-black/35 rounded-xl border border-white/15 backdrop-blur-md">
+                        <CalendarCheck className="w-3.5 h-3.5 text-accent-blue" />
+                        <span>
+                          {currentClosure 
+                            ? formatClosureRange(currentClosure.start_date, currentClosure.end_date)
+                            : formatDisplayDate(selectedDetailsDate)
+                          }
+                        </span>
+                      </div>
+
+                      <div className={cn(
+                        "flex items-center gap-1.5 px-3 py-1.5 rounded-xl border backdrop-blur-md text-[11px] font-black uppercase tracking-wider",
+                        isOpenOverride 
+                          ? "bg-emerald-500/30 border-emerald-400/50 text-emerald-200"
+                          : "bg-rose-500/30 border-rose-400/50 text-rose-200"
+                      )}>
+                        {isOpenOverride ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+                            <span>Office Open • Bookings Available</span>
+                          </>
+                        ) : (
+                          <>
+                            <AlertCircle className="w-3.5 h-3.5 text-rose-300 shrink-0" />
+                            <span>Office Closed • Bookings Blocked</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Multi-Closure Tabs (if multiple closures exist on this date) */}
+                  {selectedDetailsClosures.length > 1 && (
+                    <div className="px-6 sm:px-8 pt-4 pb-1 border-b border-border-primary/60 bg-bg-tertiary/40 flex items-center gap-2 overflow-x-auto">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-text-muted shrink-0 mr-1">
+                        Events on this date:
+                      </span>
+                      {selectedDetailsClosures.map((c, i) => (
+                        <button
+                          key={c.id || i}
+                          onClick={() => setActiveClosureTab(i)}
+                          className={cn(
+                            "px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 border",
+                            activeClosureTab === i
+                              ? "bg-accent-blue text-white border-accent-blue shadow-md shadow-accent-blue/20"
+                              : "bg-bg-secondary text-text-muted hover:text-text-primary border-border-primary"
+                          )}
+                        >
+                          {c.title}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Body Content - Scrollable */}
+                  <div className="p-6 sm:p-8 space-y-5 overflow-y-auto flex-1">
+                    {/* Official Announcement / Custom Message Card */}
+                    <div className="p-4 sm:p-5 rounded-2xl bg-bg-tertiary/70 border border-border-primary space-y-2 relative overflow-hidden">
+                      <div className="flex items-center gap-2 text-text-muted">
+                        <Megaphone className="w-4 h-4 text-accent-blue" />
+                        <span className="text-[11px] font-black uppercase tracking-wider">
+                          {currentClosure?.custom_message ? "Higher Authority Announcement" : "Festival Greeting & Observance"}
+                        </span>
+                      </div>
+                      <blockquote className="text-xs sm:text-sm font-medium text-text-primary leading-relaxed italic border-l-2 border-accent-blue/60 pl-3 py-0.5">
+                        "{currentClosure?.custom_message || theme.defaultGreeting}"
+                      </blockquote>
+                    </div>
+
+                    {/* Description Card (if configured) */}
+                    {currentClosure?.description && (
+                      <div className="p-4 rounded-2xl bg-bg-tertiary/40 border border-border-primary/60 space-y-1.5">
+                        <div className="flex items-center gap-2 text-text-muted">
+                          <Info className="w-3.5 h-3.5 text-text-secondary" />
+                          <span className="text-[10px] font-black uppercase tracking-wider">Description & Notes</span>
+                        </div>
+                        <p className="text-xs text-text-secondary leading-relaxed">
+                          {currentClosure.description}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Operational Details Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      <div className="p-3.5 rounded-2xl bg-bg-tertiary/40 border border-border-primary/60 space-y-1">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-text-muted flex items-center gap-1">
+                          <Building className="w-3 h-3 text-text-muted" /> Location Scope
+                        </span>
+                        <p className="font-bold text-text-primary capitalize">
+                          {currentClosure?.location && currentClosure.location !== 'all' ? currentClosure.location : 'All Offices & Remote Operations'}
+                        </p>
+                      </div>
+
+                      <div className="p-3.5 rounded-2xl bg-bg-tertiary/40 border border-border-primary/60 space-y-1">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-text-muted flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-text-muted" /> Closure Duration
+                        </span>
+                        <p className="font-bold text-text-primary">
+                          {currentClosure?.start_time && currentClosure?.end_time
+                            ? `${currentClosure.start_time} — ${currentClosure.end_time} EST`
+                            : 'Full Day Observance'
+                          }
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Booking Restriction Notice */}
+                    <div className={cn(
+                      "p-3.5 rounded-2xl border text-xs flex items-center gap-3",
+                      isOpenOverride 
+                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                        : "bg-amber-500/10 border-amber-500/30 text-amber-300"
+                    )}>
+                      <div className={cn(
+                        "w-8 h-8 rounded-xl flex items-center justify-center shrink-0",
+                        isOpenOverride ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"
+                      )}>
+                        {isOpenOverride ? <CheckCircle2 className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
+                      </div>
+                      <div className="space-y-0.5">
+                        <p className="font-black text-[11px] uppercase tracking-wide">
+                          {isOpenOverride ? "Booking System Operational" : "Interview Booking Restricted"}
+                        </p>
+                        <p className="text-[11px] font-normal opacity-85">
+                          {isOpenOverride 
+                            ? "Candidates can be scheduled and booked for interviews on this date."
+                            : "Public interview bookings and proxy assignments are blocked for this calendar date."
+                          }
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Modal Footer / Action Buttons */}
+                  <div className="p-4 sm:p-6 bg-bg-tertiary/50 border-t border-border-primary flex items-center justify-end gap-2.5">
+                    {isManager && currentClosure && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleCloseHolidayDetails();
+                            handleClearHolidayDate(selectedDetailsDate, currentClosure);
+                          }}
+                          className="px-4 py-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold rounded-2xl text-xs border border-rose-500/20 transition-all flex items-center gap-1.5 active:scale-95"
+                          title="Clear this holiday entry and restore default schedule"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Clear Holiday</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleCloseHolidayDetails();
+                            handleOpenEditModal(currentClosure);
+                          }}
+                          className="px-4 py-2.5 bg-bg-secondary hover:bg-bg-tertiary text-text-primary font-bold rounded-2xl text-xs border border-border-primary transition-all flex items-center gap-1.5 active:scale-95 shadow-sm"
+                          title="Edit closure details"
+                        >
+                          <Edit3 className="w-3.5 h-3.5 text-accent-blue" />
+                          <span>Edit Details</span>
+                        </button>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleCloseHolidayDetails}
+                      className="px-5 py-2.5 bg-accent-blue text-white font-bold rounded-2xl text-xs hover:bg-accent-blue/90 shadow-md shadow-accent-blue/20 transition-all active:scale-95"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </motion.div>
+              );
+            })()}
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Weekly Off Settings Modal */}
       <AnimatePresence>
-        {isWeeklySettingsOpen && (
+        {isWeeklySettingsOpen && canOverride && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-center justify-center p-3 sm:p-4">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -966,7 +1372,7 @@ export const HolidayCalendar: React.FC = () => {
 
       {/* Add / Edit Holiday Modal */}
       <AnimatePresence>
-        {isEventModalOpen && (
+        {isEventModalOpen && isManager && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-center justify-center p-3 sm:p-4">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -1267,17 +1673,17 @@ export const HolidayCalendar: React.FC = () => {
                   auditLogs.map(log => (
                     <div key={log.id} className="p-3.5 bg-bg-tertiary/50 border border-border-primary rounded-2xl text-xs space-y-1">
                       <div className="flex items-center justify-between">
-                        <span className="font-bold text-text-primary">{log.closure_title}</span>
+                        <span className="font-bold text-text-primary">{(log as any).closure_title || log.details || log.entity_type}</span>
                         <span className="text-[10px] px-2 py-0.5 rounded-md font-bold uppercase bg-accent-blue/10 text-accent-blue">
                           {log.action}
                         </span>
                       </div>
                       <p className="text-[11px] text-text-muted">
-                        Performed by: <span className="text-text-primary font-bold">{log.actor_name || log.actor_email}</span> at {new Date(log.created_at).toLocaleString()}
+                        Performed by: <span className="text-text-primary font-bold">{log.acting_user_name || (log as any).actor_name || (log as any).actor_email || 'System'}</span> at {new Date(log.timestamp || (log as any).created_at || Date.now()).toLocaleString()}
                       </p>
-                      {log.reason && (
+                      {(log.details || (log as any).reason) && (
                         <p className="text-[10px] text-text-secondary italic">
-                          "{log.reason}"
+                          "{log.details || (log as any).reason}"
                         </p>
                       )}
                     </div>

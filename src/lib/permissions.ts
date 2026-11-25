@@ -39,6 +39,43 @@ export function matchesProfileHandlingAccess(
   return normalizedShift === 'day shift';
 }
 
+/**
+ * Evaluates whether a user is an authorized Proxy Person (explicit jpc_proxy role or designated proxy).
+ */
+export function isProxyUser(u: User | null | undefined): boolean {
+  if (!u) return false;
+  if (u.deleted_at) return false;
+
+  // Explicit jpc_proxy role
+  if (u.role === 'jpc_proxy') return true;
+
+  const emailLower = u.email?.toLowerCase() || '';
+  const usernameLower = u.username?.toLowerCase() || '';
+  const displayNameLower = u.display_name?.toLowerCase() || '';
+
+  // Nihal Khalyani (nihal.khalyani@auriic.co) is a resume person, not a proxy
+  if (emailLower === 'nihal.khalyani@auriic.co' || usernameLower === 'nihal.khalyani') {
+    return false;
+  }
+
+  // Nihal Proxy (nihalnx09@gmail.com) is explicitly a proxy
+  if (emailLower === 'nihalnx09@gmail.com' || usernameLower === 'nihalnx09' || usernameLower === 'nihalnx') {
+    return true;
+  }
+
+  // Rudraksh proxy checks
+  if (usernameLower === 'rudraksh.rawal' || displayNameLower.includes('rudra')) {
+    return true;
+  }
+
+  // General fallback for names containing "nihal" but ignoring resume email or resume user
+  if (displayNameLower.includes('nihal')) {
+    return true;
+  }
+
+  return false;
+}
+
 export function canUserAccessCandidate(candidate: Candidate, user: User | null, teamUsers: User[] = []): boolean {
   if (!user) return true;
 
@@ -56,6 +93,11 @@ export function canUserAccessCandidate(candidate: Candidate, user: User | null, 
     user.role === 'aurrum_sales' ||
     user.role === 'aurrum_team'
   ) {
+    return true;
+  }
+
+  // Authorized Proxy Persons (explicit jpc_proxy role or designated proxies)
+  if (user.role === 'jpc_proxy' || isProxyUser(user)) {
     return true;
   }
 
@@ -163,11 +205,6 @@ export function canUserAccessCandidate(candidate: Candidate, user: User | null, 
   }
 
   // 6. Recruiter: handled strictly above (assigned_recruiter only)
-
-  // 7. Proxy: assigned recruiter or assigned proxy
-  if (user.role === 'jpc_proxy') {
-    return userMatches(candidate.assigned_recruiter);
-  }
 
   return true;
 }
@@ -492,21 +529,15 @@ export function canManageHolidayCalendar(user: User | null): boolean {
 }
 
 /**
- * Checks whether a user can view the Office Holiday Calendar and its management page.
- * Strictly restricted to authorised Higher Authorities and Administrators:
- * - Administrator (administrator, aurrum_admin)
- * - System Administrator (jpc_sysadmin)
- * - Manager / Higher Authorities (jpc_manager)
- * - CS Head / Compliance Head (jpc_cs, jpc_compliance_person)
- * - Proxies with explicit can_manage_calendar permission
- *
- * Strictly HIDDEN from Recruiters (jpc_recruiter), Sales (jpc_sales, aurrum_sales),
- * Lead Gen (jpc_lead_gen), Marketing (jpc_marketing, jpc_marketing_support),
- * Resume team, general team members, and Candidates.
+ * Checks whether a user can view the Office Holiday Calendar and upcoming office closures.
+ * Accessible in view-only mode to all internal CRM team members (Recruiters, Sales,
+ * Lead Gen, Marketing, Resume Team, Proxies, etc.).
+ * Full management (create, edit, delete, toggle) remains strictly restricted to Higher Authorities via canManageHolidayCalendar.
+ * Excludes candidates and unauthenticated visitors.
  */
 export function canViewHolidayCalendar(user: User | null): boolean {
   if (!user) return false;
-  return canManageHolidayCalendar(user);
+  return user.role !== 'candidate' && user.role !== 'jpc_candidate';
 }
 
 /**

@@ -239,7 +239,6 @@ describe('Proxy Person - Specific Resume Modules Access', () => {
     const restrictedModules = [
       '#applications', // App Tracker
       '#target-dashboard', // Target Compliance
-      '#office-holidays', // Office Holiday Calendar
       '#team' // Team management
     ];
 
@@ -254,19 +253,22 @@ describe('Proxy Person - Specific Resume Modules Access', () => {
     const visibleHashes = getVisibleSidebarHashes(proxyUser);
     assert.strictEqual(visibleHashes.includes('#applications'), false, 'App Tracker should not be in sidebar');
     assert.strictEqual(visibleHashes.includes('#target-dashboard'), false, 'Target Compliance should not be in sidebar');
-    assert.strictEqual(visibleHashes.includes('#office-holidays'), false, 'Office Holidays should not be in sidebar');
     assert.strictEqual(visibleHashes.includes('#team'), false, 'Team should not be in sidebar');
+    assert.strictEqual(visibleHashes.includes('#office-holidays'), true, 'Office Holidays is visible in view-only mode for team');
   });
 
   it('preserves existing permissions for other roles (e.g. Sales, Recruiter)', () => {
-    // Sales should NOT have access to resume log or office holidays
+    // Sales should NOT have access to resume log or team management
     assert.strictEqual(canAccessRoute('#resume-log', salesUser), false);
-    assert.strictEqual(canAccessRoute('#office-holidays', salesUser), false);
+    assert.strictEqual(canAccessRoute('#team', salesUser), false);
 
-    // Recruiter SHOULD have access to resume log and domain resumes, but NOT office holidays or team
+    // Recruiter SHOULD have access to resume log and domain resumes, but NOT team
     assert.strictEqual(canAccessRoute('#resume-log', recruiterUser), true);
     assert.strictEqual(canAccessRoute('#domain-resumes', recruiterUser), true);
-    assert.strictEqual(canAccessRoute('#office-holidays', recruiterUser), false);
     assert.strictEqual(canAccessRoute('#team', recruiterUser), false);
+
+    // All team members can view holiday calendar in view-only mode
+    assert.strictEqual(canAccessRoute('#office-holidays', salesUser), true);
+    assert.strictEqual(canAccessRoute('#office-holidays', recruiterUser), true);
   });
 });
