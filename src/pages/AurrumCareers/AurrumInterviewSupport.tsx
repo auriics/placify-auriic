@@ -101,7 +101,6 @@ import {
   hasActiveOrFutureLeave,
   checkAndExpireTeamLeaves,
 } from '../../services/interviewService';
-import { isDateOfficeClosedSync } from '../../services/holidayService';
 import { sharedSelectStyles } from '../../lib/selectStyles';
 import { useDebounce } from '../../lib/hooks';
 import { AurrumFlowHeader } from './AurrumFlowHeader';
@@ -138,6 +137,16 @@ const customSelectStyles = {
     borderRadius: '20px',
   }),
 };
+
+/**
+ * Evaluates whether a user is an authorized Proxy Person or Interview Support Specialist for Aurrum.
+ * Strictly excludes Aurrum Administrators (e.g. Rabiya, Param Verma) and Sales roles from interview scheduling.
+ */
+export function isEligibleAurrumInterviewMember(u: User | null | undefined): boolean {
+  if (!u || u.deleted_at) return false;
+  if (u.role === 'aurrum_admin' || u.role === 'aurrum_sales') return false;
+  return u.role === 'aurrum_team' || isProxyUser(u);
+}
 
 export const AurrumInterviewSupport: React.FC = () => {
   const { user, isAuthReady } = useAuth();
@@ -269,17 +278,22 @@ export const AurrumInterviewSupport: React.FC = () => {
   }, [team]);
 
   const proxyUsers = useMemo(
-    () => team.filter((p) => isProxyUser(p) || isAurrumRole(p?.role)),
+    () => team.filter(isEligibleAurrumInterviewMember),
     [team]
   );
 
   useEffect(() => {
-    if (!scheduleProxyId && proxyUsers.length > 0) {
-      if (user && isProxyUser(user)) {
-        setScheduleProxyId(String(user.id));
-      } else {
-        setScheduleProxyId(String(proxyUsers[0].id));
+    if (proxyUsers.length > 0) {
+      const isValidCurrent = proxyUsers.some((p) => String(p.id) === String(scheduleProxyId));
+      if (!scheduleProxyId || !isValidCurrent) {
+        if (user && isEligibleAurrumInterviewMember(user)) {
+          setScheduleProxyId(String(user.id));
+        } else {
+          setScheduleProxyId(String(proxyUsers[0].id));
+        }
       }
+    } else {
+      setScheduleProxyId('');
     }
   }, [proxyUsers, scheduleProxyId, user]);
 
@@ -632,7 +646,7 @@ export const AurrumInterviewSupport: React.FC = () => {
       />
 
       {/* Aurrum Real-Time Team Leave & Office Holiday Alert */}
-      <ProxyLeaveBanner team={team} brand="aurrum" contextTitle="Aurrum Interview Support Notice" />
+      <ProxyLeaveBanner team={proxyUsers} brand="aurrum" contextTitle="Aurrum Interview Support Notice" />
 
       {/* KPI Summary Grid (Strictly Interview Support & Proxy Metrics) */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 sm:gap-4">
@@ -963,6 +977,7 @@ export const AurrumInterviewSupport: React.FC = () => {
               availabilities={availabilities}
               date={viewDate}
               proxyId={scheduleProxyId}
+              isAurrum={true}
             />
           )}
 
@@ -1260,6 +1275,7 @@ export const AurrumInterviewSupport: React.FC = () => {
                     : new Date()
                 }
                 proxyId={selectedProxyId}
+                isAurrum={true}
               />
             )}
 
@@ -1714,6 +1730,7 @@ export const AurrumInterviewSupport: React.FC = () => {
           allRounds={rounds}
           allAvailabilities={availabilities}
           allCalendarEvents={calendarEvents}
+          isAurrum={true}
           onSuccess={() => {
             setIsRequestModalOpen(false);
             showToast('Interview support request created!', 'success');
@@ -1728,10 +1745,11 @@ export const AurrumInterviewSupport: React.FC = () => {
           onClose={() => setProxyAssignmentConfig(null)}
           round={proxyAssignmentConfig.round}
           request={proxyAssignmentConfig.request}
-          team={team}
+          team={proxyUsers}
           allRounds={rounds}
           allAvailabilities={availabilities}
           allCalendarEvents={calendarEvents}
+          isAurrum={true}
           onSuccess={() => {
             setProxyAssignmentConfig(null);
             showToast('Proxy assigned successfully!', 'success');
@@ -2380,14 +2398,6 @@ const AurrumDirectScheduleModal: React.FC<{
       const mm = String(endD.getMinutes()).padStart(2, '0');
       const bookedEnd = `${y}-${m}-${dVal}T${hh}:${mm}:00`;
 
-      // Enforce Office Closures & Non-Working Days for this date
-      const singleClosureCheck = isDateOfficeClosedSync(parts[0]);
-      if (singleClosureCheck.isClosed) {
-        showToast(singleClosureCheck.message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.', 'error');
-        setIsSubmitting(false);
-        return;
-      }
-
       // Enforce Permitted Interview Scheduling Window (4:15 AM – 5:15 PM EST)
       const windowCheck = validateInterviewTimeWindow(bookedStart, bookedEnd, duration, parts[0]);
       if (!windowCheck.isValid) {
@@ -2703,15 +2713,23 @@ const AurrumInterviewRequestModal: React.FC<{
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const eligibleProxies = useMemo(
+    () => team.filter(isEligibleAurrumInterviewMember),
+    [team]
+  );
+
   const multiRoundAssignment = useMemo(() => {
     return assignProxiesForRounds(
       formData.rounds,
-      team,
+      eligibleProxies,
       allRounds,
       allAvailabilities,
-      allCalendarEvents
+      allCalendarEvents,
+      undefined,
+      undefined,
+      { ignoreOfficeClosures: true, brand: 'aurrum' }
     );
-  }, [formData.rounds, team, allRounds, allAvailabilities, allCalendarEvents]);
+  }, [formData.rounds, eligibleProxies, allRounds, allAvailabilities, allCalendarEvents]);
 
   const assignmentResult = useMemo(() => {
     const firstAssigned = multiRoundAssignment.roundAssignments.find(
@@ -2774,19 +2792,6 @@ const AurrumInterviewRequestModal: React.FC<{
         useOtherResume = true;
       }
 
-      // Enforce Office Closures & Non-Working Days across all rounds
-      for (let i = 0; i < formData.rounds.length; i++) {
-        const r = formData.rounds[i];
-        if (r.interview_date) {
-          const closure = isDateOfficeClosedSync(r.interview_date);
-          if (closure.isClosed) {
-            showToast(`Round ${i + 1} (${r.label}): ${closure.message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.'}`, 'error');
-            setIsSubmitting(false);
-            return;
-          }
-        }
-      }
-
       // Enforce Permitted Interview Scheduling Window (4:15 AM – 5:15 PM EST)
       for (let i = 0; i < formData.rounds.length; i++) {
         const r = formData.rounds[i];
@@ -2816,7 +2821,7 @@ const AurrumInterviewRequestModal: React.FC<{
         }
 
         // Validate leave status explicitly for all rounds
-        const proxyTeamMembers = team.filter((p) => isProxyUser(p) || isAurrumRole(p?.role));
+        const proxyTeamMembers = eligibleProxies;
         for (let i = 0; i < formData.rounds.length; i++) {
           const r = formData.rounds[i];
           if (r.interview_date && r.start_time && r.end_time) {
@@ -2840,10 +2845,13 @@ const AurrumInterviewRequestModal: React.FC<{
 
         const multiResult = assignProxiesForRounds(
           formData.rounds,
-          team,
+          eligibleProxies,
           allRounds,
           allAvailabilities,
-          allCalendarEvents
+          allCalendarEvents,
+          undefined,
+          undefined,
+          { ignoreOfficeClosures: true, brand: 'aurrum' }
         );
 
         for (let i = 0; i < formData.rounds.length; i++) {
@@ -3340,14 +3348,6 @@ const AurrumInterviewRequestModal: React.FC<{
                       }}
                       className="w-full px-3 py-2 bg-bg-secondary border border-border-primary rounded-xl text-xs font-bold text-text-primary"
                     />
-                    {round.interview_date && isDateOfficeClosedSync(round.interview_date).isClosed && (
-                      <div className="p-2 bg-accent-red/10 border border-accent-red/30 rounded-lg flex items-center gap-1.5 text-accent-red mt-1">
-                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                        <span className="text-[9px] font-bold">
-                          {isDateOfficeClosedSync(round.interview_date).message || 'Office is closed on this date.'}
-                        </span>
-                      </div>
-                    )}
                   </div>
                   <div>
                     <span className="text-[9px] font-black uppercase text-text-muted block mb-1">
@@ -3403,7 +3403,7 @@ const AurrumInterviewRequestModal: React.FC<{
 
                 {/* Proxy Availability & Leave Status for Round */}
                 {formData.proxy_required && !shouldHideProxyLeaveFromRole(user?.role, 'aurrum') && round.interview_date && (() => {
-                  const proxyTeam = team.filter((p) => isProxyUser(p) || isAurrumRole(p?.role));
+                  const proxyTeam = eligibleProxies;
                   const targetDate = round.interview_date;
 
                   const leaveStatuses = proxyTeam.map((p) => {

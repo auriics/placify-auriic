@@ -23,6 +23,7 @@ interface ProxyAssignmentModalProps {
   allAvailabilities: ProxyAvailability[];
   allCalendarEvents: any[];
   onSuccess: () => void;
+  isAurrum?: boolean;
 }
 
 export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({ 
@@ -34,8 +35,14 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
   allRounds, 
   allAvailabilities, 
   allCalendarEvents, 
-  onSuccess 
+  onSuccess,
+  isAurrum: isAurrumProp
 }) => {
+  const isAurrum = Boolean(
+    isAurrumProp ||
+    (round as any)?.crm_brand === 'aurrum' ||
+    (request as any)?.crm_brand === 'aurrum'
+  );
   const { user } = useAuth();
   const { showToast } = useToast();
   const hideProxyLeave = shouldHideProxyLeaveFromRole(user?.role);
@@ -72,8 +79,21 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
         : 'Please input date, start time, and end time to calculate assignments.';
       return { bestProxy: null, availableProxies: [], errors: [errorMsg] };
     }
-    return findBestProxyForWindow(date, startTime, endTime, team, allRounds, allAvailabilities, allCalendarEvents, round.id);
-  }, [date, startTime, endTime, team, allRounds, allAvailabilities, allCalendarEvents, round.id, isTimeRangeValid, timeWindowValidation.error]);
+    return findBestProxyForWindow(
+      date,
+      startTime,
+      endTime,
+      team,
+      allRounds,
+      allAvailabilities,
+      allCalendarEvents,
+      round.id,
+      undefined,
+      undefined,
+      undefined,
+      { ignoreOfficeClosures: isAurrum, brand: isAurrum ? 'aurrum' : 'auriic' }
+    );
+  }, [date, startTime, endTime, team, allRounds, allAvailabilities, allCalendarEvents, round.id, isTimeRangeValid, timeWindowValidation.error, isAurrum]);
 
   const autoSelectedProxyId = useMemo(() => {
     return assignmentResult.bestProxy ? String(assignmentResult.bestProxy.id) : '';
@@ -171,10 +191,12 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
       return;
     }
 
-    const closureCheck = isDateOfficeClosedSync(date);
-    if (closureCheck.isClosed) {
-      showToast(closureCheck.message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.', 'error');
-      return;
+    if (!isAurrum) {
+      const closureCheck = isDateOfficeClosedSync(date);
+      if (closureCheck.isClosed) {
+        showToast(closureCheck.message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.', 'error');
+        return;
+      }
     }
 
     if (!timeWindowValidation.isValid) {
@@ -339,7 +361,7 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
                   onChange={e => { setDate(e.target.value); setSelectedSlot(''); }}
                   className="w-full bg-bg-secondary border border-border-primary rounded-xl text-xs p-2 font-bold text-text-primary focus:ring-1 focus:ring-accent-blue"
                 />
-                {date && isDateOfficeClosedSync(date).isClosed && (
+                {!isAurrum && date && isDateOfficeClosedSync(date).isClosed && (
                   <div className="p-2.5 bg-accent-red/10 border border-accent-red/30 rounded-xl flex items-center gap-2 text-accent-red mt-2">
                     <AlertCircle className="w-4 h-4 shrink-0" />
                     <span className="text-[10px] font-bold">
@@ -422,7 +444,7 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
                     <option value="">-- Select Proxy --</option>
                     {team.filter(isProxyUser).map(p => {
                       const leaveInfo = getProxyLeaveStatusForDate(p, date || getEasternDate(), startTime, endTime);
-                      const isDateClosed = isDateOfficeClosedSync(date).isClosed;
+                      const isDateClosed = !isAurrum && isDateOfficeClosedSync(date).isClosed;
                       const hasFutureLeave = !hideProxyLeave && hasActiveOrFutureLeave(p);
                       const isAvailable = !isDateClosed && !leaveInfo.isOnLeave && assignmentResult.availableProxies.some(ap => ap.id === p.id);
                       const isRecommended = !isDateClosed && !leaveInfo.isOnLeave && p.id === assignmentResult.bestProxy?.id;
@@ -559,7 +581,7 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
               </button>
               <button 
                 onClick={handleAssign}
-                disabled={!selectedProxyId || isSubmitting || isCheckingCalendar || !isSelectedProxyAvailable || !isTimeRangeValid || isDateOfficeClosedSync(date).isClosed}
+                disabled={!selectedProxyId || isSubmitting || isCheckingCalendar || !isSelectedProxyAvailable || !isTimeRangeValid || (!isAurrum && isDateOfficeClosedSync(date).isClosed)}
                 className="w-full sm:flex-1 py-3.5 sm:py-4 bg-accent-blue text-white font-bold rounded-[20px] hover:bg-accent-blue/90 shadow-xl shadow-accent-blue/20 transition-all text-sm disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {isSubmitting && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}

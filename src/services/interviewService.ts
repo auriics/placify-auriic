@@ -256,21 +256,24 @@ export const findBestProxyForWindow = (
   excludeRoundId?: string,
   temporaryWorkloadMap?: Record<string, number>,
   officeClosures?: OfficeClosure[],
-  weeklyOffConfig?: WeeklyOffConfig
+  weeklyOffConfig?: WeeklyOffConfig,
+  options?: { ignoreOfficeClosures?: boolean; brand?: 'auriic' | 'aurrum' }
 ): { bestProxy: any; availableProxies: any[]; errors: string[]; closureInfo?: DateClosureEvaluation } => {
-  // 0. Enforce Centralised Office Closure & Weekly Off Rules (unless overridden by Higher Authority)
-  const closureEval = checkDateOfficeClosure(
-    dateStr,
-    officeClosures ?? getCachedOfficeClosures(),
-    weeklyOffConfig ?? getCachedWeeklyOffConfig()
-  );
-  if (closureEval.isClosed) {
-    return {
-      bestProxy: null,
-      availableProxies: [],
-      errors: [closureEval.message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.'],
-      closureInfo: closureEval
-    };
+  // 0. Enforce Centralised Office Closure & Weekly Off Rules (unless bypassed, e.g. for Aurrum Careers)
+  if (!options?.ignoreOfficeClosures && options?.brand !== 'aurrum') {
+    const closureEval = checkDateOfficeClosure(
+      dateStr,
+      officeClosures ?? getCachedOfficeClosures(),
+      weeklyOffConfig ?? getCachedWeeklyOffConfig()
+    );
+    if (closureEval.isClosed) {
+      return {
+        bestProxy: null,
+        availableProxies: [],
+        errors: [closureEval.message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.'],
+        closureInfo: closureEval
+      };
+    }
   }
 
   // 1. Enforce Permitted Interview Scheduling Window (4:15 AM – 5:15 PM EST)
@@ -458,7 +461,8 @@ export const assignProxiesForRounds = (
   allAvailabilities: any[],
   calendarEvents: any[] = [],
   officeClosures?: OfficeClosure[],
-  weeklyOffConfig?: WeeklyOffConfig
+  weeklyOffConfig?: WeeklyOffConfig,
+  options?: { ignoreOfficeClosures?: boolean; brand?: 'auriic' | 'aurrum' }
 ): {
   roundAssignments: { roundIndex: number; bestProxy: any; availableProxies: any[]; errors: string[] }[];
   temporaryWorkloadMap: Record<string, number>;
@@ -487,7 +491,8 @@ export const assignProxiesForRounds = (
       undefined,
       temporaryWorkloadMap,
       officeClosures,
-      weeklyOffConfig
+      weeklyOffConfig,
+      options
     );
 
     roundAssignments.push({

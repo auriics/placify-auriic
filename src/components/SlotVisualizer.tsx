@@ -10,9 +10,10 @@ interface SlotVisualizerProps {
   date: Date;
   proxyId?: string;
   proxyUser?: User;
+  isAurrum?: boolean;
 }
 
-export const SlotVisualizer: React.FC<SlotVisualizerProps> = ({ rounds, availabilities, date, proxyId, proxyUser }) => {
+export const SlotVisualizer: React.FC<SlotVisualizerProps> = ({ rounds, availabilities, date, proxyId, proxyUser, isAurrum }) => {
   const dateStr = useMemo(() => new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/New_York',
     year: 'numeric',
@@ -20,7 +21,7 @@ export const SlotVisualizer: React.FC<SlotVisualizerProps> = ({ rounds, availabi
     day: '2-digit',
   }).format(date), [date]);
 
-  const closureInfo = useMemo(() => isDateOfficeClosedSync(dateStr), [dateStr]);
+  const closureInfo = useMemo(() => isAurrum ? { isClosed: false, status: 'open' as const } : isDateOfficeClosedSync(dateStr), [dateStr, isAurrum]);
 
   const isOnLeaveDay = useMemo(() => {
     if (proxyUser) {

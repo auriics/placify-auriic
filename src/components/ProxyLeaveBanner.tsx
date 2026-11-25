@@ -22,22 +22,26 @@ export const ProxyLeaveBanner: React.FC<ProxyLeaveBannerProps> = ({
 }) => {
   const { user } = useAuth();
   const [closures, setClosures] = useState<OfficeClosure[]>([]);
+  const isAurrum = brand === 'aurrum';
 
   useEffect(() => {
+    // Aurrum Careers panel does not integrate or fetch Office Holiday closures
+    if (isAurrum) return;
     const unsub = subscribeToOfficeClosures(setClosures);
     return () => {
       if (unsub) unsub();
     };
-  }, []);
+  }, [isAurrum]);
 
   // 1. Role-based visibility check (Aurrum roles see Aurrum notices; candidates & unauthorized sales are hidden)
   if (shouldHideProxyLeaveFromRole(user?.role, brand)) {
     return null;
   }
 
-  // 2. Evaluate today's Office Closure / Holiday status
+  // 2. Evaluate today's Office Closure / Holiday status (Strictly bypassed for Aurrum Careers)
   const todayStr = getEasternDate();
-  const closureInfo = isDateOfficeClosedSync(todayStr);
+  const closureInfo = isAurrum ? { isClosed: false, status: 'open' as const } : isDateOfficeClosedSync(todayStr);
+  const showOfficeClosures = !isAurrum && closureInfo.isClosed;
 
   // 3. Relevant team members and active leaves
   const relevantTeam = useMemo(() => {
@@ -61,17 +65,16 @@ export const ProxyLeaveBanner: React.FC<ProxyLeaveBannerProps> = ({
   );
 
   // If no office closure and no active leaves, do not display anything
-  if (!closureInfo.isClosed && activeLeaves.length === 0) {
+  if (!showOfficeClosures && activeLeaves.length === 0) {
     return null;
   }
 
   const allProxiesHaveLeave = allProxies.length > 0 && activeLeaves.length >= allProxies.length;
-  const isAurrum = brand === 'aurrum';
 
   return (
     <div className={cn("space-y-4 font-sans", className)}>
-      {/* 1. Office Holiday / Closure Announcement Banner */}
-      {closureInfo.isClosed && (
+      {/* 1. Office Holiday / Closure Announcement Banner (Auriic only; excluded from Aurrum) */}
+      {showOfficeClosures && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}

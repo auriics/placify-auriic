@@ -251,7 +251,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentHash, isOpen, setIsOpen
     { label: 'Candidates', hash: '#aurrum-candidates', icon: Users, visible: canAccessAurrum },
     { label: 'Sales', hash: '#aurrum-sales', icon: TrendingUp, visible: canAccessAurrum },
     { label: 'Interview Support', hash: '#aurrum-interviews', icon: Video, visible: canAccessAurrum },
-    { label: 'Office Holidays', hash: '#office-holidays', icon: Calendar, visible: canAccessAurrum && canViewHolidayCalendar(user) },
     { label: 'Team', hash: '#aurrum-team', icon: Shield, visible: canManageAurrumTeam },
   ];
 
