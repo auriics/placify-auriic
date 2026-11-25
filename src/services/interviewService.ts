@@ -1,5 +1,5 @@
 import { addProxyAvailability, now } from './storage';
-import { ProxyAvailability, User, Candidate, InterviewSupportRequest, InterviewRound, LeaveHistoryEntry } from '../types';
+import { ProxyAvailability, User, Candidate, InterviewSupportRequest, InterviewRound, LeaveHistoryEntry, isAurrumRole } from '../types';
 import { collection, query, where, getDocs, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { 
@@ -299,7 +299,7 @@ export const findBestProxyForWindow = (
 
   // 2. Filter active proxies (exclude hardcoded leave, deleted, or calendar-disconnected proxy members)
   const activeProxies = proxies.filter(u => {
-    if (!isProxyUser(u)) return false;
+    if (!isProxyUser(u) && !isAurrumRole(u?.role) && u?.crm_brand !== 'aurrum') return false;
 
     // Hard requirement, not a preference: without a connected calendar we cannot verify
     // this proxy's real-world conflicts, so they cannot be treated as available.
@@ -394,9 +394,9 @@ export const findBestProxyForWindow = (
   }
 
   if (availableProxies.length === 0) {
-    const allProxies = proxies.filter(isProxyUser);
+    const allProxies = proxies.filter(u => isProxyUser(u) || isAurrumRole(u?.role) || u?.crm_brand === 'aurrum');
     const onLeaveProxies = allProxies.filter(u => isUserOnLeaveDuring(u, jointStart, jointEnd));
-    const isBothOnLeave = allProxies.length > 0 && onLeaveProxies.length >= 2 && onLeaveProxies.length === allProxies.length;
+    const isBothOnLeave = allProxies.length > 0 && onLeaveProxies.length === allProxies.length;
     return { 
       bestProxy: null, 
       availableProxies: [], 
@@ -875,9 +875,13 @@ export function getProxyLeaveStatusForDate(
 /**
  * Checks whether a user role should be restricted from viewing proxy leave information.
  * Lead and Sales teams (and candidates) must NOT see proxy leave status.
+ * Aurrum team members and admins must be able to view leave & office holiday notices.
  */
-export function shouldHideProxyLeaveFromRole(role?: string | null): boolean {
+export function shouldHideProxyLeaveFromRole(role?: string | null, brand?: 'auriic' | 'aurrum' | 'all'): boolean {
   if (!role) return false;
+  if (brand === 'aurrum') {
+    return ['candidate', 'jpc_candidate'].includes(role);
+  }
   return ['jpc_lead_gen', 'jpc_sales', 'aurrum_sales', 'candidate', 'jpc_candidate'].includes(role);
 }
 
@@ -926,11 +930,11 @@ export interface ActiveProxyLeave {
 }
 
 /**
- * Retrieves all proxy members who have an active or future approved/saved leave record.
+ * Retrieves all proxy and team members who have an active or future approved/saved leave record.
  */
 export function getActiveOrFutureProxyLeaves(team: any[], referenceDate?: string): ActiveProxyLeave[] {
   if (!Array.isArray(team)) return [];
-  const proxies = team.filter(isProxyUser);
+  const proxies = team.filter(u => isProxyUser(u) || isAurrumRole(u?.role) || u?.crm_brand === 'aurrum');
   const result: ActiveProxyLeave[] = [];
 
   for (const proxy of proxies) {

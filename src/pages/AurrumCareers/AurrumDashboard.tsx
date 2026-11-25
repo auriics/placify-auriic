@@ -42,6 +42,7 @@ import {
   InterviewRound,
 } from '../../types';
 import { FreeTrialBadge } from '../../components/FreeTrialBadge';
+import { ProxyLeaveBanner } from '../../components/ProxyLeaveBanner';
 import { AurrumFlowHeader } from './AurrumFlowHeader';
 import {
   AurrumCandidateModal,
@@ -213,6 +214,9 @@ export const AurrumDashboard: React.FC = () => {
           </>
         }
       />
+
+      {/* Aurrum Real-Time Team Leave & Office Holiday Alert */}
+      <ProxyLeaveBanner team={allUsers} brand="aurrum" contextTitle="Aurrum Live Notice" />
 
       {/* KPI Metrics Grid (Strictly Aurrum Only) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

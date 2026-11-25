@@ -70,6 +70,7 @@ export interface User {
   proxy_priority?: number;
   profile_handling_access?: ProfileHandlingAccess | string | null;
   can_manage_calendar?: boolean;
+  crm_brand?: 'auriic' | 'aurrum';
 }
 
 export type Stage = 
