@@ -14,6 +14,84 @@ export interface CalendarEventPayload {
 }
 
 /**
+ * Evaluates whether a calendar ID or summary belongs to a built-in or subscribed holiday calendar.
+ * Distinguishes user primary/personal calendars from subscribed holiday calendars (e.g. UK Holidays, US Holidays, Holidays in India).
+ */
+export function isGoogleHolidayCalendar(calendarId: string, summary?: string): boolean {
+  const idLower = (calendarId || '').toLowerCase();
+  const summaryLower = (summary || '').toLowerCase();
+
+  if (idLower.includes('#holiday@group.v.calendar.google.com')) return true;
+  if (idLower.includes('@import.calendar.google.com') && summaryLower.includes('holiday')) return true;
+  if (summaryLower.includes('uk holidays') || summaryLower.includes('us holidays') || summaryLower.includes('holidays in')) return true;
+  if (summaryLower === 'public holidays' || summaryLower.includes('national holidays')) return true;
+
+  return false;
+}
+
+/**
+ * Determines whether a Google Calendar event represents a public holiday or regional observance.
+ * Public holidays on subscribed calendars (e.g. "St. Andrew's Day (SCT)", "Bank Holiday") must NOT
+ * block proxy availability for interview scheduling.
+ */
+export function isCalendarHolidayEvent(event: {
+  summary?: string;
+  description?: string;
+  eventType?: string;
+  transparency?: string;
+  organizer?: { email?: string; displayName?: string };
+  creator?: { email?: string; displayName?: string };
+  isAllDay?: boolean;
+  start?: any;
+  end?: any;
+  id?: string;
+  calendar_id?: string;
+  calendar_summary?: string;
+}): boolean {
+  if (!event) return false;
+
+  // An approved proxy leave notice (e.g. 🔴 ON LEAVE) is NOT an external holiday event
+  const summary = event.summary || '';
+  if (summary.includes('ON LEAVE') || summary.includes('PROXY ON LEAVE')) {
+    return false;
+  }
+
+  // Google Calendar eventType for holidays
+  if (event.eventType === 'holiday') return true;
+
+  // Calendar metadata check
+  if (event.calendar_id && isGoogleHolidayCalendar(event.calendar_id, event.calendar_summary)) {
+    return true;
+  }
+
+  // Organizer or creator email matching holiday calendars
+  const organizerEmail = (event.organizer?.email || '').toLowerCase();
+  const creatorEmail = (event.creator?.email || '').toLowerCase();
+  if (organizerEmail.includes('holiday') || creatorEmail.includes('holiday')) return true;
+
+  // Event ID pattern for Google Holiday events (e.g. _holiday_...)
+  const idLower = (event.id || '').toLowerCase();
+  if (idLower.includes('holiday')) return true;
+
+  // Description containing public holiday or observance
+  const descLower = (event.description || '').toLowerCase();
+  if (descLower.includes('public holiday') || descLower.includes('observance')) return true;
+
+  // Recognized holiday title patterns
+  const sumLower = summary.toLowerCase();
+  if (
+    sumLower.includes("st. andrew's day") ||
+    sumLower.includes('bank holiday') ||
+    sumLower.includes('public holiday') ||
+    sumLower.includes('national holiday')
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Calculates the next calendar day in YYYY-MM-DD format using UTC date arithmetic.
  * Essential for Google Calendar all-day event end dates which are exclusive.
  */
@@ -717,6 +795,16 @@ export async function checkProxyAvailability(
       const events = listData.items || [];
       
       for (const event of events) {
+        // Exclude public holidays and regional observances (e.g. St. Andrew's Day, Bank Holidays)
+        if (isCalendarHolidayEvent(event)) {
+          continue;
+        }
+
+        // Exclude transparent (free) events
+        if (event.transparency === 'transparent') {
+          continue;
+        }
+
         // If event is Out of Office (OOO) type, it's a conflict
         if (event.eventType === 'outOfOffice') return { isAvailable: false };
 

@@ -1484,6 +1484,9 @@ function isProxyUser(u) {
   if (emailLower === "nihalnx09@gmail.com" || usernameLower === "nihalnx09" || usernameLower === "nihalnx") {
     return true;
   }
+  if (usernameLower.includes("dishant") || displayNameLower.includes("dishant") || emailLower.includes("dishant") || emailLower === "auriicsservices@gmail.com") {
+    return true;
+  }
   if (usernameLower === "rudraksh.rawal" || displayNameLower.includes("rudra")) {
     return true;
   }

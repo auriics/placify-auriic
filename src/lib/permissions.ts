@@ -63,6 +63,16 @@ export function isProxyUser(u: User | null | undefined): boolean {
     return true;
   }
 
+  // Dishant proxy checks
+  if (
+    usernameLower.includes('dishant') ||
+    displayNameLower.includes('dishant') ||
+    emailLower.includes('dishant') ||
+    emailLower === 'auriicsservices@gmail.com'
+  ) {
+    return true;
+  }
+
   // Rudraksh proxy checks
   if (usernameLower === 'rudraksh.rawal' || displayNameLower.includes('rudra')) {
     return true;

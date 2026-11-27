@@ -40,7 +40,7 @@ export {
   isUserCurrentlyOnLeave
 };
 export type { TimeWindowValidationResult } from '../lib/utils';
-import { syncProxyLeaveToGoogleCalendar } from './calendarService';
+import { syncProxyLeaveToGoogleCalendar, isCalendarHolidayEvent } from './calendarService';
 import { isProxyUser } from '../lib/permissions';
 
 export { isProxyUser };
@@ -288,17 +288,13 @@ export const findBestProxyForWindow = (
 
   const errors: string[] = [];
   
-  // 2. Create buffered window for checking
-  const jointStart = new Date(`${dateStr}T${startTimeJoint}:00`);
-  const jointEnd = new Date(`${dateStr}T${endTimeJoint}:00`);
+  // 2. Parse interview window in Eastern Time (America/New_York)
+  const jointStart = parseLocalTimeToDate(`${dateStr}T${startTimeJoint}:00`, 'America/New_York');
+  const jointEnd = parseLocalTimeToDate(`${dateStr}T${endTimeJoint}:00`, 'America/New_York');
 
   if (isNaN(jointStart.getTime()) || isNaN(jointEnd.getTime())) {
     return { bestProxy: null, availableProxies: [], errors: ['Invalid date or time formats.'] };
   }
-
-  // 15 minutes before and after
-  const reservedStart = new Date(jointStart.getTime() - 15 * 60 * 1000);
-  const reservedEnd = new Date(jointEnd.getTime() + 15 * 60 * 1000);
 
   // 2. Filter active proxies (exclude hardcoded leave, deleted, or calendar-disconnected proxy members)
   const activeProxies = proxies.filter(u => {
@@ -330,21 +326,23 @@ export const findBestProxyForWindow = (
     );
 
     for (const rnd of proxyRounds) {
-      const startOfRnd = new Date(rnd.booked_slot_time);
+      const startOfRnd = parseLocalTimeToDate(rnd.booked_slot_time, 'America/New_York');
       let endOfRnd: Date;
       if (rnd.booked_slot_end) {
-        endOfRnd = new Date(rnd.booked_slot_end);
+        endOfRnd = parseLocalTimeToDate(rnd.booked_slot_end, 'America/New_York');
       } else {
         const duration = rnd.duration_minutes || rnd.duration || 30;
         endOfRnd = new Date(startOfRnd.getTime() + duration * 60 * 1000);
       }
 
-      // Buffer other round by 15 mins
+      // Maintain a 15-minute buffer between interview rounds:
+      // An interview cannot be scheduled within 15 minutes before or after an existing round.
+      // Buffer window around existing round: [startOfRnd - 15m, endOfRnd + 15m]
       const rndReservedStart = new Date(startOfRnd.getTime() - 15 * 60 * 1000);
       const rndReservedEnd = new Date(endOfRnd.getTime() + 15 * 60 * 1000);
 
-      // Overlap?
-      if (rndReservedStart < reservedEnd && reservedStart < rndReservedEnd) {
+      // Overlap occurs if the requested interview intersects the existing round's buffer window:
+      if (jointStart < rndReservedEnd && rndReservedStart < jointEnd) {
         hasConflict = true;
         break;
       }
@@ -364,10 +362,10 @@ export const findBestProxyForWindow = (
     });
 
     for (const av of proxyAvails) {
-      const startOfAv = new Date(av.slot_start);
-      const endOfAv = new Date(av.slot_end);
+      const startOfAv = parseLocalTimeToDate(av.slot_start, 'America/New_York');
+      const endOfAv = parseLocalTimeToDate(av.slot_end, 'America/New_York');
 
-      if (startOfAv < reservedEnd && reservedStart < endOfAv) {
+      if (jointStart < endOfAv && startOfAv < jointEnd) {
         hasConflict = true;
         break;
       }
@@ -381,10 +379,16 @@ export const findBestProxyForWindow = (
     );
 
     for (const ev of proxyCalEvents) {
-      const startOfEv = new Date(ev.start_time || ev.start);
-      const endOfEv = new Date(ev.end_time || ev.end);
+      // Exclude public holiday calendar events (e.g. UK Holidays, US Holidays, St. Andrew's Day)
+      if (isCalendarHolidayEvent(ev)) continue;
 
-      if (startOfEv < reservedEnd && reservedStart < endOfEv) {
+      // Exclude transparent (free) events
+      if (ev.transparency === 'transparent') continue;
+
+      const startOfEv = parseLocalTimeToDate(ev.start_time || ev.start, 'America/New_York');
+      const endOfEv = parseLocalTimeToDate(ev.end_time || ev.end, 'America/New_York');
+
+      if (jointStart < endOfEv && startOfEv < jointEnd) {
         hasConflict = true;
         break;
       }
