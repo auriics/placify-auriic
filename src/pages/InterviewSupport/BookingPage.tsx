@@ -114,7 +114,7 @@ export const BookingPage: React.FC = () => {
         const usersSnap = await getDocs(collection(db, 'jpc_users'));
         const activeProxies = usersSnap.docs
           .map(d => ({ ...d.data(), id: d.id } as User))
-          .filter(u => isProxyUser(u) && u.google_calendar_connected === true);
+          .filter(u => isProxyUser(u) && !u.deleted_at);
         setProxyTeam(activeProxies);
 
         const roundsSnap = await getDocs(collection(db, 'jpc_interview_rounds'));

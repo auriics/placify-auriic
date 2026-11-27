@@ -241,6 +241,22 @@ export interface RoundScheduleInput {
   duration?: number;
 }
 
+export interface ProxyWindowEvaluation {
+  proxyId: string;
+  proxyName: string;
+  isAvailable: boolean;
+  conflictType: 'none' | 'leave' | 'round' | 'block' | 'calendar';
+  reason: string;
+}
+
+export interface FindBestProxyResult {
+  bestProxy: any;
+  availableProxies: any[];
+  errors: string[];
+  evaluations?: Record<string, ProxyWindowEvaluation>;
+  closureInfo?: DateClosureEvaluation;
+}
+
 /**
  * Finds the best available proxy for a given daily time window, taking into account
  * 15-minute buffers before/after, existing rounds, manual blocks, and leave, with workload balancing.
@@ -258,7 +274,7 @@ export const findBestProxyForWindow = (
   officeClosures?: OfficeClosure[],
   weeklyOffConfig?: WeeklyOffConfig,
   options?: { ignoreOfficeClosures?: boolean; brand?: 'auriic' | 'aurrum' }
-): { bestProxy: any; availableProxies: any[]; errors: string[]; closureInfo?: DateClosureEvaluation } => {
+): FindBestProxyResult => {
   // 0. Enforce Centralised Office Closure & Weekly Off Rules (unless bypassed, e.g. for Aurrum Careers)
   if (!options?.ignoreOfficeClosures && options?.brand !== 'aurrum') {
     const closureEval = checkDateOfficeClosure(
@@ -270,6 +286,7 @@ export const findBestProxyForWindow = (
       return {
         bestProxy: null,
         availableProxies: [],
+        evaluations: {},
         errors: [closureEval.message || 'This is a non-working day. Our office is closed on weekends and US public holidays. Please select another date for the interview.'],
         closureInfo: closureEval
       };
@@ -282,62 +299,81 @@ export const findBestProxyForWindow = (
     return {
       bestProxy: null,
       availableProxies: [],
+      evaluations: {},
       errors: [windowValidation.error || 'Interview time must be within 4:15 AM – 5:15 PM EST.']
     };
   }
 
-  const errors: string[] = [];
-  
-  // 2. Create buffered window for checking
-  const jointStart = new Date(`${dateStr}T${startTimeJoint}:00`);
-  const jointEnd = new Date(`${dateStr}T${endTimeJoint}:00`);
+  // 2. Create buffered window for checking in America/New_York (EST/EDT)
+  const cleanStartStr = `${dateStr}T${startTimeJoint}:00`;
+  const cleanEndStr = `${dateStr}T${endTimeJoint}:00`;
+  const jointStart = parseLocalTimeToDate(cleanStartStr, 'America/New_York');
+  const jointEnd = parseLocalTimeToDate(cleanEndStr, 'America/New_York');
 
   if (isNaN(jointStart.getTime()) || isNaN(jointEnd.getTime())) {
-    return { bestProxy: null, availableProxies: [], errors: ['Invalid date or time formats.'] };
+    return { bestProxy: null, availableProxies: [], evaluations: {}, errors: ['Invalid date or time formats.'] };
   }
 
   // 15 minutes before and after
   const reservedStart = new Date(jointStart.getTime() - 15 * 60 * 1000);
   const reservedEnd = new Date(jointEnd.getTime() + 15 * 60 * 1000);
 
-  // 2. Filter active proxies (exclude hardcoded leave, deleted, or calendar-disconnected proxy members)
-  const activeProxies = proxies.filter(u => {
-    if (!isProxyUser(u) && !isAurrumRole(u?.role) && u?.crm_brand !== 'aurrum') return false;
-
-    // Hard requirement, not a preference: without a connected calendar we cannot verify
-    // this proxy's real-world conflicts, so they cannot be treated as available.
-    if (!u.google_calendar_connected) return false;
-
-    // Check leave (date range & EST timezone aware)
-    if (isUserOnLeaveDuring(u, jointStart, jointEnd)) {
-      return false;
+  const parseSafeDate = (val: string | Date | undefined | null): Date => {
+    if (!val) return new Date(NaN);
+    if (val instanceof Date) return val;
+    if (typeof val === 'string' && (val.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(val))) {
+      return new Date(val);
     }
-    return true;
+    return parseLocalTimeToDate(typeof val === 'string' && val.includes('T') ? val : `${val}T00:00:00`, 'America/New_York');
+  };
+
+  // 2. Filter active eligible proxies
+  const eligibleProxies = proxies.filter(u => {
+    if (u?.deleted_at) return false;
+    return isProxyUser(u) || isAurrumRole(u?.role) || u?.crm_brand === 'aurrum';
   });
 
   const availableProxies: any[] = [];
+  const evaluations: Record<string, ProxyWindowEvaluation> = {};
 
-  for (const proxy of activeProxies) {
-    let hasConflict = false;
+  for (const proxy of eligibleProxies) {
+    const proxyId = String(proxy.id);
+    const proxyName = proxy.display_name || proxy.username || 'Proxy';
+
+    // Check leave (date range & EST timezone aware)
+    if (isUserOnLeaveDuring(proxy, jointStart, jointEnd)) {
+      evaluations[proxyId] = {
+        proxyId,
+        proxyName,
+        isAvailable: false,
+        conflictType: 'leave',
+        reason: 'On scheduled leave during this time'
+      };
+      continue;
+    }
 
     // Check conflict: Existing Round bookings (excluding cancelled & rejected ones)
     const proxyRounds = allRounds.filter(r => 
-      String(r.proxy_user_id) === String(proxy.id) && 
+      String(r.proxy_user_id) === proxyId && 
       r.status !== 'cancelled' && 
       r.status !== 'rejected' &&
       r.booked_slot_time &&
       (excludeRoundId ? r.id !== excludeRoundId : true)
     );
 
+    let roundConflict = false;
+    let roundConflictDesc = '';
     for (const rnd of proxyRounds) {
-      const startOfRnd = new Date(rnd.booked_slot_time);
+      const startOfRnd = parseSafeDate(rnd.booked_slot_time);
       let endOfRnd: Date;
       if (rnd.booked_slot_end) {
-        endOfRnd = new Date(rnd.booked_slot_end);
+        endOfRnd = parseSafeDate(rnd.booked_slot_end);
       } else {
         const duration = rnd.duration_minutes || rnd.duration || 30;
         endOfRnd = new Date(startOfRnd.getTime() + duration * 60 * 1000);
       }
+
+      if (isNaN(startOfRnd.getTime()) || isNaN(endOfRnd.getTime())) continue;
 
       // Buffer other round by 15 mins
       const rndReservedStart = new Date(startOfRnd.getTime() - 15 * 60 * 1000);
@@ -345,16 +381,33 @@ export const findBestProxyForWindow = (
 
       // Overlap?
       if (rndReservedStart < reservedEnd && reservedStart < rndReservedEnd) {
-        hasConflict = true;
+        roundConflict = true;
+        const formatTime = (d: Date) => {
+          try {
+            return new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true }).format(d);
+          } catch {
+            return d.toTimeString().substring(0, 5);
+          }
+        };
+        roundConflictDesc = `Overlapping interview round (${formatTime(startOfRnd)} – ${formatTime(endOfRnd)} EST, with 15m buffer)`;
         break;
       }
     }
 
-    if (hasConflict) continue;
+    if (roundConflict) {
+      evaluations[proxyId] = {
+        proxyId,
+        proxyName,
+        isAvailable: false,
+        conflictType: 'round',
+        reason: roundConflictDesc
+      };
+      continue;
+    }
 
     // Check conflict: Manual Availability Blocks (e.g., unavailable, break, leave)
     const proxyAvails = allAvailabilities.filter(av => {
-      if (String(av.proxy_user_id) !== String(proxy.id)) return false;
+      if (String(av.proxy_user_id) !== proxyId) return false;
       if (av.slot_status === 'unavailable' || av.slot_status === 'break') return true;
       if (av.slot_status === 'leave') {
         // Only count as conflict if the proxy is genuinely on leave during this slot window
@@ -363,57 +416,96 @@ export const findBestProxyForWindow = (
       return false;
     });
 
+    let blockConflict = false;
+    let blockConflictDesc = '';
     for (const av of proxyAvails) {
-      const startOfAv = new Date(av.slot_start);
-      const endOfAv = new Date(av.slot_end);
+      const startOfAv = parseSafeDate(av.slot_start);
+      const endOfAv = parseSafeDate(av.slot_end);
+      if (isNaN(startOfAv.getTime()) || isNaN(endOfAv.getTime())) continue;
 
       if (startOfAv < reservedEnd && reservedStart < endOfAv) {
-        hasConflict = true;
+        blockConflict = true;
+        blockConflictDesc = `Marked as ${av.slot_status || 'unavailable'}`;
         break;
       }
     }
 
-    if (hasConflict) continue;
+    if (blockConflict) {
+      evaluations[proxyId] = {
+        proxyId,
+        proxyName,
+        isAvailable: false,
+        conflictType: 'block',
+        reason: blockConflictDesc
+      };
+      continue;
+    }
 
     // Check conflict: Google Calendar Events
     const proxyCalEvents = calendarEvents.filter(ev => 
-      String(ev.proxy_user_id) === String(proxy.id) || String(ev.proxyId) === String(proxy.id)
+      String(ev.proxy_user_id) === proxyId || String(ev.proxyId) === proxyId
     );
 
+    let calConflict = false;
     for (const ev of proxyCalEvents) {
-      const startOfEv = new Date(ev.start_time || ev.start);
-      const endOfEv = new Date(ev.end_time || ev.end);
+      const startOfEv = parseSafeDate(ev.start_time || ev.start);
+      const endOfEv = parseSafeDate(ev.end_time || ev.end);
+      if (isNaN(startOfEv.getTime()) || isNaN(endOfEv.getTime())) continue;
 
       if (startOfEv < reservedEnd && reservedStart < endOfEv) {
-        hasConflict = true;
+        calConflict = true;
         break;
       }
     }
 
-    if (hasConflict) continue;
+    if (calConflict) {
+      evaluations[proxyId] = {
+        proxyId,
+        proxyName,
+        isAvailable: false,
+        conflictType: 'calendar',
+        reason: 'Conflicting Google Calendar event'
+      };
+      continue;
+    }
 
     // Clean of conflicts! Add to candidates
+    evaluations[proxyId] = {
+      proxyId,
+      proxyName,
+      isAvailable: true,
+      conflictType: 'none',
+      reason: 'Active & ready for assignment on this date'
+    };
     availableProxies.push(proxy);
   }
 
   if (availableProxies.length === 0) {
-    const allProxies = proxies.filter(u => isProxyUser(u) || isAurrumRole(u?.role) || u?.crm_brand === 'aurrum');
-    const onLeaveProxies = allProxies.filter(u => isUserOnLeaveDuring(u, jointStart, jointEnd));
-    const isBothOnLeave = allProxies.length > 0 && onLeaveProxies.length === allProxies.length;
+    const onLeaveProxies = eligibleProxies.filter(u => isUserOnLeaveDuring(u, jointStart, jointEnd));
+    const isBothOnLeave = eligibleProxies.length > 0 && onLeaveProxies.length === eligibleProxies.length;
+    let errorDetail = '';
+    if (isBothOnLeave) {
+      errorDetail = 'BOTH PROXY MEMBERS HAVE LEAVE BOOKED FOR THE SELECTED DATE. NO PROXY IS AVAILABLE FOR THIS INTERVIEW.';
+    } else if (eligibleProxies.length > 0) {
+      const reasons = eligibleProxies.map(p => {
+        const ev = evaluations[String(p.id)];
+        return `${p.display_name || 'Proxy'}: ${ev?.reason || 'Unavailable'}`;
+      });
+      errorDetail = `Currently no proxy is available for the selected interview time (${reasons.join('; ')}). Please choose another time.`;
+    } else {
+      errorDetail = 'Currently no proxy is available for the selected interview time. Please choose another time.';
+    }
+
     return { 
       bestProxy: null, 
       availableProxies: [], 
-      errors: [
-        isBothOnLeave
-          ? 'BOTH PROXY MEMBERS HAVE LEAVE BOOKED FOR THE SELECTED DATE. NO PROXY IS AVAILABLE FOR THIS INTERVIEW.'
-          : 'Currently no proxy is available for the selected interview time. Please choose another time.'
-      ] 
+      evaluations,
+      errors: [errorDetail] 
     };
   }
 
   // 3. Select best proxy based on that day's workload only, with a genuine random pick among ties.
   // Workload = Count of confirmed/live/booked interview rounds on the SAME interview date + any temporary in-memory assignments.
-  // No proxy_priority and no google_calendar_connected are used here anymore — they no longer bias selection.
   const availableWithWorkload = availableProxies.map(proxy => {
     const proxyIdStr = String(proxy.id);
     const baseWorkload = allRounds.filter(r =>
@@ -444,6 +536,7 @@ export const findBestProxyForWindow = (
   return {
     bestProxy: winner.proxy,
     availableProxies: availableProxies,
+    evaluations,
     errors: []
   };
 };
@@ -464,19 +557,31 @@ export const assignProxiesForRounds = (
   weeklyOffConfig?: WeeklyOffConfig,
   options?: { ignoreOfficeClosures?: boolean; brand?: 'auriic' | 'aurrum' }
 ): {
-  roundAssignments: { roundIndex: number; bestProxy: any; availableProxies: any[]; errors: string[] }[];
+  roundAssignments: {
+    roundIndex: number;
+    bestProxy: any;
+    availableProxies: any[];
+    evaluations?: Record<string, ProxyWindowEvaluation>;
+    errors: string[];
+  }[];
   temporaryWorkloadMap: Record<string, number>;
   errors: string[];
 } => {
   const temporaryWorkloadMap: Record<string, number> = {};
   const workingRounds: any[] = [...allRounds];
-  const roundAssignments: { roundIndex: number; bestProxy: any; availableProxies: any[]; errors: string[] }[] = [];
+  const roundAssignments: {
+    roundIndex: number;
+    bestProxy: any;
+    availableProxies: any[];
+    evaluations?: Record<string, ProxyWindowEvaluation>;
+    errors: string[];
+  }[] = [];
   const errors: string[] = [];
 
   for (let i = 0; i < roundsInput.length; i++) {
     const r = roundsInput[i];
     if (!r.interview_date || !r.start_time || !r.end_time) {
-      roundAssignments.push({ roundIndex: i, bestProxy: null, availableProxies: [], errors: [] });
+      roundAssignments.push({ roundIndex: i, bestProxy: null, availableProxies: [], evaluations: {}, errors: [] });
       continue;
     }
 
@@ -499,6 +604,7 @@ export const assignProxiesForRounds = (
       roundIndex: i,
       bestProxy: result.bestProxy,
       availableProxies: result.availableProxies,
+      evaluations: result.evaluations,
       errors: result.errors
     });
 

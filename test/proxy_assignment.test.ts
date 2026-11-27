@@ -46,11 +46,12 @@ test('Proxy with a synced Google Calendar conflict is excluded from selection', 
   assert.deepEqual(result.availableProxies.map(p => p.id), ['u_rudra']);
 });
 
-test('Proxy without a connected Google Calendar is a hard exclusion, never selectable', () => {
+test('Proxy without a connected Google Calendar is still eligible and selectable when no conflicts exist', () => {
   const rudraDisconnected = { ...RUDRA, google_calendar_connected: false };
   const result = findBestProxyForWindow(DATE, START, END, [NIHAL, rudraDisconnected], [], []);
-  assert.equal(result.bestProxy?.id, 'u_nihal');
-  assert.deepEqual(result.availableProxies.map(p => p.id), ['u_nihal']);
+  assert.ok(result.bestProxy);
+  assert.deepEqual(result.availableProxies.map(p => p.id).sort(), ['u_nihal', 'u_rudra']);
+  assert.deepEqual(result.errors, []);
 });
 
 test('When both proxies are genuinely double-booked, no proxy is returned and an error is set', () => {
@@ -172,4 +173,73 @@ test('Cancelling date-range leave restores availability immediately across all d
 
   const result = findBestProxyForWindow(DATE, START, END, [nihalCancelledLeave, RUDRA], [], []);
   assert.ok(result.availableProxies.some(p => p.id === 'u_nihal'), 'Nihal should be restored to available');
+});
+
+test('Live scenario: Dishant Patel is successfully allocated when available on 2026-11-30 at 14:30 - 14:45 EST even without Google Calendar', () => {
+  const DISHANT = {
+    id: 'fUe2s8mo2ncBNQIshvdkVj4nYIE3',
+    username: 'dishant.patel@auriic.co',
+    display_name: 'Dishant Patel',
+    role: 'jpc_proxy',
+    google_calendar_connected: false
+  };
+
+  const NIHAL_ON_LEAVE = {
+    id: 'TkCIJtffZ5f8lbSyJVVGK03Fnl03',
+    username: 'nihalnx09@gmail.com',
+    display_name: 'Nihal',
+    role: 'jpc_proxy',
+    is_on_leave: true,
+    leave_start_date: '2026-11-26',
+    leave_end_date: '2026-11-30'
+  };
+
+  const targetDate = '2026-11-30';
+  const startTime = '14:30';
+  const endTime = '14:45';
+
+  const result = findBestProxyForWindow(targetDate, startTime, endTime, [NIHAL_ON_LEAVE, DISHANT], [], []);
+  assert.equal(result.bestProxy?.id, DISHANT.id, 'Dishant Patel must be selected as bestProxy');
+  assert.equal(result.availableProxies.length, 1);
+  assert.equal(result.availableProxies[0].id, DISHANT.id);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.evaluations?.[DISHANT.id]?.isAvailable, true);
+  assert.equal(result.evaluations?.[NIHAL_ON_LEAVE.id]?.isAvailable, false);
+});
+
+test('Evaluations contain specific conflict reasons instead of generic errors when all proxies have conflicts', () => {
+  const DISHANT = {
+    id: 'fUe2s8mo2ncBNQIshvdkVj4nYIE3',
+    username: 'dishant.patel@auriic.co',
+    display_name: 'Dishant Patel',
+    role: 'jpc_proxy'
+  };
+
+  const rounds = [
+    {
+      id: 'r_dishant_conflict',
+      proxy_user_id: DISHANT.id,
+      status: 'confirmed',
+      interview_date: '2026-11-30',
+      booked_slot_time: '2026-11-30T14:30:00',
+      booked_slot_end: '2026-11-30T14:45:00'
+    }
+  ];
+
+  const NIHAL_ON_LEAVE = {
+    id: 'TkCIJtffZ5f8lbSyJVVGK03Fnl03',
+    username: 'nihalnx09@gmail.com',
+    display_name: 'Nihal',
+    role: 'jpc_proxy',
+    is_on_leave: true,
+    leave_start_date: '2026-11-26',
+    leave_end_date: '2026-11-30'
+  };
+
+  const result = findBestProxyForWindow('2026-11-30', '14:30', '14:45', [NIHAL_ON_LEAVE, DISHANT], rounds, []);
+  assert.equal(result.bestProxy, null);
+  assert.equal(result.availableProxies.length, 0);
+  assert.ok(result.errors.length > 0);
+  assert.ok(result.errors[0].includes('Dishant Patel: Overlapping interview round'), 'Error should specify Dishant overlapping round');
+  assert.ok(result.errors[0].includes('Nihal: On scheduled leave'), 'Error should specify Nihal on leave');
 });

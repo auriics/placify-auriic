@@ -68,6 +68,11 @@ export function isProxyUser(u: User | null | undefined): boolean {
     return true;
   }
 
+  // Dishant Patel proxy checks
+  if (usernameLower.includes('dishant') || displayNameLower.includes('dishant') || emailLower.includes('dishant')) {
+    return true;
+  }
+
   // General fallback for names containing "nihal" but ignoring resume email or resume user
   if (displayNameLower.includes('nihal')) {
     return true;
