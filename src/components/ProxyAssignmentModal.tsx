@@ -456,7 +456,7 @@ export const ProxyAssignmentModal: React.FC<ProxyAssignmentModalProps> = ({
                         if (leaveInfo.isOnLeave) {
                           label += ` 🔴 [ON LEAVE: ${leaveInfo.leavePeriodText}] - UNAVAILABLE`;
                         } else if (hasFutureLeave) {
-                          label += ` ⚠️ [Leave on other dates: ${formatLeavePeriod(p.leave_from, p.leave_to)}]`;
+                          label += ` 🔴 [ON LEAVE: ${formatLeavePeriod(p.leave_from, p.leave_to)}]`;
                         }
                       }
                       if (!isDateClosed && !leaveInfo.isOnLeave) {

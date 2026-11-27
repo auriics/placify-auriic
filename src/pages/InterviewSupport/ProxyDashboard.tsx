@@ -642,7 +642,7 @@ export const ProxyDashboard: React.FC = () => {
                       } else if (isConflict) {
                         label += ` 🔴 [ON LEAVE: ${leaveRange}] - UNAVAILABLE`;
                       } else if (hasFuture) {
-                        label += ` ⚠️ [Leave on other dates: ${leaveRange}]`;
+                        label += ` 🔴 [ON LEAVE: ${leaveRange}]`;
                       }
                       return (
                         <option key={p.id} value={p.id}>

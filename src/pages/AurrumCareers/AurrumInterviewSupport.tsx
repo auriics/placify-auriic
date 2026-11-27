@@ -3469,14 +3469,10 @@ const AurrumInterviewRequestModal: React.FC<{
                           >
                             <div className="flex items-center justify-between gap-1">
                               <span className="text-xs font-black truncate">{p.display_name}</span>
-                              {isOnLeave ? (
+                              {isOnLeave || hasFuture ? (
                                 <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-md inline-flex items-center gap-1 shadow-sm shrink-0">
                                   <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                                   ON LEAVE
-                                </span>
-                              ) : hasFuture ? (
-                                <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-md shrink-0">
-                                  Available (Other Leave)
                                 </span>
                               ) : (
                                 <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-accent-green/15 text-accent-green border border-accent-green/30 rounded-md shrink-0">

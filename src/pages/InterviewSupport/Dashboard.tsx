@@ -2886,19 +2886,13 @@ const RequestModal: React.FC<{
                     {formData.proxy_required && !shouldHideProxyLeaveFromRole(user?.role) && round.interview_date && (() => {
                       const proxyTeam = team.filter(isProxyUser);
                       const targetDate = round.interview_date;
-                      const roundIndex = idx;
-                      const currentRoundAssignment = multiRoundAssignment?.roundAssignments?.[roundIndex];
 
                       const leaveStatuses = proxyTeam.map(p => {
                         const status = getProxyLeaveStatusForDate(p, targetDate, round.start_time, round.end_time);
                         const hasFuture = hasActiveOrFutureLeave(p);
-                        const pEval = currentRoundAssignment?.evaluations?.[String(p.id)];
-                        const isRecommended = currentRoundAssignment?.bestProxy && String(currentRoundAssignment.bestProxy.id) === String(p.id);
                         return {
                           proxy: p,
                           hasFuture,
-                          pEval,
-                          isRecommended,
                           ...status
                         };
                       });
@@ -2942,96 +2936,59 @@ const RequestModal: React.FC<{
                           )}
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                            {leaveStatuses.map(({ proxy: p, isOnLeave, hasFuture, pEval, isRecommended, leavePeriodText, leaveFrom, leaveTo, message }) => {
-                              // If evaluation is available for requested time window, use it
-                              const hasTimeWindow = !!(round.start_time && round.end_time);
-                              const isSlotAvailable = hasTimeWindow && pEval ? pEval.isAvailable : !isOnLeave;
-                              const isLeaveConflict = isOnLeave || (hasTimeWindow && pEval?.conflictType === 'leave');
-                              const isRoundConflict = hasTimeWindow && pEval?.conflictType === 'round';
-                              const isOtherConflict = hasTimeWindow && (pEval?.conflictType === 'block' || pEval?.conflictType === 'calendar');
-
-                              return (
-                                <div 
-                                  key={p.id}
-                                  className={cn(
-                                    "p-3 rounded-2xl border flex flex-col justify-between gap-1.5 transition-all",
-                                    isLeaveConflict
-                                      ? "bg-rose-500/10 border-rose-500/30 text-rose-400" 
-                                      : isRoundConflict || isOtherConflict
-                                      ? "bg-amber-500/10 border-amber-500/30 text-text-primary"
-                                      : hasFuture && !isSlotAvailable
-                                      ? "bg-rose-500/5 border-rose-500/20 text-text-primary"
-                                      : "bg-bg-secondary border-border-primary/60 text-text-primary"
-                                  )}
-                                >
-                                  <div className="flex items-center justify-between gap-1">
-                                    <span className="text-xs font-black truncate">{p.display_name}</span>
-                                    {isLeaveConflict ? (
-                                      <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-md inline-flex items-center gap-1 shadow-sm shrink-0">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                                        ON LEAVE
-                                      </span>
-                                    ) : isRoundConflict ? (
-                                      <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-md shrink-0">
-                                        Round Conflict
-                                      </span>
-                                    ) : isOtherConflict ? (
-                                      <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-md shrink-0">
-                                        Busy
-                                      </span>
-                                    ) : isRecommended ? (
-                                      <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-accent-green/20 text-accent-green border border-accent-green/40 rounded-md shrink-0 font-black">
-                                        ★ Recommended
-                                      </span>
-                                    ) : isSlotAvailable ? (
-                                      <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-accent-green/15 text-accent-green border border-accent-green/30 rounded-md shrink-0">
-                                        Available
-                                      </span>
-                                    ) : hasFuture ? (
-                                      <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-md shrink-0">
-                                        Available (Other Leave)
-                                      </span>
-                                    ) : (
-                                      <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-md shrink-0">
-                                        Unavailable
-                                      </span>
-                                    )}
-                                  </div>
-
-                                  {isLeaveConflict ? (
-                                    <div className="space-y-1 text-[9px] mt-1 pt-1.5 border-t border-rose-500/20">
-                                      <div className="space-y-0.5 text-text-secondary">
-                                        <p><strong className="text-rose-300">Leave From:</strong> {leaveFrom || 'N/A'}</p>
-                                        <p><strong className="text-rose-300">Leave To:</strong> {leaveTo || 'N/A'}</p>
-                                        <p><strong className="text-rose-300">Duration:</strong> {leavePeriodText}</p>
-                                      </div>
-                                      <p className="font-bold text-rose-400 italic">
-                                        {message}
-                                      </p>
-                                    </div>
-                                  ) : isRoundConflict || isOtherConflict ? (
-                                    <div className="space-y-0.5 text-[9px] mt-1 pt-1 border-t border-amber-500/20 text-text-secondary">
-                                      <p className="font-bold text-amber-300">
-                                        {pEval?.reason || 'Scheduling conflict during this slot window (15m buffer included).'}
-                                      </p>
-                                    </div>
-                                  ) : hasFuture ? (
-                                    <div className="space-y-0.5 text-[9px] mt-1 pt-1 border-t border-amber-500/10 text-text-secondary">
-                                      <p className="font-bold text-amber-300">
-                                        Leave Scheduled: {leaveFrom} - {leaveTo} ({leavePeriodText})
-                                      </p>
-                                      <p className="text-text-muted">
-                                        Available on {targetDate}, but has scheduled leave on the above dates.
-                                      </p>
-                                    </div>
+                            {leaveStatuses.map(({ proxy: p, isOnLeave, hasFuture, leavePeriodText, leaveFrom, leaveTo, message }) => (
+                              <div 
+                                key={p.id}
+                                className={cn(
+                                  "p-3 rounded-2xl border flex flex-col justify-between gap-1.5 transition-all",
+                                  isOnLeave 
+                                    ? "bg-rose-500/10 border-rose-500/30 text-rose-400" 
+                                    : hasFuture
+                                    ? "bg-rose-500/5 border-rose-500/20 text-text-primary"
+                                    : "bg-bg-secondary border-border-primary/60 text-text-primary"
+                                )}
+                              >
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="text-xs font-black truncate">{p.display_name}</span>
+                                  {isOnLeave || hasFuture ? (
+                                    <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-rose-500 text-white rounded-md inline-flex items-center gap-1 shadow-sm shrink-0">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                                      ON LEAVE
+                                    </span>
                                   ) : (
-                                    <p className="text-[9px] text-text-muted mt-0.5">
-                                      Active & ready for assignment on this date
-                                    </p>
+                                    <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-wider bg-accent-green/15 text-accent-green border border-accent-green/30 rounded-md shrink-0">
+                                      Available
+                                    </span>
                                   )}
                                 </div>
-                              );
-                            })}
+
+                                {isOnLeave ? (
+                                  <div className="space-y-1 text-[9px] mt-1 pt-1.5 border-t border-rose-500/20">
+                                    <div className="space-y-0.5 text-text-secondary">
+                                      <p><strong className="text-rose-300">Leave From:</strong> {leaveFrom || 'N/A'}</p>
+                                      <p><strong className="text-rose-300">Leave To:</strong> {leaveTo || 'N/A'}</p>
+                                      <p><strong className="text-rose-300">Duration:</strong> {leavePeriodText}</p>
+                                    </div>
+                                    <p className="font-bold text-rose-400 italic">
+                                      {message}
+                                    </p>
+                                  </div>
+                                ) : hasFuture ? (
+                                  <div className="space-y-0.5 text-[9px] mt-1 pt-1 border-t border-rose-500/10 text-text-secondary">
+                                    <p className="font-bold text-rose-300">
+                                      Leave Scheduled: {leaveFrom} - {leaveTo} ({leavePeriodText})
+                                    </p>
+                                    <p className="text-text-muted">
+                                      Available on {targetDate}, but has scheduled leave on the above dates.
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <p className="text-[9px] text-text-muted mt-0.5">
+                                    Active & ready for assignment on this date
+                                  </p>
+                                )}
+                              </div>
+                            ))}
                           </div>
                         </div>
                       );
